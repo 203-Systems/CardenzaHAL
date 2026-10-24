@@ -74,6 +74,8 @@ esp_err_t EnsureI2sInitialized()
     };
 
     standardConfig.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
+    // Philips WS must span the full slot, including the 16 padding bits.
+    standardConfig.slot_cfg.ws_width = 32;
     standardConfig.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
 
     status = i2s_channel_init_std_mode(txChannel, &standardConfig);

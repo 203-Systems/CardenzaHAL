@@ -48,4 +48,8 @@ The keyboard API is positional: `updateKeyList()` / `keyList()` return pressed k
 
 ## Audio Output
 
+The I2S transport uses 16-bit PCM in 32-bit slots. Philips WS spans 32 BCLK cycles per slot (50% duty across the 64-cycle frame); changing `slot_bit_width` alone leaves the ESP-IDF helper's WS width at 16 and produces mismatched timing.
+
+The default TX channel accepts mono PCM in the left slot. Stereo consumers must configure stereo slots and supply interleaved left/right samples. A mono synth that drives both headphone channels duplicates its samples at the consumer's output boundary; synthesis and mixing remain mono.
+
 The TX channel runs at 44.1 kHz with a DMA queue of 3 × 128 frames (about 8.7 ms). A consumer that renders larger blocks must finish each block within the remaining queue time or the output underruns.
