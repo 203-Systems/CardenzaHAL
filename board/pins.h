@@ -38,6 +38,18 @@ inline constexpr int kFuncButton = 0;
 
 inline constexpr std::array<int, 3> kKeyboardOutputs = {8, 9, 11};
 inline constexpr std::array<int, 7> kKeyboardInputs = {13, 15, 3, 4, 5, 6, 7};
-inline constexpr std::array<int, 3> kKeyboardLedPins = {21, 48, 47};
+// Override all three at build time for newer EN47 / CLK48 / DAT21 boards.
+#ifndef CARDENZA_KEYBOARD_LED_EN_GPIO
+#define CARDENZA_KEYBOARD_LED_EN_GPIO 21
+#endif
+#ifndef CARDENZA_KEYBOARD_LED_CLK_GPIO
+#define CARDENZA_KEYBOARD_LED_CLK_GPIO 48
+#endif
+#ifndef CARDENZA_KEYBOARD_LED_DAT_GPIO
+#define CARDENZA_KEYBOARD_LED_DAT_GPIO 47
+#endif
+inline constexpr std::array<int, 3> kKeyboardLedPins = {
+    CARDENZA_KEYBOARD_LED_EN_GPIO, CARDENZA_KEYBOARD_LED_CLK_GPIO, CARDENZA_KEYBOARD_LED_DAT_GPIO
+};
 
 }  // namespace CardenzaHAL::Pins

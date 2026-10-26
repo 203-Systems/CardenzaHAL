@@ -38,6 +38,14 @@ Check `Init()` succeeds before enabling the channel with `i2s_channel_enable(tx)
 
 Repeated initialization in the same mode succeeds without reconfiguring TX. To switch modes, disable TX first; switching while enabled returns `false`. Call initialization from a single setup/control task.
 
+## Keyboard LED Brightness
+
+`setLED(pos, level)`, `setAllLEDs(level)`, and `setLEDGlobalBrightness(level)` use **0–15** (off to maximum). All 16 levels are distinct. Per-key values use a gamma-2 approximation over six binary-weighted scan planes (64 electrical duties); `setLEDPerceptualBrightness(false)` selects linear duty for comparison. App updates should come from one control task.
+
+Global brightness drives active-low LED_EN with independent 10-bit LEDC PWM at 78,125 Hz (16 app levels mapped nonlinearly into 1,024 hardware codes). It does not clamp or scale the per-key buffer. Timer 1 / channel 6 are reserved; display backlight uses timer 0 / channel 7. Row/column changes disconnect PWM and force LED_EN high to blank the LEDs.
+
+The nominal full brightness cycle is 6.45 ms (~155 Hz), before ISR and blanking overhead. Timing and visual quality need hardware validation under application load. These are time-duty controls, not analog current regulation. The default pin mapping remains EN21 / CLK48 / DAT47; newer boards can define `CARDENZA_KEYBOARD_LED_EN_GPIO=47`, `CARDENZA_KEYBOARD_LED_CLK_GPIO=48`, and `CARDENZA_KEYBOARD_LED_DAT_GPIO=21` for all HAL translation units.
+
 ## 203-launcher Apps
 
 To add a Cardenza application to [203-launcher](https://github.com/203-Systems/203-launcher), follow the [application registration guide](https://github.com/203-Systems/203-launcher/blob/main/docs/REGISTERED_SOFTWARE.md#developer-workflow) for metadata and registration commands. Bare BIN imports appear as Unknown App until explicitly registered.

@@ -1,5 +1,6 @@
 #include "keyboard_driver.h"
 #include "keyboard_hardware.h"
+#include "led_brightness.h"
 
 #include <cstring>
 
@@ -17,17 +18,19 @@ const uint64_t kKeyboardLedDataMask = detail::PinMask(led_pin_list[2]);
 
 void KeyboardDriver::_commit_led_frame()
 {
-    portENTER_CRITICAL(&detail::kKeyboardStateMux);
+    uint8_t masks[detail::kLedPwmPhaseCount][8] = {};
+    // Build outside the critical section; only the short copy blocks scanning.
     memcpy(_scan_led_level, _led_level, sizeof(_led_level));
-    _scan_global_brightness = _global_brightness;
-    _scan_led_enabled = _led_enabled;
     for (uint8_t phase = 0; phase < detail::kLedPwmPhaseCount; ++phase)
     {
-        for (uint8_t scan_index = 0; scan_index < 8; ++scan_index)
+        for (uint8_t row = 0; row < 8; ++row)
         {
-            _scan_led_col_mask[phase][scan_index] = _scan_led_enabled ? _compute_led_col_mask(scan_index, phase) : 0;
+            masks[phase][row] = _compute_led_col_mask(row, phase);
         }
     }
+    portENTER_CRITICAL(&detail::kKeyboardStateMux);
+    memcpy(_scan_led_col_mask, masks, sizeof(masks));
+    _scan_led_enabled = _led_enabled;
     portEXIT_CRITICAL(&detail::kKeyboardStateMux);
 }
 
@@ -75,14 +78,13 @@ uint8_t KeyboardDriver::_compute_led_col_mask(uint8_t scan_index, uint8_t phase)
     }
 
     uint8_t mask = 0;
-    const uint8_t global_br = _scan_global_brightness;
 
     for (int col = 0; col < 7; col++)
     {
         const int x = x_base + col * 2;
         const uint8_t level = _scan_led_level[y][x];
-        const uint8_t effective = (level < global_br) ? level : global_br;
-        if (static_cast<uint16_t>(effective) * detail::kLedPwmPhaseCount > static_cast<uint16_t>(phase) * (LED_BRIGHTNESS_MAX + 1))
+        const uint8_t duty = detail::LedDutyForLevel(level, _perceptual_brightness);
+        if (duty & (1u << phase))
         {
             const int physical_bit = col + detail::kLedColumnBitOffset;
             if (physical_bit >= 0 && physical_bit < 8)
@@ -101,7 +103,7 @@ bool KeyboardDriver::enableLED(bool enabled)
     _commit_led_frame();
     if (!enabled)
     {
-        detail::FastWritePin(led_pin_list[0], true);
+        detail::GateKeyboardLeds(false);
         _scan_led_shifted_columns = 0xFF;
     }
     return _led_enabled;
@@ -153,10 +155,13 @@ void KeyboardDriver::setLEDGlobalBrightness(uint8_t level)
         level = LED_BRIGHTNESS_MAX;
     }
     _global_brightness = level;
-    if (_led_enabled)
-    {
-        _commit_led_frame();
-    }
+    detail::SetKeyboardLedGlobalDuty(detail::LedGlobalDutyForLevel(level));
+}
+
+void KeyboardDriver::setLEDPerceptualBrightness(bool enabled)
+{
+    _perceptual_brightness = enabled;
+    _commit_led_frame();
 }
 
 }  // namespace CardenzaHAL::Keyboard

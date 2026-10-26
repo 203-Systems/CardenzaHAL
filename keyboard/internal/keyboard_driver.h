@@ -22,7 +22,7 @@ class KeyboardDriver
     uint8_t _raw_key_scan[8];
     uint8_t _debounced_key_scan[8];
     uint8_t _candidate_key_scan[8];
-    uint8_t _debounce_count[8];
+    uint32_t _debounce_since_us[8];
     uint8_t _scan_raw_key_scan[8];
     SemaphoreHandle_t _mutex;
     TaskHandle_t _scan_task_handle;
@@ -35,10 +35,10 @@ class KeyboardDriver
     bool _scan_led_enabled;
     uint8_t _led_level[4][14];
     uint8_t _scan_led_level[4][14];
-    uint8_t _scan_led_col_mask[4][8];
+    uint8_t _scan_led_col_mask[6][8];
     uint8_t _scan_led_shifted_columns;
     uint8_t _global_brightness;
-    uint8_t _scan_global_brightness;
+    bool _perceptual_brightness;
     uint8_t _pwm_phase;
 
     volatile bool _diag_direct_mode;
@@ -68,7 +68,7 @@ class KeyboardDriver
         _scan_led_enabled(false),
         _scan_led_shifted_columns(0xFF),
         _global_brightness(LED_BRIGHTNESS_MAX),
-        _scan_global_brightness(LED_BRIGHTNESS_MAX),
+        _perceptual_brightness(true),
         _pwm_phase(0),
         _diag_direct_mode(false),
         _diag_en_level(1),
@@ -78,7 +78,7 @@ class KeyboardDriver
         memset(_raw_key_scan, 0, sizeof(_raw_key_scan));
         memset(_debounced_key_scan, 0, sizeof(_debounced_key_scan));
         memset(_candidate_key_scan, 0, sizeof(_candidate_key_scan));
-        memset(_debounce_count, 0, sizeof(_debounce_count));
+        memset(_debounce_since_us, 0, sizeof(_debounce_since_us));
         memset(_scan_raw_key_scan, 0, sizeof(_scan_raw_key_scan));
         memset(_led_level, 0, sizeof(_led_level));
         memset(_scan_led_level, 0, sizeof(_scan_led_level));
@@ -104,9 +104,12 @@ class KeyboardDriver
     void clearAllLEDs();
     void setAllLEDs(uint8_t brightness);
     void setLEDGlobalBrightness(uint8_t level);
+    void setLEDPerceptualBrightness(bool enabled);
+    bool ledPerceptualBrightness() const { return _perceptual_brightness; }
     uint8_t ledGlobalBrightness() const { return _global_brightness; }
     void updateLED() {}
     bool handleTimerTickFromIsr();
+    uint32_t nextTimerTicks() const;
 
     void suspendScan();
     void resumeScan();

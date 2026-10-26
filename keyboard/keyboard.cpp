@@ -80,6 +80,16 @@ uint8_t ledGlobalBrightness()
     return keyboard.ledGlobalBrightness();
 }
 
+void setLEDPerceptualBrightness(bool enabled)
+{
+    keyboard.setLEDPerceptualBrightness(enabled);
+}
+
+bool ledPerceptualBrightness()
+{
+    return keyboard.ledPerceptualBrightness();
+}
+
 void updateLED()
 {
     keyboard.updateLED();

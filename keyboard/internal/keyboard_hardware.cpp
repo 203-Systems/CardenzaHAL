@@ -6,11 +6,19 @@
 #include <esp_private/periph_ctrl.h>
 #include <esp_rom_gpio.h>
 #include <hal/spi_ll.h>
+#include <driver/ledc.h>
+#include <esp_check.h>
+#include <soc/gpio_sig_map.h>
+#include <soc/ledc_periph.h>
 
 namespace CardenzaHAL::Keyboard::detail {
 
 namespace {
 
+// Display uses LEDC timer 0 / channel 7. Reserve timer 1 / channel 6 for OE.
+constexpr ledc_timer_t kLedOeTimer = LEDC_TIMER_1;
+constexpr ledc_channel_t kLedOeChannel = LEDC_CHANNEL_6;
+bool ledPwmReady = false;
 constexpr spi_host_device_t kKeyboardLedSpiHost = SPI2_HOST;
 constexpr int kKeyboardLedSpiSourceHz = 80 * 1000 * 1000;
 constexpr int kKeyboardLedSpiClockHz = 10 * 1000 * 1000;
@@ -107,11 +115,67 @@ void InitKeyboardLedSpi()
     gKeyboardLedSpiReady = true;
 }
 
-bool KeyboardScanTimerCallback(gptimer_handle_t,
+void GateKeyboardLeds(bool active)
+{
+    // A GPIO latch write alone cannot blank a pin routed to LEDC. Disconnect
+    // PWM during row/column transitions and restore the inverted OE signal.
+    FastWritePin(led_pin_list[0], true);
+    if (active && ledPwmReady)
+    {
+        esp_rom_gpio_connect_out_signal(led_pin_list[0],
+            ledc_periph_signal[LEDC_LOW_SPEED_MODE].sig_out0_idx + kLedOeChannel,
+            true, false);
+    }
+    else
+    {
+        esp_rom_gpio_connect_out_signal(led_pin_list[0], SIG_GPIO_OUT_IDX, false, false);
+    }
+}
+
+void InitKeyboardLedPwm()
+{
+    ledc_timer_config_t timer = {};
+    timer.speed_mode = LEDC_LOW_SPEED_MODE;
+    timer.duty_resolution = LEDC_TIMER_10_BIT;
+    timer.timer_num = kLedOeTimer;
+    timer.freq_hz = 78125; // APB 80 MHz / 1024; 12.8 us period.
+    timer.clk_cfg = LEDC_USE_APB_CLK;
+    ESP_ERROR_CHECK(ledc_timer_config(&timer));
+    ledc_channel_config_t channel = {};
+    channel.gpio_num = led_pin_list[0];
+    channel.speed_mode = LEDC_LOW_SPEED_MODE;
+    channel.channel = kLedOeChannel;
+    channel.timer_sel = kLedOeTimer;
+    channel.duty = 0;
+    channel.hpoint = 0;
+    channel.flags.output_invert = 1; // LED_EN is active low.
+    ESP_ERROR_CHECK(ledc_channel_config(&channel));
+    ledPwmReady = true;
+    GateKeyboardLeds(false);
+}
+
+void SetKeyboardLedGlobalDuty(uint16_t duty)
+{
+    if (!ledPwmReady) return; // Cached app setting is applied during init.
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, kLedOeChannel, duty));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, kLedOeChannel));
+}
+
+bool KeyboardScanTimerCallback(gptimer_handle_t timer,
                                const gptimer_alarm_event_data_t*,
                                void* userContext)
 {
-    return static_cast<KeyboardDriver*>(userContext)->handleTimerTickFromIsr();
+    auto* driver = static_cast<KeyboardDriver*>(userContext);
+    const bool wake = driver->handleTimerTickFromIsr();
+    // One-shot alarms allow binary-weighted dwell without raising the shortest
+    // period's interrupt rate for the long planes. Schedule from current time
+    // so a delayed ISR cannot arm an alarm that has already expired.
+    uint64_t now = 0;
+    gptimer_get_raw_count(timer, &now);
+    gptimer_alarm_config_t alarm = {};
+    alarm.alarm_count = now + driver->nextTimerTicks();
+    gptimer_set_alarm_action(timer, &alarm);
+    return wake;
 }
 
 uint64_t KeyboardOutputMask()

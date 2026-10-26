@@ -7,6 +7,7 @@
 #include <driver/gptimer.h>
 #include <esp_check.h>
 #include <esp_rom_sys.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -60,6 +61,8 @@ void KeyboardDriver::init()
     gpio_set_level((gpio_num_t)led_pin_list[0], 1);
 
     detail::InitKeyboardLedSpi();
+    detail::InitKeyboardLedPwm();
+    setLEDGlobalBrightness(_global_brightness);
     _shift_led_columns(0x00);
     _scan_led_shifted_columns = 0x00;
 
@@ -99,7 +102,7 @@ void KeyboardDriver::init()
     gptimer_config_t timer_config = {};
     timer_config.clk_src = GPTIMER_CLK_SRC_DEFAULT;
     timer_config.direction = GPTIMER_COUNT_UP;
-    timer_config.resolution_hz = 1000000;
+    timer_config.resolution_hz = detail::kLedTimerResolutionHz;
     gptimer_handle_t timer = nullptr;
     ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &timer));
 
@@ -109,8 +112,8 @@ void KeyboardDriver::init()
 
     gptimer_alarm_config_t alarm_config = {};
     alarm_config.reload_count = 0;
-    alarm_config.alarm_count = detail::kLedRowPeriodUs;
-    alarm_config.flags.auto_reload_on_alarm = true;
+    alarm_config.alarm_count = detail::kLedBitPlaneTicks;
+    alarm_config.flags.auto_reload_on_alarm = false;
     ESP_ERROR_CHECK(gptimer_set_alarm_action(timer, &alarm_config));
     ESP_ERROR_CHECK(gptimer_enable(timer));
     ESP_ERROR_CHECK(gptimer_start(timer));
@@ -183,7 +186,7 @@ void KeyboardDriver::suspendScan()
     {
         ESP_ERROR_CHECK(gptimer_stop(_scan_timer));
         _scan_running = false;
-        detail::FastWritePin(led_pin_list[0], true);
+        detail::GateKeyboardLeds(false);
     }
 }
 
@@ -209,7 +212,7 @@ bool KeyboardDriver::handleTimerTickFromIsr()
 {
     BaseType_t high_task_woken = pdFALSE;
 
-    detail::FastWritePin(led_pin_list[0], true);
+    detail::GateKeyboardLeds(false);
 
     if (_diag_direct_mode)
     {
@@ -228,6 +231,7 @@ bool KeyboardDriver::handleTimerTickFromIsr()
         _set_output(_diag_row);
         _shift_led_columns(_diag_col);
         _scan_led_shifted_columns = _diag_col;
+        // Direct diagnostics intentionally bypass global PWM, as before.
         detail::FastWritePin(led_pin_list[0], _diag_en_level != 0);
         return high_task_woken == pdTRUE;
     }
@@ -240,25 +244,31 @@ bool KeyboardDriver::handleTimerTickFromIsr()
     if (next_row == 0)
     {
         _pwm_phase = static_cast<uint8_t>((_pwm_phase + 1) % detail::kLedPwmPhaseCount);
-        if (_pwm_phase == 0)
-        {
-            vTaskNotifyGiveFromISR(_scan_task_handle, &high_task_woken);
-        }
+        // Key scanning must not wait for a complete brightness cycle.
+        vTaskNotifyGiveFromISR(_scan_task_handle, &high_task_woken);
     }
 
     _set_output(next_row);
+    portENTER_CRITICAL_ISR(&detail::kKeyboardStateMux);
     const uint8_t next_col_mask = _scan_led_enabled ? _scan_led_col_mask[_pwm_phase][next_row] : 0;
-    if (_scan_led_enabled && next_col_mask)
+    portEXIT_CRITICAL_ISR(&detail::kKeyboardStateMux);
+    if (next_col_mask)
     {
         if (next_col_mask != _scan_led_shifted_columns)
         {
             _shift_led_columns(next_col_mask);
             _scan_led_shifted_columns = next_col_mask;
         }
-        detail::FastWritePin(led_pin_list[0], false);
+        detail::GateKeyboardLeds(true);
     }
 
     return high_task_woken == pdTRUE;
+}
+
+uint32_t KeyboardDriver::nextTimerTicks() const
+{
+    return _diag_direct_mode ? detail::kLedRowPeriodUs * 10
+        : detail::kLedBitPlaneTicks << _pwm_phase;
 }
 
 void KeyboardDriver::_scan_task_loop()
@@ -267,32 +277,31 @@ void KeyboardDriver::_scan_task_loop()
     local_key_list.reserve(16);
 
     auto rebuild_debounced_key_list = [this, &local_key_list]() {
+        const uint32_t now_us = static_cast<uint32_t>(esp_timer_get_time());
+        constexpr uint32_t kDebounceUs = 3000;
         for (int row = 0; row < 8; ++row)
         {
             const uint8_t raw_value = _raw_key_scan[row];
             if (raw_value == _debounced_key_scan[row])
             {
                 _candidate_key_scan[row] = raw_value;
-                _debounce_count[row] = 0;
+                _debounce_since_us[row] = now_us;
                 continue;
             }
 
             if (_candidate_key_scan[row] != raw_value)
             {
                 _candidate_key_scan[row] = raw_value;
-                _debounce_count[row] = 1;
+                _debounce_since_us[row] = now_us;
                 continue;
             }
 
-            if (_debounce_count[row] < KEY_DEBOUNCE_SCAN_COUNT)
-            {
-                ++_debounce_count[row];
-            }
-
-            if (_debounce_count[row] >= KEY_DEBOUNCE_SCAN_COUNT)
+            // Weighted bit planes have unequal duration: count elapsed time,
+            // not scan notifications, to preserve a stable debounce interval.
+            if (static_cast<uint32_t>(now_us - _debounce_since_us[row]) >= kDebounceUs)
             {
                 _debounced_key_scan[row] = raw_value;
-                _debounce_count[row] = 0;
+                _debounce_since_us[row] = now_us;
             }
         }
 

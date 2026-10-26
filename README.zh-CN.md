@@ -38,6 +38,14 @@ auto tx = CardenzaHAL::Audio::GetTxChannel();
 
 重复初始化相同模式不会重新配置 TX。切换模式前需要先禁用 TX，播放中切换返回 `false`。初始化调用应由同一个设置或控制任务执行。
 
+## 键盘灯亮度
+
+`setLED(pos, level)`、`setAllLEDs(level)` 和 `setLEDGlobalBrightness(level)` 都使用 **0–15**（关闭到最亮），16 档各不相同。每键默认采用近似 gamma 2 的非线性映射，底层使用六个二进制加权扫描位平面（64 个电气占空比级别）。可用 `setLEDPerceptualBrightness(false)` 切换线性占空比进行比较。app 应从同一个控制任务更新灯光。
+
+全局亮度由低电平有效的 LED_EN 独立执行 10-bit、78,125 Hz 的 LEDC 硬件 PWM，16 档非线性映射到 1024 个硬件码值，不裁剪或缩放每键缓冲区。使用 LEDC timer 1 / channel 6；屏幕背光使用 timer 0 / channel 7。切换行列时会断开 PWM，将 LED_EN 拉高消隐。
+
+名义完整亮度周期为 6.45 ms（约 155 Hz），尚未计入 ISR 和消隐开销，实际时序与视觉效果需要带 app 负载实测。这是占空比调节，不是模拟恒流调节。默认引脚保留 EN21 / CLK48 / DAT47；新板可为所有 HAL 编译单元定义 `CARDENZA_KEYBOARD_LED_EN_GPIO=47`、`CARDENZA_KEYBOARD_LED_CLK_GPIO=48`、`CARDENZA_KEYBOARD_LED_DAT_GPIO=21`。
+
 ## 203-launcher 应用
 
 将 Cardenza 应用加入 [203-launcher](https://github.com/203-Systems/203-launcher) 时，请参阅[应用登记指南](https://github.com/203-Systems/203-launcher/blob/main/docs/REGISTERED_SOFTWARE.md#developer-workflow)，了解元数据格式和登记命令。裸 BIN 导入后会显示为 Unknown App，需要显式登记应用身份。
