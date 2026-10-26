@@ -26,7 +26,9 @@ constexpr ledc_mode_t kBacklightSpeedMode = LEDC_LOW_SPEED_MODE;
 constexpr ledc_timer_t kBacklightTimer = LEDC_TIMER_0;
 constexpr ledc_channel_t kBacklightChannel = LEDC_CHANNEL_7;
 constexpr ledc_timer_bit_t kBacklightResolution = LEDC_TIMER_8_BIT;
-constexpr uint32_t kBacklightFrequencyHz = 256;
+// S3 low-speed LEDC timers share their clock source with keyboard OE PWM.
+// At APB 80 MHz, 1 kHz fits the divider range while retaining 8-bit duty.
+constexpr uint32_t kBacklightFrequencyHz = 1000;
 constexpr TickType_t kTransferTimeoutTicks = pdMS_TO_TICKS(1000);
 
 bool spiBusInitialized = false;
@@ -79,7 +81,7 @@ esp_err_t InitBacklight()
     timerConfig.duty_resolution = kBacklightResolution;
     timerConfig.timer_num = kBacklightTimer;
     timerConfig.freq_hz = kBacklightFrequencyHz;
-    timerConfig.clk_cfg = LEDC_AUTO_CLK;
+    timerConfig.clk_cfg = LEDC_USE_APB_CLK;
 
     esp_err_t status = ledc_timer_config(&timerConfig);
     if (status != ESP_OK)
