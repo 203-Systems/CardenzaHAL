@@ -22,6 +22,10 @@ Include headers relative to the HAL root:
 
 Projects that compile the sources directly into an ESP-IDF component should add the HAL root to `INCLUDE_DIRS`.
 
+## 203-launcher Apps
+
+To add a Cardenza application to [203-launcher](https://github.com/203-Systems/203-launcher), follow the [application registration guide](https://github.com/203-Systems/203-launcher/blob/main/docs/REGISTERED_SOFTWARE.md#developer-workflow) for metadata and registration commands. Bare BIN imports appear as Unknown App until explicitly registered.
+
 ## Usage Notes
 
 - Requires ESP-IDF; desktop builds are not supported.
