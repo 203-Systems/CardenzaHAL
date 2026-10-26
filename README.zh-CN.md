@@ -40,11 +40,11 @@ auto tx = CardenzaHAL::Audio::GetTxChannel();
 
 ## 键盘灯亮度
 
-`setLED(pos, level)`、`setAllLEDs(level)` 和 `setLEDGlobalBrightness(level)` 都使用 **0–15**（关闭到最亮），16 档各不相同。每键默认采用近似 gamma 2 的非线性映射，底层使用六个二进制加权扫描位平面（64 个电气占空比级别）。可用 `setLEDPerceptualBrightness(false)` 切换线性占空比进行比较。app 应从同一个控制任务更新灯光。
+`setLED(pos, level)`、`setAllLEDs(level)` 和 `setLEDGlobalBrightness(level)` 都使用 **0–15**（关闭到最亮），16 档各不相同。每键直接使用四个二进制加权扫描位平面，底层也是 16 个电气占空比级别，不映射到更大的范围。非线性补偿放在全局硬件 PWM，默认采用近似 gamma 2；可用 `setLEDGlobalPerceptualBrightness(false)` 切换全局线性占空比进行比较。app 应从同一个控制任务更新灯光。
 
 全局亮度由低电平有效的 LED_EN 独立执行 10-bit、78,125 Hz 的 LEDC 硬件 PWM，16 档非线性映射到 1024 个硬件码值，不裁剪或缩放每键缓冲区。使用 LEDC timer 1 / channel 6；屏幕背光使用 timer 0 / channel 7，频率为 1 kHz。ESP32-S3 的 LEDC 低速定时器共享时钟选择，两者统一使用 APB。切换行列时会断开 PWM，将 LED_EN 拉高消隐。
 
-名义完整亮度周期为 6.45 ms（约 155 Hz），尚未计入 ISR 和消隐开销，实际时序与视觉效果需要带 app 负载实测。这是占空比调节，不是模拟恒流调节。默认引脚保留 EN21 / CLK48 / DAT47；新板可为所有 HAL 编译单元定义 `CARDENZA_KEYBOARD_LED_EN_GPIO=47`、`CARDENZA_KEYBOARD_LED_CLK_GPIO=48`、`CARDENZA_KEYBOARD_LED_DAT_GPIO=21`。
+名义完整亮度周期为 1.536 ms（约 651 Hz），尚未计入 ISR 和消隐开销，实际时序与视觉效果需要带 app 负载实测。这是占空比调节，不是模拟恒流调节。默认引脚保留 EN21 / CLK48 / DAT47；新板可为所有 HAL 编译单元定义 `CARDENZA_KEYBOARD_LED_EN_GPIO=47`、`CARDENZA_KEYBOARD_LED_CLK_GPIO=48`、`CARDENZA_KEYBOARD_LED_DAT_GPIO=21`。
 
 ## 203-launcher 应用
 

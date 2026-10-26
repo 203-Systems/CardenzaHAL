@@ -40,11 +40,11 @@ Repeated initialization in the same mode succeeds without reconfiguring TX. To s
 
 ## Keyboard LED Brightness
 
-`setLED(pos, level)`, `setAllLEDs(level)`, and `setLEDGlobalBrightness(level)` use **0–15** (off to maximum). All 16 levels are distinct. Per-key values use a gamma-2 approximation over six binary-weighted scan planes (64 electrical duties); `setLEDPerceptualBrightness(false)` selects linear duty for comparison. App updates should come from one control task.
+`setLED(pos, level)`, `setAllLEDs(level)`, and `setLEDGlobalBrightness(level)` use **0–15** (off to maximum). All 16 levels are distinct. Per-key values directly select four binary-weighted scan planes: exactly 16 electrical duty levels, with no remapping to a larger scale. Global PWM uses gamma-2 compensation by default; `setLEDGlobalPerceptualBrightness(false)` selects linear global duty for comparison. App updates should come from one control task.
 
 Global brightness drives active-low LED_EN with independent 10-bit LEDC PWM at 78,125 Hz (16 app levels mapped nonlinearly into 1,024 hardware codes). It does not clamp or scale the per-key buffer. Timer 1 / channel 6 are reserved; display backlight uses timer 0 / channel 7 at 1 kHz. Both use APB because ESP32-S3 low-speed LEDC timers share the clock selection. Row/column changes disconnect PWM and force LED_EN high to blank the LEDs.
 
-The nominal full brightness cycle is 6.45 ms (~155 Hz), before ISR and blanking overhead. Timing and visual quality need hardware validation under application load. These are time-duty controls, not analog current regulation. The default pin mapping remains EN21 / CLK48 / DAT47; newer boards can define `CARDENZA_KEYBOARD_LED_EN_GPIO=47`, `CARDENZA_KEYBOARD_LED_CLK_GPIO=48`, and `CARDENZA_KEYBOARD_LED_DAT_GPIO=21` for all HAL translation units.
+The nominal full brightness cycle is 1.536 ms (~651 Hz), before ISR and blanking overhead. Timing and visual quality need hardware validation under application load. These are time-duty controls, not analog current regulation. The default pin mapping remains EN21 / CLK48 / DAT47; newer boards can define `CARDENZA_KEYBOARD_LED_EN_GPIO=47`, `CARDENZA_KEYBOARD_LED_CLK_GPIO=48`, and `CARDENZA_KEYBOARD_LED_DAT_GPIO=21` for all HAL translation units.
 
 ## 203-launcher Apps
 

@@ -83,7 +83,7 @@ uint8_t KeyboardDriver::_compute_led_col_mask(uint8_t scan_index, uint8_t phase)
     {
         const int x = x_base + col * 2;
         const uint8_t level = _scan_led_level[y][x];
-        const uint8_t duty = detail::LedDutyForLevel(level, _perceptual_brightness);
+        const uint8_t duty = detail::LedDutyForLevel(level);
         if (duty & (1u << phase))
         {
             const int physical_bit = col + detail::kLedColumnBitOffset;
@@ -155,13 +155,13 @@ void KeyboardDriver::setLEDGlobalBrightness(uint8_t level)
         level = LED_BRIGHTNESS_MAX;
     }
     _global_brightness = level;
-    detail::SetKeyboardLedGlobalDuty(detail::LedGlobalDutyForLevel(level));
+    detail::SetKeyboardLedGlobalDuty(detail::LedGlobalDutyForLevel(level, _global_perceptual_brightness));
 }
 
-void KeyboardDriver::setLEDPerceptualBrightness(bool enabled)
+void KeyboardDriver::setLEDGlobalPerceptualBrightness(bool enabled)
 {
-    _perceptual_brightness = enabled;
-    _commit_led_frame();
+    _global_perceptual_brightness = enabled;
+    setLEDGlobalBrightness(_global_brightness);
 }
 
 }  // namespace CardenzaHAL::Keyboard
