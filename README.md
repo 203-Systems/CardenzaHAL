@@ -1,8 +1,10 @@
 # Cardenza HAL
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 Hardware abstraction layer for the ESP32-S3-based Cardenza, built with ESP-IDF.
 
-Provides drivers for audio output (I2S + ES8156), display, 14 × 4 keyboard and per-key LEDs, SD storage, PDM microphone, IR, HOME button, and the shared I2C bus.
+Provides drivers for audio output (I2S + ES8156), display, 14 × 4 keyboard and per-key LEDs, SD storage, PDM microphone, IR, Func button, and the shared I2C bus.
 
 ## Integration
 
@@ -30,4 +32,4 @@ To add a Cardenza application to [203-launcher](https://github.com/203-Systems/2
 
 - Requires ESP-IDF; desktop builds are not supported.
 - Keyboard events use `{x, y}` matrix coordinates. Applications define their own key mappings.
-- Audio defaults to 44.1 kHz, 16-bit mono PCM in the left I2S slot, with 32-bit slots. Stereo output requires application-side configuration and interleaved left/right samples.
+- Audio defaults to 44.1 kHz, 16-bit mono PCM with 32-bit I2S slots (64fs). Slot width and channel count are separate settings. Stereo output requires application-side configuration and interleaved left/right samples; changing slot width also requires matching ES8156 clock settings.
