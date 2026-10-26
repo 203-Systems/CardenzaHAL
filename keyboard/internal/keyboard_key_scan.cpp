@@ -6,7 +6,6 @@
 #include <driver/gpio.h>
 #include <driver/gptimer.h>
 #include <esp_check.h>
-#include <esp_rom_sys.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -118,8 +117,6 @@ void KeyboardDriver::init()
     ESP_ERROR_CHECK(gptimer_enable(timer));
     ESP_ERROR_CHECK(gptimer_start(timer));
 
-    _scan_timer = timer;
-    _scan_running = true;
 }
 
 Point2D_t KeyboardDriver::getKey()
@@ -180,29 +177,6 @@ bool KeyboardDriver::isChanged()
     return false;
 }
 
-void KeyboardDriver::suspendScan()
-{
-    if (_scan_timer && _scan_running)
-    {
-        ESP_ERROR_CHECK(gptimer_stop(_scan_timer));
-        _scan_running = false;
-        detail::GateKeyboardLeds(false);
-    }
-}
-
-void KeyboardDriver::resumeScan()
-{
-    if (_scan_timer && !_scan_running)
-    {
-        _scan_row = 0;
-        _diag_scan_row = 0;
-        _scan_led_shifted_columns = 0xFF;
-        _commit_led_frame();
-        ESP_ERROR_CHECK(gptimer_start(_scan_timer));
-        _scan_running = true;
-    }
-}
-
 void KeyboardDriver::_scan_task_entry(void* arg)
 {
     static_cast<KeyboardDriver*>(arg)->_scan_task_loop();
@@ -213,28 +187,6 @@ bool KeyboardDriver::handleTimerTickFromIsr()
     BaseType_t high_task_woken = pdFALSE;
 
     detail::GateKeyboardLeds(false);
-
-    if (_diag_direct_mode)
-    {
-        const uint8_t scan_row = _diag_scan_row;
-        _set_output(scan_row);
-        esp_rom_delay_us(detail::kLedRowSelectSettleUs);
-        _scan_raw_key_scan[scan_row] = _get_input();
-
-        _diag_scan_row = static_cast<uint8_t>((scan_row + 1) & 0x07);
-        if (_diag_scan_row == 0)
-        {
-            _pwm_phase = static_cast<uint8_t>((_pwm_phase + 1) % detail::kLedPwmPhaseCount);
-            vTaskNotifyGiveFromISR(_scan_task_handle, &high_task_woken);
-        }
-
-        _set_output(_diag_row);
-        _shift_led_columns(_diag_col);
-        _scan_led_shifted_columns = _diag_col;
-        // Direct diagnostics intentionally bypass global PWM, as before.
-        detail::FastWritePin(led_pin_list[0], _diag_en_level != 0);
-        return high_task_woken == pdTRUE;
-    }
 
     const uint8_t row = _scan_row;
     _scan_raw_key_scan[row] = _get_input();
@@ -267,8 +219,7 @@ bool KeyboardDriver::handleTimerTickFromIsr()
 
 uint32_t KeyboardDriver::nextTimerTicks() const
 {
-    return _diag_direct_mode ? detail::kLedRowPeriodUs * 10
-        : detail::kLedBitPlaneTicks << _pwm_phase;
+    return detail::kLedBitPlaneTicks << _pwm_phase;
 }
 
 void KeyboardDriver::_scan_task_loop()

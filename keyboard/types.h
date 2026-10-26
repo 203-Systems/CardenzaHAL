@@ -18,6 +18,5 @@ struct Point2D_t
 };
 
 inline constexpr uint8_t LED_BRIGHTNESS_MAX = 15;
-inline constexpr uint8_t KEY_DEBOUNCE_SCAN_COUNT = 3;
 
 }  // namespace CardenzaHAL::Keyboard

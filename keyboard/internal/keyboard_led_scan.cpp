@@ -9,18 +9,10 @@
 
 namespace CardenzaHAL::Keyboard {
 
-namespace {
-
-const uint64_t kKeyboardLedClockMask = detail::PinMask(led_pin_list[1]);
-const uint64_t kKeyboardLedDataMask = detail::PinMask(led_pin_list[2]);
-
-}  // namespace
-
 void KeyboardDriver::_commit_led_frame()
 {
     uint8_t masks[detail::kLedPwmPhaseCount][8] = {};
     // Build outside the critical section; only the short copy blocks scanning.
-    memcpy(_scan_led_level, _led_level, sizeof(_led_level));
     for (uint8_t phase = 0; phase < detail::kLedPwmPhaseCount; ++phase)
     {
         for (uint8_t row = 0; row < 8; ++row)
@@ -36,30 +28,12 @@ void KeyboardDriver::_commit_led_frame()
 
 void KeyboardDriver::_shift_led_columns(uint8_t value)
 {
-    if (detail::gKeyboardLedSpiReady && detail::gKeyboardLedSpiHw != nullptr)
-    {
-        while (spi_ll_get_running_cmd(detail::gKeyboardLedSpiHw) != 0)
-        {
-        }
-
-        spi_ll_write_buffer_byte(detail::gKeyboardLedSpiHw, 0, &value, 1);
-        spi_ll_set_mosi_bitlen(detail::gKeyboardLedSpiHw, 8);
-        spi_ll_user_start(detail::gKeyboardLedSpiHw);
-
-        while (spi_ll_get_running_cmd(detail::gKeyboardLedSpiHw) != 0)
-        {
-        }
-        return;
-    }
-
-    for (int bit = 7; bit >= 0; --bit)
-    {
-        const bool bit_set = ((value >> bit) & 0x01) != 0;
-        detail::FastWriteMask(bit_set ? kKeyboardLedDataMask : 0,
-                              bit_set ? 0 : kKeyboardLedDataMask);
-        detail::FastWriteMask(kKeyboardLedClockMask, 0);
-        detail::FastWriteMask(0, kKeyboardLedClockMask);
-    }
+    auto* hw = detail::gKeyboardLedSpiHw;
+    while (spi_ll_get_running_cmd(hw) != 0) {}
+    spi_ll_write_buffer_byte(hw, 0, &value, 1);
+    spi_ll_set_mosi_bitlen(hw, 8);
+    spi_ll_user_start(hw);
+    while (spi_ll_get_running_cmd(hw) != 0) {}
 }
 
 uint8_t KeyboardDriver::_compute_led_col_mask(uint8_t scan_index, uint8_t phase) const
@@ -82,7 +56,7 @@ uint8_t KeyboardDriver::_compute_led_col_mask(uint8_t scan_index, uint8_t phase)
     for (int col = 0; col < 7; col++)
     {
         const int x = x_base + col * 2;
-        const uint8_t level = _scan_led_level[y][x];
+        const uint8_t level = _led_level[y][x];
         const uint8_t duty = detail::LedDutyForLevel(level);
         if (duty & (1u << phase))
         {
@@ -155,13 +129,7 @@ void KeyboardDriver::setLEDGlobalBrightness(uint8_t level)
         level = LED_BRIGHTNESS_MAX;
     }
     _global_brightness = level;
-    detail::SetKeyboardLedGlobalDuty(detail::LedGlobalDutyForLevel(level, _global_perceptual_brightness));
-}
-
-void KeyboardDriver::setLEDGlobalPerceptualBrightness(bool enabled)
-{
-    _global_perceptual_brightness = enabled;
-    setLEDGlobalBrightness(_global_brightness);
+    detail::SetKeyboardLedGlobalDuty(detail::LedGlobalDutyForLevel(level));
 }
 
 }  // namespace CardenzaHAL::Keyboard

@@ -27,7 +27,6 @@ endif()
 
 list(APPEND cardenza_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/keyboard/keyboard.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/keyboard/internal/keyboard_diagnostics.cpp
     ${CMAKE_CURRENT_LIST_DIR}/keyboard/internal/keyboard_hardware.cpp
     ${CMAKE_CURRENT_LIST_DIR}/keyboard/internal/keyboard_key_scan.cpp
     ${CMAKE_CURRENT_LIST_DIR}/keyboard/internal/keyboard_led_scan.cpp

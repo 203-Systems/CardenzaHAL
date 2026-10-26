@@ -29,7 +29,6 @@ const uint64_t kKeyboardOutputMask = PinMask(output_list[0]) | PinMask(output_li
 
 portMUX_TYPE kKeyboardStateMux = portMUX_INITIALIZER_UNLOCKED;
 spi_dev_t* gKeyboardLedSpiHw = nullptr;
-bool gKeyboardLedSpiReady = false;
 
 void FastWriteMask(uint64_t setMask, uint64_t clearMask)
 {
@@ -112,7 +111,6 @@ void InitKeyboardLedSpi()
     esp_rom_gpio_connect_out_signal(led_pin_list[2], spi_signal.spid_out, false, false);
 
     gKeyboardLedSpiHw = hw;
-    gKeyboardLedSpiReady = true;
 }
 
 void GateKeyboardLeds(bool active)

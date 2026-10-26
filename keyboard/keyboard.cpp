@@ -80,19 +80,4 @@ uint8_t ledGlobalBrightness()
     return keyboard.ledGlobalBrightness();
 }
 
-void setLEDGlobalPerceptualBrightness(bool enabled)
-{
-    keyboard.setLEDGlobalPerceptualBrightness(enabled);
-}
-
-bool ledGlobalPerceptualBrightness()
-{
-    return keyboard.ledGlobalPerceptualBrightness();
-}
-
-void updateLED()
-{
-    keyboard.updateLED();
-}
-
 }  // namespace CardenzaHAL::Keyboard

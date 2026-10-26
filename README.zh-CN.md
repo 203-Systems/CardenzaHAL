@@ -2,45 +2,32 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-基于 ESP-IDF 的 Cardenza（ESP32-S3）硬件抽象层。
-
-提供音频输出（I2S + ES8156）、显示屏、14 × 4 键盘及独立按键灯、SD 存储、PDM 麦克风、红外、Func 按键和共享 I2C 总线驱动。
+基于 ESP-IDF 的 Cardenza（ESP32-S3）硬件驱动：音频、显示屏、键盘及独立按键灯、SD 存储、PDM 麦克风、红外、Func 按键和 I2C。
 
 ## 项目接入
-
-将本仓库作为子模块加入 ESP-IDF 项目，并链接 HAL：
 
 ```cmake
 add_subdirectory(path/to/cardenza)
 target_link_libraries(your_target PRIVATE CardenzaHAL)
 ```
 
-头文件路径以 HAL 根目录为起点：
+头文件路径以 HAL 根目录为起点。直接将驱动源码编入 ESP-IDF 组件时，将 HAL 根目录加入 `INCLUDE_DIRS`。
+
+## 音频
 
 ```cpp
 #include "cardenzaHAL.h"
-#include "audio/audio.h"
-```
 
-直接将驱动源码编入 ESP-IDF 组件的项目，应将 HAL 根目录加入 `INCLUDE_DIRS`。
-
-## 音频配置
-
-如果使用 `CardenzaHAL::Init()`，先完成整体初始化，再于启用 TX 前选择声道模式：
-
-```cpp
-CardenzaHAL::Audio::Init();                     // 默认单声道
-// 或：CardenzaHAL::Audio::Init(I2S_SLOT_MODE_STEREO);
+// 在 CardenzaHAL::Init() 之后、启用 TX 之前选择模式：
+CardenzaHAL::Audio::Init(I2S_SLOT_MODE_STEREO);
 auto tx = CardenzaHAL::Audio::GetTxChannel();
 ```
 
-确认 `Init()` 成功后，使用 `i2s_channel_enable(tx)` 启用通道。单声道每帧接收一个 `int16_t`，由硬件复制到左右输出。双声道接收交错的 `int16_t` 采样（`L0, R0, L1, R1, ...`）；单声道合成器采用双声道模式时，需要自行复制采样。`GetTxChannel()` 保留已选择的模式。
+确认初始化成功后，用 `i2s_channel_enable(tx)` 启用 TX。默认单声道：每帧一个 `int16_t`，由硬件复制到左右输出。双声道接收交错的 `L0, R0, L1, R1, ...` 采样。两种模式均使用 44.1 kHz、16-bit PCM 和 32-bit I2S slot。切换模式前禁用 TX。音频渲染和 PCM 转换由应用负责。
 
-重复初始化相同模式不会重新配置 TX。切换模式前需要先禁用 TX，播放中切换返回 `false`。初始化调用应由同一个设置或控制任务执行。
+## 键盘灯
 
-## 键盘灯亮度
-
-每键和全局亮度均使用 **0–15**（关闭到最亮）。键盘初始化后即可调用：
+键盘初始化后即可调用：
 
 ```cpp
 namespace Keys = CardenzaHAL::Keyboard;
@@ -50,22 +37,10 @@ Keys::setLEDGlobalBrightness(10);
 Keys::enableLED(true);
 ```
 
-- 每键底层为 **4-bit、严格 16 个电气占空比级别**，使用四个二进制加权扫描位平面。
-- 全局亮度使用低电平有效的 LED_EN 独立硬件 PWM，不裁剪或缩放每键缓冲区。16 档默认采用近似 gamma 2 的补偿；`setLEDGlobalPerceptualBrightness(false)` 可切换为全局线性曲线。`ledGlobalBrightness()` 和 `ledGlobalPerceptualBrightness()` 可读取当前设置。
-- app 应从同一个控制任务更新灯光。名义亮度周期为 1.536 ms（约 651 Hz），尚未计入 ISR 和消隐开销。
+每键和全局亮度均为 **0–15**。每键底层严格 **16 档**；全局亮度通过 LED_EN 独立硬件 PWM 调节，固定采用近似 gamma 2 的补偿，不修改每键数值。灯光更新自动生效，由同一个控制任务调用。
 
-全局 PWM 使用 LEDC timer 1 / channel 6，频率为 78,125 Hz，底层占空比分辨率为 10-bit，app 仍只选择 16 档。背光使用 timer 0 / channel 7，频率为 1 kHz。ESP32-S3 的 LEDC 低速定时器共享时钟选择，两者统一使用 APB。切换行列时将 LED_EN 拉高消隐。这些接口调节占空比，不是模拟恒流调节。
+LED 引脚固定为 **EN47 / CLK48 / DAT21**。键盘 PWM 使用 LEDC timer 1 / channel 6，屏幕背光使用 timer 0 / channel 7，两者统一使用 APB。键盘事件返回 14 × 4 矩阵中的 `{x, y}` 坐标，应用自行定义按键映射。
 
-默认引脚为 EN21 / CLK48 / DAT47。新板 EN47 / CLK48 / DAT21 需要为所有 HAL 编译单元定义 `CARDENZA_KEYBOARD_LED_EN_GPIO=47`、`CARDENZA_KEYBOARD_LED_CLK_GPIO=48`、`CARDENZA_KEYBOARD_LED_DAT_GPIO=21`。
+## Launcher 应用
 
-独立测试 app 已通过 ESP-IDF v5.3.5 构建，并在新板完成烧录哈希校验、启动和串口命令检查。光学校准、波形测量、闪烁和合成器负载下的表现尚未验证。测试 app 和构建产物均在本仓库之外维护。
-
-## 203-launcher 应用
-
-将 Cardenza 应用加入 [203-launcher](https://github.com/203-Systems/203-launcher) 时，请参阅[应用登记指南](https://github.com/203-Systems/203-launcher/blob/main/docs/REGISTERED_SOFTWARE.md#developer-workflow)，了解元数据格式和登记命令。裸 BIN 导入后会显示为 Unknown App，需要显式登记应用身份。
-
-## 使用说明
-
-- 需要 ESP-IDF，不支持桌面构建。
-- 键盘使用 `{x, y}` 矩阵坐标，应用自行定义按键映射。
-- 音频默认采用 44.1 kHz、16-bit 单声道 PCM，I2S slot 宽度为 32 bit（64fs）。slot 宽度与声道数是独立设置。两种模式都会使用左右两个传输 slot。通过原生 ESP-IDF API 修改 slot 宽度时，也需要同步匹配 ES8156 时钟配置。
+应用元数据和登记命令见 [203-launcher 应用登记指南](https://github.com/203-Systems/203-launcher/blob/main/docs/REGISTERED_SOFTWARE.md#developer-workflow)。

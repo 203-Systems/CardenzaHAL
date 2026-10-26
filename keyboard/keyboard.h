@@ -21,9 +21,5 @@ void clearAllLEDs();
 void setAllLEDs(uint8_t brightness);
 void setLEDGlobalBrightness(uint8_t level);
 uint8_t ledGlobalBrightness();
-// Global hardware PWM compensation is on by default; per-key duty is linear.
-void setLEDGlobalPerceptualBrightness(bool enabled);
-bool ledGlobalPerceptualBrightness();
-void updateLED();
 
 }  // namespace CardenzaHAL::Keyboard
