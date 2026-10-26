@@ -40,11 +40,25 @@ Repeated initialization in the same mode succeeds without reconfiguring TX. To s
 
 ## Keyboard LED Brightness
 
-`setLED(pos, level)`, `setAllLEDs(level)`, and `setLEDGlobalBrightness(level)` use **0–15** (off to maximum). All 16 levels are distinct. Per-key values directly select four binary-weighted scan planes: exactly 16 electrical duty levels, with no remapping to a larger scale. Global PWM uses gamma-2 compensation by default; `setLEDGlobalPerceptualBrightness(false)` selects linear global duty for comparison. App updates should come from one control task.
+Per-key and global brightness both use **0–15** (off to maximum). After keyboard initialization:
 
-Global brightness drives active-low LED_EN with independent 10-bit LEDC PWM at 78,125 Hz (16 app levels mapped nonlinearly into 1,024 hardware codes). It does not clamp or scale the per-key buffer. Timer 1 / channel 6 are reserved; display backlight uses timer 0 / channel 7 at 1 kHz. Both use APB because ESP32-S3 low-speed LEDC timers share the clock selection. Row/column changes disconnect PWM and force LED_EN high to blank the LEDs.
+```cpp
+namespace Keys = CardenzaHAL::Keyboard;
+Keys::setAllLEDs(8);
+Keys::setLED({0, 0}, 15);
+Keys::setLEDGlobalBrightness(10);
+Keys::enableLED(true);
+```
 
-The nominal full brightness cycle is 1.536 ms (~651 Hz), before ISR and blanking overhead. Timing and visual quality need hardware validation under application load. These are time-duty controls, not analog current regulation. The default pin mapping remains EN21 / CLK48 / DAT47; newer boards can define `CARDENZA_KEYBOARD_LED_EN_GPIO=47`, `CARDENZA_KEYBOARD_LED_CLK_GPIO=48`, and `CARDENZA_KEYBOARD_LED_DAT_GPIO=21` for all HAL translation units.
+- Per-key brightness is **4-bit, exactly 16 electrical duty levels**, using four binary-weighted scan planes.
+- Global brightness uses independent active-low LED_EN hardware PWM. It does not clamp or scale the per-key buffer. Its 16 settings use gamma-2 compensation by default; `setLEDGlobalPerceptualBrightness(false)` selects a linear global curve. `ledGlobalBrightness()` and `ledGlobalPerceptualBrightness()` return the current settings.
+- Make lighting updates from one control task. The nominal brightness cycle is 1.536 ms (~651 Hz), before ISR and blanking overhead.
+
+The global PWM uses LEDC timer 1 / channel 6 at 78,125 Hz with 10-bit duty; the app still selects only 16 levels. Backlight uses timer 0 / channel 7 at 1 kHz. Both use APB because ESP32-S3 low-speed LEDC timers share their clock selection. Row/column transitions force LED_EN high for blanking. These controls change duty, not analog LED current.
+
+The default pins are EN21 / CLK48 / DAT47. For newer EN47 / CLK48 / DAT21 boards, define `CARDENZA_KEYBOARD_LED_EN_GPIO=47`, `CARDENZA_KEYBOARD_LED_CLK_GPIO=48`, and `CARDENZA_KEYBOARD_LED_DAT_GPIO=21` for all HAL translation units.
+
+The ESP-IDF v5.3.5 test app built, flashed with hash verification, and passed startup/serial-command checks on the newer board. Optical calibration, waveform measurements, flicker, and behavior under synthesizer load remain unverified. Test apps and build artifacts are maintained outside this repository.
 
 ## 203-launcher Apps
 
