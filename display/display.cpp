@@ -2,6 +2,8 @@
 #include "backlight_brightness.h"
 #include "../board/pins.h"
 
+#include <algorithm>
+#include <cstring>
 #include <driver/gpio.h>
 #include <driver/ledc.h>
 #include <driver/spi_master.h>
@@ -10,7 +12,9 @@
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_commands.h>
 #include <esp_lcd_panel_vendor.h>
+#include <esp_system.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 namespace CardenzaHAL::Display {
 
@@ -34,8 +38,16 @@ bool backlightInitialized = false;
 bool displayInitialized = false;
 bool backlightDutyApplied = false;
 uint16_t appliedBacklightDuty = 0;
-// Initialization owns this DMA-capable buffer until the final synchronous drain.
-alignas(4) uint16_t clearLine[WIDTH] = {};
+bool startupPolicySelected = false;
+bool preservePixels = false;
+bool firstFramePresented = false;
+bool fullRefreshRequired = true;
+constexpr int kTransferBandRows = 8;
+constexpr uint32_t kTransferTimeoutMs = 20;
+DMA_ATTR uint16_t transferBand[WIDTH * kTransferBandRows] = {};
+SemaphoreHandle_t transferDone = nullptr;
+bool completionCallbackInstalled = false;
+bool transferPending = false;
 
 esp_err_t ApplyBrightness(uint8_t value)
 {
@@ -56,7 +68,7 @@ esp_err_t ApplyBrightness(uint8_t value)
     return updateStatus;
 }
 
-esp_err_t InitBacklight()
+esp_err_t InitBacklight(uint8_t initialBrightness)
 {
     if (backlightInitialized)
     {
@@ -82,7 +94,7 @@ esp_err_t InitBacklight()
     channelConfig.channel = kBacklightChannel;
     channelConfig.intr_type = LEDC_INTR_DISABLE;
     channelConfig.timer_sel = kBacklightTimer;
-    channelConfig.duty = 0;
+    channelConfig.duty = detail::BacklightDuty(initialBrightness);
     channelConfig.hpoint = 0;
 
     status = ledc_channel_config(&channelConfig);
@@ -92,7 +104,8 @@ esp_err_t InitBacklight()
     }
 
     backlightInitialized = true;
-    // Keep the panel dark until its initialization and clear have completed.
+    appliedBacklightDuty = channelConfig.duty;
+    backlightDutyApplied = true;
     return ESP_OK;
 }
 
@@ -121,17 +134,97 @@ esp_err_t InitSpiBus()
     return ESP_OK;
 }
 
+bool IRAM_ATTR OnTransferDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void* context)
+{
+    BaseType_t wake = pdFALSE;
+    xSemaphoreGiveFromISR(static_cast<SemaphoreHandle_t>(context), &wake);
+    return wake == pdTRUE;
+}
+
+bool EnsureCompletionCallback()
+{
+    if (completionCallbackInstalled) return true;
+    if (transferDone == nullptr) transferDone = xSemaphoreCreateBinary();
+    if (transferDone == nullptr) return false;
+    esp_lcd_panel_io_callbacks_t callbacks = {};
+    callbacks.on_color_trans_done = OnTransferDone;
+    if (esp_lcd_panel_io_register_event_callbacks(panelIo, &callbacks, transferDone) != ESP_OK) return false;
+    completionCallbackInstalled = true;
+    return true;
+}
+
+bool WaitForTransfer(TickType_t timeout)
+{
+    if (!transferPending) return true;
+    if (xSemaphoreTake(transferDone, timeout) != pdTRUE) return false;
+    transferPending = false;
+    return true;
+}
+
+bool RevealFrame()
+{
+    if (!firstFramePresented)
+    {
+        if (esp_lcd_panel_disp_on_off(panel, true) != ESP_OK) return false;
+        // A warm start leaves the previous backlight route alone until now.
+        // Configure our PWM at its final duty before releasing any pad hold.
+        if (InitBacklight(brightness) != ESP_OK) return false;
+    }
+    if (ApplyBrightness(brightness) != ESP_OK) return false;
+    if (!firstFramePresented && gpio_hold_dis(static_cast<gpio_num_t>(Pins::kDisplayBacklight)) != ESP_OK) return false;
+    firstFramePresented = true;
+    return true;
+}
+
+bool ValidRegion(const Region& region)
+{
+    return region.x >= 0 && region.y >= 0 && region.x < WIDTH && region.y < HEIGHT &&
+           region.width > 0 && region.height > 0 &&
+           region.width <= WIDTH - region.x && region.height <= HEIGHT - region.y;
+}
+
+bool SendRegion(const uint16_t* framebuffer, const Region& region)
+{
+    for (int y = region.y; y < region.y + region.height; y += kTransferBandRows)
+    {
+        const int rows = std::min(kTransferBandRows, region.y + region.height - y);
+        for (int row = 0; row < rows; ++row)
+            std::memcpy(transferBand + row * region.width, framebuffer + (y + row) * WIDTH + region.x,
+                        static_cast<std::size_t>(region.width) * sizeof(uint16_t));
+        while (xSemaphoreTake(transferDone, 0) == pdTRUE) {}
+        if (esp_lcd_panel_draw_bitmap(panel, region.x, y, region.x + region.width, y + rows, transferBand) != ESP_OK)
+            return false;
+        transferPending = true;
+        if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
+    }
+    return true;
+}
+
 }  // namespace
 
 bool Init()
 {
-    if (displayInitialized) return ApplyBrightness(brightness) == ESP_OK;
-    esp_err_t status = InitBacklight();
-    if (status != ESP_OK)
+    if (displayInitialized) return true;
+    if (!startupPolicySelected)
     {
-        return false;
+        // Launcher boots applications through a software restart. Preserve the
+        // controller's RAM on that path; panel init below still wakes it and
+        // restores the pixel format if the previous owner left it asleep.
+        preservePixels = esp_reset_reason() == ESP_RST_SW;
+        startupPolicySelected = true;
     }
-
+    esp_err_t status = ESP_OK;
+    if (preservePixels)
+    {
+        // Set the latch before enabling output: never pulse the LCD reset low.
+        if (gpio_set_level(static_cast<gpio_num_t>(Pins::kDisplayReset), 1) != ESP_OK ||
+            gpio_set_direction(static_cast<gpio_num_t>(Pins::kDisplayReset), GPIO_MODE_OUTPUT) != ESP_OK) return false;
+    }
+    else
+    {
+        if (InitBacklight(0) != ESP_OK ||
+            gpio_hold_dis(static_cast<gpio_num_t>(Pins::kDisplayBacklight)) != ESP_OK) return false;
+    }
     status = InitSpiBus();
     if (status != ESP_OK)
     {
@@ -159,7 +252,7 @@ bool Init()
     if (panel == nullptr)
     {
         esp_lcd_panel_dev_config_t panelConfig = {};
-        panelConfig.reset_gpio_num = Pins::kDisplayReset;
+        panelConfig.reset_gpio_num = preservePixels ? -1 : Pins::kDisplayReset;
         panelConfig.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
         panelConfig.data_endian = LCD_RGB_DATA_ENDIAN_LITTLE;
         panelConfig.bits_per_pixel = 16;
@@ -173,11 +266,7 @@ bool Init()
 
     // A handle alone does not mean reset/configuration succeeded. Retry every
     // configuration stage after a previous failure, keeping allocated handles.
-    status = esp_lcd_panel_reset(panel);
-    if (status != ESP_OK)
-    {
-        return false;
-    }
+    if (!preservePixels && esp_lcd_panel_reset(panel) != ESP_OK) return false;
 
     status = esp_lcd_panel_init(panel);
     if (status != ESP_OK)
@@ -209,27 +298,49 @@ bool Init()
         return false;
     }
 
-    status = esp_lcd_panel_disp_on_off(panel, true);
-    if (status != ESP_OK)
+    if (!preservePixels && esp_lcd_panel_disp_on_off(panel, false) != ESP_OK) return false;
+    displayInitialized = true;
+    return true;
+}
+
+bool Present(const uint16_t* framebuffer)
+{
+    const Region fullFrame{0, 0, WIDTH, HEIGHT};
+    return Present(framebuffer, &fullFrame, 1);
+}
+
+bool Present(const uint16_t* framebuffer, const Region* regions, std::size_t count)
+{
+    if (framebuffer == nullptr || (count != 0 && regions == nullptr)) return false;
+    for (std::size_t index = 0; index < count; ++index)
+        if (!ValidRegion(regions[index])) return false;
+    if (!Init() || !EnsureCompletionCallback()) return false;
+    // A timed-out DMA still owns transferBand. Never overwrite it while the
+    // caller continues rendering into its own framebuffer.
+    if (!WaitForTransfer(0)) return false;
+    bool sent = true;
+    if (fullRefreshRequired)
+        sent = SendRegion(framebuffer, Region{0, 0, WIDTH, HEIGHT});
+    else
+        for (std::size_t index = 0; sent && index < count; ++index)
+            sent = SendRegion(framebuffer, regions[index]);
+    if (!sent || !RevealFrame())
     {
+        fullRefreshRequired = true;
         return false;
     }
+    fullRefreshRequired = false;
+    return true;
+}
 
-    for (int row = 0; row < HEIGHT; ++row)
-    {
-        status = esp_lcd_panel_draw_bitmap(panel, 0, row, WIDTH, row + 1, clearLine);
-        if (status != ESP_OK)
-        {
-            return false;
-        }
-    }
-
-    // Color submission is asynchronous. Drain the final clear before returning
-    // the panel/IO handles to a consumer that may replace its callbacks.
+bool Present()
+{
+    if (!Init() || !WaitForTransfer(0)) return false;
+    // Raw-handle users own submission and callbacks. The SDK parameter
+    // transaction synchronously drains their preceding color transfers.
     if (esp_lcd_panel_io_tx_param(panelIo, LCD_CMD_NOP, nullptr, 0) != ESP_OK) return false;
-
-    if (ApplyBrightness(brightness) != ESP_OK) return false;
-    displayInitialized = true;
+    if (!RevealFrame()) return false;
+    fullRefreshRequired = false;
     return true;
 }
 
@@ -247,7 +358,7 @@ bool SetBrightness(uint8_t value)
 {
     brightness = value;
 
-    if (!backlightInitialized)
+    if (!firstFramePresented)
     {
         return true;
     }
