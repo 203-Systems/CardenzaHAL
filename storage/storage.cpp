@@ -4,6 +4,8 @@
 #include <driver/sdmmc_host.h>
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
+#include <esp_log.h>
+#include <mutex>
 
 namespace CardenzaHAL::Storage {
 
@@ -12,6 +14,7 @@ namespace {
 bool mounted = false;
 uint64_t capacity = 0;
 sdmmc_card_t* card = nullptr;
+std::mutex stateMutex;
 
 constexpr char kMountPoint[] = "/sdcard";
 
@@ -19,9 +22,19 @@ constexpr char kMountPoint[] = "/sdcard";
 
 bool Init()
 {
+    std::lock_guard<std::mutex> lock(stateMutex);
     if (mounted)
     {
         return true;
+    }
+
+    if (card != nullptr)
+    {
+        // Files are closed by the failed operation. Defer teardown to the
+        // consumer's mount retry, never from the middle of an active write.
+        sdmmc_card_t* stale = card;
+        card = nullptr; // The SDK frees the card even if VFS unregister fails.
+        if (esp_vfs_fat_sdcard_unmount(kMountPoint, stale) != ESP_OK) return false;
     }
 
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
@@ -54,11 +67,27 @@ bool Init()
 
 bool IsMounted()
 {
+    std::lock_guard<std::mutex> lock(stateMutex);
+    return mounted;
+}
+
+bool CheckAfterIoError()
+{
+    std::lock_guard<std::mutex> lock(stateMutex);
+    if (!mounted) return false;
+    const esp_err_t status = sdmmc_get_status(card);
+    if (status != ESP_OK)
+    {
+        ESP_LOGW("CardenzaStorage", "card stopped responding after I/O error: %s", esp_err_to_name(status));
+        mounted = false;
+        capacity = 0;
+    }
     return mounted;
 }
 
 uint64_t GetCapacity()
 {
+    std::lock_guard<std::mutex> lock(stateMutex);
     return capacity;
 }
 
