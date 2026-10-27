@@ -29,9 +29,9 @@ constexpr char kLogTag[] = "CardenzaAudio";
 
 constexpr i2s_port_t kAudioPort = I2S_NUM_1;
 constexpr uint32_t kSampleRate = 44100;
-// 3 x 128 frames (~8.7 ms at 44.1 kHz) keeps output latency low; the old 8 x 256 queued ~46 ms.
-constexpr size_t kDmaFrameCount = 128;
-constexpr size_t kDmaDescriptorCount = 3;
+// Match the NullPerator baseline: 6 x 256 frames provide ~34.8 ms at 44.1 kHz.
+constexpr size_t kDmaFrameCount = 256;
+constexpr size_t kDmaDescriptorCount = 6;
 
 i2s_std_slot_config_t MakeSlotConfig(i2s_slot_mode_t mode)
 {
