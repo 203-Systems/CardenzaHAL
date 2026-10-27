@@ -1,4 +1,5 @@
 #include "display.h"
+#include "backlight_brightness.h"
 #include "../board/pins.h"
 
 #include <driver/gpio.h>
@@ -25,14 +26,17 @@ constexpr spi_host_device_t kDisplaySpiHost = SPI3_HOST;
 constexpr ledc_mode_t kBacklightSpeedMode = LEDC_LOW_SPEED_MODE;
 constexpr ledc_timer_t kBacklightTimer = LEDC_TIMER_0;
 constexpr ledc_channel_t kBacklightChannel = LEDC_CHANNEL_7;
-constexpr ledc_timer_bit_t kBacklightResolution = LEDC_TIMER_8_BIT;
+constexpr ledc_timer_bit_t kBacklightResolution = LEDC_TIMER_12_BIT;
 // S3 low-speed LEDC timers share their clock source with keyboard OE PWM.
-// At APB 80 MHz, 1 kHz fits the divider range while retaining 8-bit duty.
+// APB 80 MHz supports 1 kHz with 12-bit duty for smooth low-brightness steps.
 constexpr uint32_t kBacklightFrequencyHz = 1000;
 constexpr TickType_t kTransferTimeoutTicks = pdMS_TO_TICKS(1000);
 
 bool spiBusInitialized = false;
 bool backlightInitialized = false;
+bool displayInitialized = false;
+bool backlightDutyApplied = false;
+uint16_t appliedBacklightDuty = 0;
 SemaphoreHandle_t frameTransferDone = nullptr;
 
 bool IRAM_ATTR OnColorTransferDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void* user_ctx)
@@ -60,13 +64,21 @@ esp_err_t InitTransferSync()
 
 esp_err_t ApplyBrightness(uint8_t value)
 {
-    const esp_err_t dutyStatus = ledc_set_duty(kBacklightSpeedMode, kBacklightChannel, value);
+    const uint16_t duty = detail::BacklightDuty(value);
+    if (backlightDutyApplied && appliedBacklightDuty == duty) return ESP_OK;
+    const esp_err_t dutyStatus = ledc_set_duty(kBacklightSpeedMode, kBacklightChannel, duty);
     if (dutyStatus != ESP_OK)
     {
         return dutyStatus;
     }
 
-    return ledc_update_duty(kBacklightSpeedMode, kBacklightChannel);
+    const esp_err_t updateStatus = ledc_update_duty(kBacklightSpeedMode, kBacklightChannel);
+    if (updateStatus == ESP_OK)
+    {
+        appliedBacklightDuty = duty;
+        backlightDutyApplied = true;
+    }
+    return updateStatus;
 }
 
 esp_err_t InitBacklight()
@@ -105,7 +117,8 @@ esp_err_t InitBacklight()
     }
 
     backlightInitialized = true;
-    return ApplyBrightness(brightness);
+    // Keep the panel dark until its initialization and clear have completed.
+    return ESP_OK;
 }
 
 esp_err_t InitSpiBus()
@@ -137,6 +150,7 @@ esp_err_t InitSpiBus()
 
 bool Init()
 {
+    if (displayInitialized) return ApplyBrightness(brightness) == ESP_OK;
     esp_err_t status = InitBacklight();
     if (status != ESP_OK)
     {
@@ -242,7 +256,9 @@ bool Init()
         }
     }
 
-    return ApplyBrightness(brightness) == ESP_OK;
+    if (ApplyBrightness(brightness) != ESP_OK) return false;
+    displayInitialized = true;
+    return true;
 }
 
 esp_lcd_panel_handle_t GetPanel()
