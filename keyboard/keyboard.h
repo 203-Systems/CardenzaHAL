@@ -11,6 +11,8 @@ bool init();
 Point2D_t getKey();
 uint8_t getKeyNum(Point2D_t keyCoor);
 void updateKeyList();
+// More than KEY_PRESS_LIMIT sampled keys blocks new presses until their stable
+// release. Confirmed keys can still release normally during interference.
 std::vector<Point2D_t>& keyList();
 bool isKeyPressing(int keyNum);
 bool isChanged();
