@@ -6,7 +6,8 @@
 
 namespace CardenzaHAL::Keyboard {
 
-void init();
+// Idempotent; false when resources could not be acquired. Failed attempts can retry.
+bool init();
 Point2D_t getKey();
 uint8_t getKeyNum(Point2D_t keyCoor);
 void updateKeyList();

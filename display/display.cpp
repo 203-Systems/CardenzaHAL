@@ -11,8 +11,6 @@
 #include <esp_lcd_panel_commands.h>
 #include <esp_lcd_panel_vendor.h>
 #include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-#include <cstring>
 
 namespace CardenzaHAL::Display {
 
@@ -30,37 +28,14 @@ constexpr ledc_timer_bit_t kBacklightResolution = LEDC_TIMER_12_BIT;
 // S3 low-speed LEDC timers share their clock source with keyboard OE PWM.
 // APB 80 MHz supports 1 kHz with 12-bit duty for smooth low-brightness steps.
 constexpr uint32_t kBacklightFrequencyHz = 1000;
-constexpr TickType_t kTransferTimeoutTicks = pdMS_TO_TICKS(1000);
 
 bool spiBusInitialized = false;
 bool backlightInitialized = false;
 bool displayInitialized = false;
 bool backlightDutyApplied = false;
 uint16_t appliedBacklightDuty = 0;
-SemaphoreHandle_t frameTransferDone = nullptr;
-
-bool IRAM_ATTR OnColorTransferDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void* user_ctx)
-{
-    if (user_ctx == nullptr)
-    {
-        return false;
-    }
-
-    BaseType_t highTaskWoken = pdFALSE;
-    xSemaphoreGiveFromISR(static_cast<SemaphoreHandle_t>(user_ctx), &highTaskWoken);
-    return highTaskWoken == pdTRUE;
-}
-
-esp_err_t InitTransferSync()
-{
-    if (frameTransferDone != nullptr)
-    {
-        return ESP_OK;
-    }
-
-    frameTransferDone = xSemaphoreCreateBinary();
-    return frameTransferDone != nullptr ? ESP_OK : ESP_ERR_NO_MEM;
-}
+// Initialization owns this DMA-capable buffer until the final synchronous drain.
+alignas(4) uint16_t clearLine[WIDTH] = {};
 
 esp_err_t ApplyBrightness(uint8_t value)
 {
@@ -157,12 +132,6 @@ bool Init()
         return false;
     }
 
-    status = InitTransferSync();
-    if (status != ESP_OK)
-    {
-        return false;
-    }
-
     status = InitSpiBus();
     if (status != ESP_OK)
     {
@@ -179,8 +148,6 @@ bool Init()
         ioConfig.trans_queue_depth = 10;
         ioConfig.lcd_cmd_bits = 8;
         ioConfig.lcd_param_bits = 8;
-        ioConfig.on_color_trans_done = OnColorTransferDone;
-        ioConfig.user_ctx = frameTransferDone;
 
         status = esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(kDisplaySpiHost), &ioConfig, &panelIo);
         if (status != ESP_OK)
@@ -202,59 +169,64 @@ bool Init()
         {
             return false;
         }
+    }
 
-        status = esp_lcd_panel_reset(panel);
+    // A handle alone does not mean reset/configuration succeeded. Retry every
+    // configuration stage after a previous failure, keeping allocated handles.
+    status = esp_lcd_panel_reset(panel);
+    if (status != ESP_OK)
+    {
+        return false;
+    }
+
+    status = esp_lcd_panel_init(panel);
+    if (status != ESP_OK)
+    {
+        return false;
+    }
+
+    status = esp_lcd_panel_invert_color(panel, true);
+    if (status != ESP_OK)
+    {
+        return false;
+    }
+
+    status = esp_lcd_panel_swap_xy(panel, true);
+    if (status != ESP_OK)
+    {
+        return false;
+    }
+
+    status = esp_lcd_panel_mirror(panel, true, false);
+    if (status != ESP_OK)
+    {
+        return false;
+    }
+
+    status = esp_lcd_panel_set_gap(panel, Pins::kDisplayLandscapeGapX, Pins::kDisplayLandscapeGapY);
+    if (status != ESP_OK)
+    {
+        return false;
+    }
+
+    status = esp_lcd_panel_disp_on_off(panel, true);
+    if (status != ESP_OK)
+    {
+        return false;
+    }
+
+    for (int row = 0; row < HEIGHT; ++row)
+    {
+        status = esp_lcd_panel_draw_bitmap(panel, 0, row, WIDTH, row + 1, clearLine);
         if (status != ESP_OK)
         {
             return false;
-        }
-
-        status = esp_lcd_panel_init(panel);
-        if (status != ESP_OK)
-        {
-            return false;
-        }
-
-        status = esp_lcd_panel_invert_color(panel, true);
-        if (status != ESP_OK)
-        {
-            return false;
-        }
-
-        status = esp_lcd_panel_swap_xy(panel, true);
-        if (status != ESP_OK)
-        {
-            return false;
-        }
-
-        status = esp_lcd_panel_mirror(panel, true, false);
-        if (status != ESP_OK)
-        {
-            return false;
-        }
-
-        status = esp_lcd_panel_set_gap(panel, Pins::kDisplayLandscapeGapX, Pins::kDisplayLandscapeGapY);
-        if (status != ESP_OK)
-        {
-            return false;
-        }
-
-        status = esp_lcd_panel_disp_on_off(panel, true);
-        if (status != ESP_OK)
-        {
-            return false;
-        }
-
-        uint16_t clearLine[WIDTH] = {};
-        for (int row = 0; row < HEIGHT; ++row)
-        {
-            status = esp_lcd_panel_draw_bitmap(panel, 0, row, WIDTH, row + 1, clearLine);
-            if (status != ESP_OK)
-            {
-                return false;
-            }
         }
     }
+
+    // Color submission is asynchronous. Drain the final clear before returning
+    // the panel/IO handles to a consumer that may replace its callbacks.
+    if (esp_lcd_panel_io_tx_param(panelIo, LCD_CMD_NOP, nullptr, 0) != ESP_OK) return false;
 
     if (ApplyBrightness(brightness) != ESP_OK) return false;
     displayInitialized = true;

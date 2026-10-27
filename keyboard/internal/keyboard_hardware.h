@@ -35,8 +35,8 @@ void FastWritePin(int pin, bool level);
 int FastReadPin(int pin);
 uint64_t KeyboardOutputMask();
 void InitKeyboardLedSpi();
-void InitKeyboardLedPwm();
-void SetKeyboardLedGlobalDuty(uint16_t duty);
+esp_err_t InitKeyboardLedPwm();
+esp_err_t SetKeyboardLedGlobalDuty(uint16_t duty);
 void GateKeyboardLeds(bool active);
 bool KeyboardScanTimerCallback(gptimer_handle_t timer,
                                const gptimer_alarm_event_data_t* eventData,

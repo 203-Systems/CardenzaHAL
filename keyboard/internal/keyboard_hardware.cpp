@@ -130,15 +130,16 @@ void GateKeyboardLeds(bool active)
     }
 }
 
-void InitKeyboardLedPwm()
+esp_err_t InitKeyboardLedPwm()
 {
+    if (ledPwmReady) return ESP_OK;
     ledc_timer_config_t timer = {};
     timer.speed_mode = LEDC_LOW_SPEED_MODE;
     timer.duty_resolution = LEDC_TIMER_10_BIT;
     timer.timer_num = kLedOeTimer;
     timer.freq_hz = 78125; // APB 80 MHz / 1024; 12.8 us period.
     timer.clk_cfg = LEDC_USE_APB_CLK;
-    ESP_ERROR_CHECK(ledc_timer_config(&timer));
+    ESP_RETURN_ON_ERROR(ledc_timer_config(&timer), "CardenzaKeyboard", "OE timer failed");
     ledc_channel_config_t channel = {};
     channel.gpio_num = led_pin_list[0];
     channel.speed_mode = LEDC_LOW_SPEED_MODE;
@@ -147,16 +148,17 @@ void InitKeyboardLedPwm()
     channel.duty = 0;
     channel.hpoint = 0;
     channel.flags.output_invert = 1; // LED_EN is active low.
-    ESP_ERROR_CHECK(ledc_channel_config(&channel));
+    ESP_RETURN_ON_ERROR(ledc_channel_config(&channel), "CardenzaKeyboard", "OE PWM failed");
     ledPwmReady = true;
     GateKeyboardLeds(false);
+    return ESP_OK;
 }
 
-void SetKeyboardLedGlobalDuty(uint16_t duty)
+esp_err_t SetKeyboardLedGlobalDuty(uint16_t duty)
 {
-    if (!ledPwmReady) return; // Cached app setting is applied during init.
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, kLedOeChannel, duty));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, kLedOeChannel));
+    if (!ledPwmReady) return ESP_OK; // Cached app setting is applied during init.
+    ESP_RETURN_ON_ERROR(ledc_set_duty(LEDC_LOW_SPEED_MODE, kLedOeChannel, duty), "CardenzaKeyboard", "OE duty failed");
+    return ledc_update_duty(LEDC_LOW_SPEED_MODE, kLedOeChannel);
 }
 
 bool KeyboardScanTimerCallback(gptimer_handle_t timer,

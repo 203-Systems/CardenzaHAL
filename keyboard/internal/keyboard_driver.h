@@ -29,6 +29,7 @@ class KeyboardDriver
     SemaphoreHandle_t _mutex;
     TaskHandle_t _scan_task_handle;
     volatile uint8_t _scan_row;
+    bool _initialized = false;
 
     bool _led_enabled;
     bool _scan_led_enabled;
@@ -61,7 +62,7 @@ class KeyboardDriver
         memset(_scan_led_col_mask, 0, sizeof(_scan_led_col_mask));
     }
 
-    void init();
+    bool init();
 
     Point2D_t getKey();
 

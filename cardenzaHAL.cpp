@@ -6,7 +6,6 @@ namespace {
 
 CardenzaHAL::InitReport g_initReport;
 bool g_initialized = false;
-bool g_keyboardInitialized = false;
 
 constexpr char kLogTag[] = "CardenzaHAL";
 
@@ -49,12 +48,8 @@ bool Init()
         return g_initReport.overall;
     }
 
-    if (!g_keyboardInitialized)
-    {
-        Keyboard::init();
-        g_keyboardInitialized = true;
-        ESP_LOGI(kLogTag, "keyboard initialized");
-    }
+    g_initReport.keyboard = Keyboard::init();
+    LogModuleResult("keyboard", g_initReport.keyboard, false);
 
     g_initReport.audio = Audio::Init();
     LogModuleResult("audio", g_initReport.audio, false);
@@ -68,7 +63,7 @@ bool Init()
     g_initReport.ir = IR::Init();
     LogModuleResult("ir", g_initReport.ir, true);
 
-    g_initReport.overall = g_initReport.system && g_initReport.audio && g_initReport.display;
+    g_initReport.overall = g_initReport.system && g_initReport.keyboard && g_initReport.audio && g_initReport.display;
     g_initialized = g_initReport.overall;
     return g_initReport.overall;
 }

@@ -10,9 +10,9 @@ KeyboardDriver keyboard;
 
 }  // namespace
 
-void init()
+bool init()
 {
-    keyboard.init();
+    return keyboard.init();
 }
 
 Point2D_t getKey()

@@ -1,5 +1,6 @@
 #include "keyboard_driver.h"
 #include "keyboard_hardware.h"
+#include "led_brightness.h"
 
 #include <cstring>
 
@@ -41,82 +42,84 @@ uint8_t KeyboardDriver::_get_input()
     return buffer;
 }
 
-void KeyboardDriver::init()
+bool KeyboardDriver::init()
 {
-    for (auto i : led_pin_list)
+    if (_initialized) return true;
+    for (auto pin : led_pin_list)
     {
-        gpio_reset_pin((gpio_num_t)i);
-        gpio_set_direction((gpio_num_t)i, GPIO_MODE_OUTPUT);
-        gpio_set_level((gpio_num_t)i, 0);
+        if (gpio_reset_pin((gpio_num_t)pin) != ESP_OK ||
+            gpio_set_direction((gpio_num_t)pin, GPIO_MODE_OUTPUT) != ESP_OK ||
+            gpio_set_level((gpio_num_t)pin, 0) != ESP_OK) return false;
     }
-    gpio_set_level((gpio_num_t)led_pin_list[0], 1);
-
-    // Launcher holds LED_EN off across app handoff. Prepare the output latches
-    // first, with active-low enable high, then take ownership without a flash.
-    for (auto i : led_pin_list)
-    {
-        ESP_ERROR_CHECK(gpio_hold_dis((gpio_num_t)i));
-    }
+    if (gpio_set_level((gpio_num_t)led_pin_list[0], 1) != ESP_OK) return false;
+    // Prepare active-low OE before releasing Launcher's GPIO holds.
+    for (auto pin : led_pin_list)
+        if (gpio_hold_dis((gpio_num_t)pin) != ESP_OK) return false;
 
     detail::InitKeyboardLedSpi();
-    detail::InitKeyboardLedPwm();
-    setLEDGlobalBrightness(_global_brightness);
+    if (detail::InitKeyboardLedPwm() != ESP_OK ||
+        detail::SetKeyboardLedGlobalDuty(detail::LedGlobalDutyForLevel(_global_brightness)) != ESP_OK)
+        return false;
     _shift_led_columns(0x00);
     _scan_led_shifted_columns = 0x00;
-
-    for (auto i : output_list)
+    for (auto pin : output_list)
     {
-        gpio_reset_pin((gpio_num_t)i);
-        gpio_set_direction((gpio_num_t)i, GPIO_MODE_OUTPUT);
-        gpio_set_pull_mode((gpio_num_t)i, GPIO_PULLUP_PULLDOWN);
-        gpio_set_level((gpio_num_t)i, 0);
+        if (gpio_reset_pin((gpio_num_t)pin) != ESP_OK ||
+            gpio_set_direction((gpio_num_t)pin, GPIO_MODE_OUTPUT) != ESP_OK ||
+            gpio_set_pull_mode((gpio_num_t)pin, GPIO_PULLUP_PULLDOWN) != ESP_OK ||
+            gpio_set_level((gpio_num_t)pin, 0) != ESP_OK) return false;
     }
-
-    for (auto i : input_list)
+    for (auto pin : input_list)
     {
-        gpio_reset_pin((gpio_num_t)i);
-        gpio_set_direction((gpio_num_t)i, GPIO_MODE_INPUT);
-        gpio_set_pull_mode((gpio_num_t)i, GPIO_PULLUP_ONLY);
+        if (gpio_reset_pin((gpio_num_t)pin) != ESP_OK ||
+            gpio_set_direction((gpio_num_t)pin, GPIO_MODE_INPUT) != ESP_OK ||
+            gpio_set_pull_mode((gpio_num_t)pin, GPIO_PULLUP_ONLY) != ESP_OK) return false;
     }
-
     _set_output(0);
-
     _mutex = xSemaphoreCreateMutex();
+    if (_mutex == nullptr) return false;
     _key_list_buffer.reserve(LED_ROWS * LED_COLUMNS);
 
-#if portNUM_PROCESSORS > 1
-    xTaskCreatePinnedToCore(_scan_task_entry,
-                            "kb_scan",
-                            4096,
-                            this,
-                            detail::kScanTaskPriority,
-                            &_scan_task_handle,
-                            detail::kScanTaskPinnedCore);
-#else
-    xTaskCreate(_scan_task_entry, "kb_scan", 4096, this, detail::kScanTaskPriority, &_scan_task_handle);
-#endif
-
-    _commit_led_frame();
-
-    gptimer_config_t timer_config = {};
-    timer_config.clk_src = GPTIMER_CLK_SRC_DEFAULT;
-    timer_config.direction = GPTIMER_COUNT_UP;
-    timer_config.resolution_hz = detail::kLedTimerResolutionHz;
     gptimer_handle_t timer = nullptr;
-    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &timer));
-
+    bool timerEnabled = false;
+    const auto fail = [&]() {
+        detail::GateKeyboardLeds(false);
+        if (timer != nullptr)
+        {
+            if (timerEnabled) (void)gptimer_disable(timer);
+            (void)gptimer_del_timer(timer);
+        }
+        if (_scan_task_handle != nullptr) vTaskDelete(_scan_task_handle);
+        _scan_task_handle = nullptr;
+        vSemaphoreDelete(_mutex);
+        _mutex = nullptr;
+        return false;
+    };
+    gptimer_config_t timerConfig = {};
+    timerConfig.clk_src = GPTIMER_CLK_SRC_DEFAULT;
+    timerConfig.direction = GPTIMER_COUNT_UP;
+    timerConfig.resolution_hz = detail::kLedTimerResolutionHz;
+    if (gptimer_new_timer(&timerConfig, &timer) != ESP_OK) return fail();
     gptimer_event_callbacks_t callbacks = {};
     callbacks.on_alarm = detail::KeyboardScanTimerCallback;
-    ESP_ERROR_CHECK(gptimer_register_event_callbacks(timer, &callbacks, this));
-
-    gptimer_alarm_config_t alarm_config = {};
-    alarm_config.reload_count = 0;
-    alarm_config.alarm_count = detail::kLedBitPlaneTicks;
-    alarm_config.flags.auto_reload_on_alarm = false;
-    ESP_ERROR_CHECK(gptimer_set_alarm_action(timer, &alarm_config));
-    ESP_ERROR_CHECK(gptimer_enable(timer));
-    ESP_ERROR_CHECK(gptimer_start(timer));
-
+    if (gptimer_register_event_callbacks(timer, &callbacks, this) != ESP_OK) return fail();
+    gptimer_alarm_config_t alarm = {};
+    alarm.alarm_count = detail::kLedBitPlaneTicks;
+    if (gptimer_set_alarm_action(timer, &alarm) != ESP_OK || gptimer_enable(timer) != ESP_OK)
+        return fail();
+    timerEnabled = true;
+#if portNUM_PROCESSORS > 1
+    const BaseType_t created = xTaskCreatePinnedToCore(_scan_task_entry, "kb_scan", 4096, this,
+        detail::kScanTaskPriority, &_scan_task_handle, detail::kScanTaskPinnedCore);
+#else
+    const BaseType_t created = xTaskCreate(_scan_task_entry, "kb_scan", 4096, this,
+        detail::kScanTaskPriority, &_scan_task_handle);
+#endif
+    if (created != pdPASS) return fail();
+    _commit_led_frame();
+    if (gptimer_start(timer) != ESP_OK) return fail();
+    _initialized = true;
+    return true;
 }
 
 Point2D_t KeyboardDriver::getKey()

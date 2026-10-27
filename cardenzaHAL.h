@@ -13,7 +13,8 @@ namespace CardenzaHAL {
 
 struct InitReport {
 	bool system = false;
-	bool audio = false;
+	bool keyboard = false;
+	bool audio = false; // I2S configured and codec initialized successfully.
 	bool display = false;
 	bool storage = false;
 	bool ir = false;
