@@ -21,7 +21,7 @@ struct Point2D_t
 
 inline constexpr uint8_t LED_BRIGHTNESS_MAX = 15;
 // Sanity limit for sampled matrix keys, including modifiers.
-inline constexpr std::size_t KEY_PRESS_LIMIT = 10;
+inline constexpr std::size_t KEY_PRESS_LIMIT = 4;
 inline constexpr std::size_t LED_COLUMNS = 14;
 inline constexpr std::size_t LED_ROWS = 4;
 // Row-major electrical brightness, indexed as y * LED_COLUMNS + x.
