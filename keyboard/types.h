@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace CardenzaHAL::Keyboard {
@@ -18,5 +20,9 @@ struct Point2D_t
 };
 
 inline constexpr uint8_t LED_BRIGHTNESS_MAX = 15;
+inline constexpr std::size_t LED_COLUMNS = 14;
+inline constexpr std::size_t LED_ROWS = 4;
+// Row-major electrical brightness, indexed as y * LED_COLUMNS + x.
+using LedFrame = std::array<uint8_t, LED_ROWS * LED_COLUMNS>;
 
 }  // namespace CardenzaHAL::Keyboard

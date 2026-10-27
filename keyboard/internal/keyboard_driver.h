@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstring>
 #include <vector>
 
@@ -8,6 +9,8 @@
 #include <freertos/task.h>
 
 #include "../layout.h"
+#include "key_debounce.h"
+#include "led_frame.h"
 
 namespace CardenzaHAL::Keyboard {
 
@@ -17,19 +20,19 @@ class KeyboardDriver
     std::vector<Point2D_t> _key_list_buffer;
     uint8_t _last_key_size;
 
-    std::vector<Point2D_t> _task_key_list;
-    uint8_t _raw_key_scan[8];
-    uint8_t _debounced_key_scan[8];
-    uint8_t _candidate_key_scan[8];
-    uint32_t _debounce_since_us[8];
-    uint8_t _scan_raw_key_scan[8];
+    uint8_t _key_list_scan[8]{};
+    uint8_t _task_key_scan[8]{};
+    uint8_t _scan_raw_key_scan[8]{};
+    detail::KeyDebouncer _debouncer;
+    std::atomic<bool> _debounce_pending{false};
+    bool _scan_keys_changed = false;
     SemaphoreHandle_t _mutex;
     TaskHandle_t _scan_task_handle;
     volatile uint8_t _scan_row;
 
     bool _led_enabled;
     bool _scan_led_enabled;
-    uint8_t _led_level[4][14];
+    detail::LedFrameState _led_frame;
     uint8_t _scan_led_col_mask[4][8];
     uint8_t _scan_led_shifted_columns;
     uint8_t _global_brightness;
@@ -38,7 +41,6 @@ class KeyboardDriver
     void _set_output(uint8_t output);
     uint8_t _get_input();
     void _shift_led_columns(uint8_t value);
-    uint8_t _compute_led_col_mask(uint8_t scan_index, uint8_t phase) const;
     void _commit_led_frame();
 
     static void _scan_task_entry(void* arg);
@@ -56,12 +58,6 @@ class KeyboardDriver
         _global_brightness(LED_BRIGHTNESS_MAX),
         _pwm_phase(0)
     {
-        memset(_raw_key_scan, 0, sizeof(_raw_key_scan));
-        memset(_debounced_key_scan, 0, sizeof(_debounced_key_scan));
-        memset(_candidate_key_scan, 0, sizeof(_candidate_key_scan));
-        memset(_debounce_since_us, 0, sizeof(_debounce_since_us));
-        memset(_scan_raw_key_scan, 0, sizeof(_scan_raw_key_scan));
-        memset(_led_level, 0, sizeof(_led_level));
         memset(_scan_led_col_mask, 0, sizeof(_scan_led_col_mask));
     }
 
@@ -81,6 +77,7 @@ class KeyboardDriver
 
     bool enableLED(bool enabled);
     void setLED(Point2D_t pos, uint8_t brightness);
+    void setLEDFrame(const LedFrame& levels);
     void clearAllLEDs();
     void setAllLEDs(uint8_t brightness);
     void setLEDGlobalBrightness(uint8_t level);

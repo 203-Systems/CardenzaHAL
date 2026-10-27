@@ -17,6 +17,9 @@ uint8_t isPressed();
 bool enableLED(bool enabled);
 // Per-key and global brightness use 16 levels (0 off, 15 maximum).
 void setLED(Point2D_t pos, uint8_t brightness);
+// Replace all 56 levels and publish one scan table. Existing single-key setters
+// remain immediate. Call LED control functions from one control task.
+void setLEDFrame(const LedFrame& levels);
 void clearAllLEDs();
 void setAllLEDs(uint8_t brightness);
 void setLEDGlobalBrightness(uint8_t level);

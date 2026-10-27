@@ -60,6 +60,11 @@ void setLED(Point2D_t pos, uint8_t brightness)
     keyboard.setLED(pos, brightness);
 }
 
+void setLEDFrame(const LedFrame& levels)
+{
+    keyboard.setLEDFrame(levels);
+}
+
 void clearAllLEDs()
 {
     keyboard.clearAllLEDs();

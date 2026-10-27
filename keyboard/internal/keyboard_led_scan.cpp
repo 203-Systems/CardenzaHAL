@@ -11,17 +11,12 @@ namespace CardenzaHAL::Keyboard {
 
 void KeyboardDriver::_commit_led_frame()
 {
-    uint8_t masks[detail::kLedPwmPhaseCount][8] = {};
-    // Build outside the critical section; only the short copy blocks scanning.
-    for (uint8_t phase = 0; phase < detail::kLedPwmPhaseCount; ++phase)
-    {
-        for (uint8_t row = 0; row < 8; ++row)
-        {
-            masks[phase][row] = _compute_led_col_mask(row, phase);
-        }
-    }
+    // Batch callers build and publish once for the whole frame. Build outside
+    // the critical section; only the short copy blocks scanning.
+    const auto masks = _led_frame.BuildScanMasks();
+    static_assert(sizeof(masks) == sizeof(_scan_led_col_mask));
     portENTER_CRITICAL(&detail::kKeyboardStateMux);
-    memcpy(_scan_led_col_mask, masks, sizeof(masks));
+    memcpy(_scan_led_col_mask, masks.data(), sizeof(_scan_led_col_mask));
     _scan_led_enabled = _led_enabled;
     portEXIT_CRITICAL(&detail::kKeyboardStateMux);
 }
@@ -36,43 +31,9 @@ void KeyboardDriver::_shift_led_columns(uint8_t value)
     while (spi_ll_get_running_cmd(hw) != 0) {}
 }
 
-uint8_t KeyboardDriver::_compute_led_col_mask(uint8_t scan_index, uint8_t phase) const
-{
-    int y = 0;
-    int x_base = 0;
-    if (scan_index < 4)
-    {
-        y = 3 - scan_index;
-        x_base = 1;
-    }
-    else
-    {
-        y = 7 - scan_index;
-        x_base = 0;
-    }
-
-    uint8_t mask = 0;
-
-    for (int col = 0; col < 7; col++)
-    {
-        const int x = x_base + col * 2;
-        const uint8_t level = _led_level[y][x];
-        const uint8_t duty = detail::LedDutyForLevel(level);
-        if (duty & (1u << phase))
-        {
-            const int physical_bit = col + detail::kLedColumnBitOffset;
-            if (physical_bit >= 0 && physical_bit < 8)
-            {
-                mask |= static_cast<uint8_t>(1u << physical_bit);
-            }
-        }
-    }
-
-    return mask;
-}
-
 bool KeyboardDriver::enableLED(bool enabled)
 {
+    if (enabled == _led_enabled) return _led_enabled;
     _led_enabled = enabled;
     _commit_led_frame();
     if (!enabled)
@@ -85,16 +46,15 @@ bool KeyboardDriver::enableLED(bool enabled)
 
 void KeyboardDriver::setLED(Point2D_t pos, uint8_t brightness)
 {
-    if (pos.x < 0 || pos.x > 13 || pos.y < 0 || pos.y > 3)
+    if (_led_frame.SetKey(pos, brightness) && _led_enabled)
     {
-        return;
+        _commit_led_frame();
     }
-    if (brightness > LED_BRIGHTNESS_MAX)
-    {
-        brightness = LED_BRIGHTNESS_MAX;
-    }
-    _led_level[pos.y][pos.x] = brightness;
-    if (_led_enabled)
+}
+
+void KeyboardDriver::setLEDFrame(const LedFrame& levels)
+{
+    if (_led_frame.Assign(levels) && _led_enabled)
     {
         _commit_led_frame();
     }
@@ -102,8 +62,7 @@ void KeyboardDriver::setLED(Point2D_t pos, uint8_t brightness)
 
 void KeyboardDriver::clearAllLEDs()
 {
-    memset(_led_level, 0, sizeof(_led_level));
-    if (_led_enabled)
+    if (_led_frame.Fill(0) && _led_enabled)
     {
         _commit_led_frame();
     }
@@ -111,12 +70,7 @@ void KeyboardDriver::clearAllLEDs()
 
 void KeyboardDriver::setAllLEDs(uint8_t brightness)
 {
-    if (brightness > LED_BRIGHTNESS_MAX)
-    {
-        brightness = LED_BRIGHTNESS_MAX;
-    }
-    memset(_led_level, brightness, sizeof(_led_level));
-    if (_led_enabled)
+    if (_led_frame.Fill(brightness) && _led_enabled)
     {
         _commit_led_frame();
     }
