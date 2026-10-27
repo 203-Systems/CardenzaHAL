@@ -25,9 +25,9 @@ constexpr uint16_t kTrailerMarkUs = 560;
 uint32_t EncodeNecFrame(uint8_t addr, uint8_t cmd)
 {
     return static_cast<uint32_t>(addr)
-         | (static_cast<uint32_t>(~addr) << 8)
+         | (static_cast<uint32_t>(static_cast<uint8_t>(~addr)) << 8)
          | (static_cast<uint32_t>(cmd) << 16)
-         | (static_cast<uint32_t>(~cmd) << 24);
+         | (static_cast<uint32_t>(static_cast<uint8_t>(~cmd)) << 24);
 }
 
 rmt_symbol_word_t MakeSymbol(uint16_t duration0, uint16_t duration1)
@@ -71,7 +71,11 @@ esp_err_t EnsureInitialized()
         return status;
     }
 
-    status = rmt_enable(irChannel);
+    rmt_carrier_config_t carrier = {};
+    carrier.frequency_hz = 38000;
+    carrier.duty_cycle = 1.0f / 3.0f;
+    status = rmt_apply_carrier(irChannel, &carrier);
+    if (status == ESP_OK) status = rmt_enable(irChannel);
     if (status != ESP_OK)
     {
         rmt_del_encoder(irEncoder);
