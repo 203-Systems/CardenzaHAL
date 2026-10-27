@@ -59,6 +59,13 @@ void KeyboardDriver::init()
     }
     gpio_set_level((gpio_num_t)led_pin_list[0], 1);
 
+    // Launcher holds LED_EN off across app handoff. Prepare the output latches
+    // first, with active-low enable high, then take ownership without a flash.
+    for (auto i : led_pin_list)
+    {
+        ESP_ERROR_CHECK(gpio_hold_dis((gpio_num_t)i));
+    }
+
     detail::InitKeyboardLedSpi();
     detail::InitKeyboardLedPwm();
     setLEDGlobalBrightness(_global_brightness);
