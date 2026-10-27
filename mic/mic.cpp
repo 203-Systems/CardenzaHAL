@@ -77,4 +77,13 @@ i2s_chan_handle_t InputChannel()
     return micChannel;
 }
 
+bool RestoreInputPins()
+{
+    if (micChannel == nullptr) return false;
+    i2s_pdm_rx_gpio_config_t pins = {};
+    pins.clk = static_cast<gpio_num_t>(Pins::kMicWs);
+    pins.din = static_cast<gpio_num_t>(Pins::kMicDataIn);
+    return i2s_channel_reconfig_pdm_rx_gpio(micChannel, &pins) == ESP_OK;
+}
+
 }  // namespace CardenzaHAL::Mic

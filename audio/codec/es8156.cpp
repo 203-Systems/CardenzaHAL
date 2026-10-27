@@ -4,7 +4,8 @@
 
 #include <esp_log.h>
 #include <driver/i2c_master.h>
-#include <esp_rom_sys.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 namespace CardenzaHAL::Audio::Codec::ES8156 {
 
@@ -46,6 +47,7 @@ constexpr uint8_t kExpectedChipIdMid = 0x55;
 constexpr uint8_t kExpectedStateConfirm = 0x60;
 
 constexpr RegisterValue kInitSequence[] = {
+    {0x14, 0x00}, // Mute before restoring analog output paths.
     {0x02, kModeConfigUseSclkSoftwareSlave},
     {0x13, kMuteControlNormal},
     {0x20, 0x2A},
@@ -56,7 +58,6 @@ constexpr RegisterValue kInitSequence[] = {
     {0x0A, 0x01},
     {0x0B, 0x01},
     {0x11, kInterfaceConfigI2s16Bit},
-    {0x14, kUnityGainRegister},
     {0x01, kClockControlRatio64},
     {0x09, kMiscControlRatio64},
     {0x03, kMasterLrckDividerHigh},
@@ -100,10 +101,9 @@ bool ReadChipIdRegisters(uint8_t* chipIdMsb, uint8_t* chipIdMid, uint8_t* chipId
         return false;
     }
 
-    const esp_err_t chipIdStatus = ReadRegister(kChipIdRegisterMsb, chipIdMsb);
-    const esp_err_t chipIdMidStatus = ReadRegister(kChipIdRegisterMid, chipIdMid);
-    const esp_err_t chipIdLsbStatus = ReadRegister(kChipIdRegisterLsb, chipIdLsb);
-    if (chipIdStatus != ESP_OK || chipIdMidStatus != ESP_OK || chipIdLsbStatus != ESP_OK)
+    if (ReadRegister(kChipIdRegisterMsb, chipIdMsb) != ESP_OK ||
+        ReadRegister(kChipIdRegisterMid, chipIdMid) != ESP_OK ||
+        ReadRegister(kChipIdRegisterLsb, chipIdLsb) != ESP_OK)
     {
         ESP_LOGW(kLogTag, "Failed to read ES8156 identity registers after probe");
         return false;
@@ -246,10 +246,8 @@ uint8_t MapVolumeRegister(uint8_t volume)
 
 bool Init()
 {
-    if (g_initialized)
-    {
-        return SetEnabled(true);
-    }
+    g_initialized = false;
+    g_enabled = false;
 
     if (!LogAndValidateChipIdRegisters())
     {
@@ -262,12 +260,13 @@ bool Init()
         return false;
     }
 
-    esp_rom_delay_us(kStartupSettleDelayUs);
-    (void)LogStartupStateConfirm();
+    vTaskDelay(pdMS_TO_TICKS(kStartupSettleDelayUs / 1000));
+    if (!LogStartupStateConfirm() || WriteRegister(kVolumeRegister, MapVolumeRegister(g_volume)) != ESP_OK)
+        return false;
 
     g_initialized = true;
     g_enabled = true;
-    return SetVolume(g_volume);
+    return true;
 }
 
 bool SetEnabled(bool enabled)
@@ -288,9 +287,8 @@ bool SetEnabled(bool enabled)
         return true;
     }
 
-    const esp_err_t status = enabled
-        ? WriteStartupSequence()
-        : WriteSequence(kStandbySequence, sizeof(kStandbySequence) / sizeof(kStandbySequence[0]));
+    if (enabled) return Init();
+    const esp_err_t status = WriteSequence(kStandbySequence, sizeof(kStandbySequence) / sizeof(kStandbySequence[0]));
     if (status != ESP_OK)
     {
         return false;
@@ -318,7 +316,7 @@ bool SetVolume(uint8_t volume)
 
     g_volume = volume;
 
-    if (!g_initialized)
+    if (!g_initialized || !g_enabled)
     {
         return true;
     }
