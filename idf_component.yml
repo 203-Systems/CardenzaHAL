@@ -1,0 +1,6 @@
+description: CardenzaHAL, the hardware layer of every Cardenza firmware
+dependencies:
+  idf: ">=5.3"
+  # USB device (usb/usb.h). Configured by usb/config/tusb_config.h; nothing else in a firmware may
+  # configure TinyUSB (so no esp_tinyusb next to it).
+  espressif/tinyusb: "~0.21.0"

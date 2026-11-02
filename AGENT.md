@@ -13,3 +13,5 @@
 - Keep test apps, experiments, firmware binaries, build directories, device dumps, and runtime logs outside this HAL repository.
 - Do not bring back copyleft code (the old GPL `keyboard/keymap.h` was removed on purpose).
 - Do not start builds unless the user explicitly asks. Changes here affect every consumer (CardenzaSynth, Cardenza-MPE); bump the submodule in each one.
+- USB (`usb/usb.h`): one composite device, TinyUSB configured only by `usb/config/tusb_config.h` (the component injects it into TinyUSB; never add `esp_tinyusb`). All four non-control IN endpoints of the ESP32-S3 are in use; a new interface needs one of them back. Keep Matrix OS's report IDs and command bytes (0xCB system, 0xFF app; 0x40 / 0x41 as in Matrix OS) so host tools work across 203 devices; new HAL commands take the next free byte after 0x44. Restarting out of USB always hands the PHY back to USB-Serial-JTAG first (`sw_hw_usb_phy_sel = 0`): the Launcher and esptool depend on it.
+
