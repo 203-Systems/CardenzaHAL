@@ -7,6 +7,7 @@
 #include <driver/gpio.h>
 #include <driver/gptimer.h>
 #include <esp_check.h>
+#include <esp_ipc.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -99,10 +100,27 @@ bool KeyboardDriver::init()
     timerConfig.clk_src = GPTIMER_CLK_SRC_DEFAULT;
     timerConfig.direction = GPTIMER_COUNT_UP;
     timerConfig.resolution_hz = detail::kLedTimerResolutionHz;
+    timerConfig.intr_priority = detail::kScanInterruptPriority;
     if (gptimer_new_timer(&timerConfig, &timer) != ESP_OK) return fail();
     gptimer_event_callbacks_t callbacks = {};
     callbacks.on_alarm = detail::KeyboardScanTimerCallback;
+#if portNUM_PROCESSORS > 1
+    // The interrupt is allocated on the core that registers the callbacks (kScanInterruptCore).
+    struct Registration
+    {
+        gptimer_handle_t timer;
+        gptimer_event_callbacks_t* callbacks;
+        void* user;
+        esp_err_t result;
+    } registration{timer, &callbacks, this, ESP_FAIL};
+    const esp_err_t ipc = esp_ipc_call_blocking(detail::kScanInterruptCore, [](void* arg) {
+        auto* r = static_cast<Registration*>(arg);
+        r->result = gptimer_register_event_callbacks(r->timer, r->callbacks, r->user);
+    }, &registration);
+    if (ipc != ESP_OK || registration.result != ESP_OK) return fail();
+#else
     if (gptimer_register_event_callbacks(timer, &callbacks, this) != ESP_OK) return fail();
+#endif
     gptimer_alarm_config_t alarm = {};
     alarm.alarm_count = detail::kLedBitPlaneTicks;
     if (gptimer_set_alarm_action(timer, &alarm) != ESP_OK || gptimer_enable(timer) != ESP_OK)
