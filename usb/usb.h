@@ -84,6 +84,9 @@ namespace CardenzaHAL::USB {
     //     report ID with the command | 0x80. The same commands work as SysEx F0 23 <command> ... F7,
     //     answered with F0 24 <command | 0x80> ... F7.
     //   kReportApp: the firmware's own; the HAL hands them to the handler (in the USB task; keep it short).
+    //     A host without HID access (a web page with Web MIDI) sends them as SysEx F0 23 7F <bytes> F7.
+    //     SendAppReport answers the way the last app report came: a HID report, or SysEx
+    //     F0 24 7F <bytes> F7 (keep the bytes 7-bit for that).
     inline constexpr uint8_t kReportSystem = 0xCB;
     inline constexpr uint8_t kReportApp = 0xFF;
     inline constexpr std::size_t kReportSize = 63;
@@ -96,6 +99,7 @@ namespace CardenzaHAL::USB {
                                     // as 0xC3, byte 1 its length, then the text (over SysEx when the
                                     // command came as SysEx: F0 24 43 <text, 7-bit> F7)
         kCommandIdentify = 0x44,    // answers protocol version, then the product name
+        kCommandApp = 0x7F,         // SysEx only: F0 23 7F <bytes> F7 is an app report of <bytes> (below)
     };
     using ReportHandler = void (*)(const uint8_t* report, std::size_t length);
     void SetAppReportHandler(ReportHandler handler);

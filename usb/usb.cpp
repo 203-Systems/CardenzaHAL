@@ -15,6 +15,7 @@
 #include <esp_timer.h>
 #include <esp_vfs.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <soc/rtc_cntl_reg.h>
 #include <soc/rtc_cntl_struct.h>
@@ -68,6 +69,15 @@ constexpr int16_t kVolumeStep = 256;
 // The system channel: commands in, answers and console text out. Reports leave one at a time; an
 // answer goes back the way its command came (HID report or SysEx).
 std::atomic<ReportHandler> g_appHandler{nullptr};
+std::atomic<bool> g_appSysex{false};  // the last app report came as SysEx: answers go back that way
+// MIDI packets come from two tasks (the firmware's MidiWrite, the USB task's SysEx answers and
+// console): one writer at a time, so a SysEx reaches the host whole.
+SemaphoreHandle_t g_midiTx = nullptr;
+struct MidiTxLock
+{
+    MidiTxLock() { if (g_midiTx != nullptr) xSemaphoreTake(g_midiTx, portMAX_DELAY); }
+    ~MidiTxLock() { if (g_midiTx != nullptr) xSemaphoreGive(g_midiTx); }
+};
 std::atomic<bool> g_consoleOn{false};
 std::atomic<bool> g_consoleSysex{false};  // the console goes out as SysEx (the command came that way)
 std::atomic<bool> g_hostTalked{false};    // a system command arrived (Config::fallbackSeconds)
@@ -163,6 +173,7 @@ void PumpReports()
 // An answer as SysEx: F0 24 <bytes, 7-bit> F7, in USB-MIDI packets of up to three bytes.
 void SendSysex(const uint8_t* data, std::size_t length)
 {
+    MidiTxLock lock;
     uint8_t message[kReportSize + 3];
     std::size_t size = 0;
     message[size++] = 0xF0;
@@ -211,6 +222,11 @@ void HandleCommand(const uint8_t* data, std::size_t length, bool sysex)
         case kCommandConsole:
             g_consoleSysex.store(sysex, std::memory_order_relaxed);
             g_consoleOn.store(length > 1 && data[1] != 0, std::memory_order_relaxed);
+            return;
+        case kCommandApp:
+            if (!sysex) return;  // over HID the firmware has its own report ID
+            g_appSysex.store(true, std::memory_order_relaxed);
+            if (ReportHandler handler = g_appHandler.load(std::memory_order_relaxed)) handler(data + 1, length - 1);
             return;
         default:
             return;
@@ -471,6 +487,7 @@ bool Init(const Config& config)
         return false;
     }
     g_config = config;
+    if (g_midiTx == nullptr) g_midiTx = xSemaphoreCreateMutex();
     uint8_t mac[6] = {};
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     std::snprintf(g_serial, sizeof(g_serial), "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
@@ -515,7 +532,12 @@ bool MidiRead(uint8_t packet[4])
     g_midiHead.store((head + 1) % kMidiQueue, std::memory_order_release);
     return true;
 }
-bool MidiWrite(const uint8_t packet[4]) { return Mounted() && g_config.midi && tud_midi_packet_write(packet); }
+bool MidiWrite(const uint8_t packet[4])
+{
+    if (!Mounted() || !g_config.midi) return false;
+    MidiTxLock lock;
+    return tud_midi_packet_write(packet);
+}
 
 std::size_t AudioWrite(const int16_t* frames, std::size_t count)
 {
@@ -570,7 +592,18 @@ bool ConsumerReport(uint16_t usage)
 
 void SetAppReportHandler(ReportHandler handler) { g_appHandler.store(handler, std::memory_order_relaxed); }
 
-bool SendAppReport(const uint8_t* data, std::size_t length) { return g_started.load() && QueueReport(kReportApp, data, length); }
+bool SendAppReport(const uint8_t* data, std::size_t length)
+{
+    if (!g_started.load()) return false;
+    if (!g_appSysex.load(std::memory_order_relaxed)) return QueueReport(kReportApp, data, length);
+    if (!Mounted() || !g_config.midi) return false;
+    uint8_t message[kReportSize];
+    message[0] = kCommandApp;
+    length = std::min(length, kReportSize - 1);
+    std::memcpy(message + 1, data, length);
+    SendSysex(message, length + 1);
+    return true;
+}
 
 void RestartIntoDownloadMode()
 {
@@ -647,6 +680,7 @@ void tud_hid_set_report_cb(uint8_t, uint8_t report_id, hid_report_type_t, uint8_
     if (report_id == kReportSystem) HandleCommand(buffer, bufsize, false);
     else if (report_id == kReportApp)
     {
+        g_appSysex.store(false, std::memory_order_relaxed);
         if (ReportHandler handler = g_appHandler.load(std::memory_order_relaxed)) handler(buffer, bufsize);
     }
 }
