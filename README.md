@@ -134,7 +134,7 @@ These are commands for your consuming firmware. Launcher-distributed application
 
 `LastInitReport()` exposes these six results and `overall`. A successful aggregate initialization is cached; calling it again does not remount a missing card. Retry `Storage::Init()` separately. Microphone and USB initialization are **not** included, and `cardenzaHAL.h` does not include `usb/usb.h`.
 
-You can initialize individual modules for a smaller application. Call `System::Init()` before using the shared I2C bus, Func button, or USB initialization. Check each module's result. Codec failures can be retried through `Audio::Init()`; retry attempts are rate limited to about once per second.
+You can initialize individual modules for a smaller application. Call `System::Init()` before using the shared I2C bus or Func button. Check each module's result. Codec failures can be retried through `Audio::Init()`; retry attempts are rate limited to about once per second.
 
 ## Keyboard and key LEDs
 
@@ -268,7 +268,6 @@ Include `usb/usb.h` separately and start USB after system initialization. The de
 ```cpp
 #include "usb/usb.h"
 
-// After System::Init() or CardenzaHAL::Init():
 CardenzaHAL::USB::Config config;
 config.product = "My Cardenza App";
 config.audio = false;
@@ -278,7 +277,7 @@ config.consumer = false;
 bool started = CardenzaHAL::USB::Init(config);
 ```
 
-The system HID channel remains enabled. `Init()` returns `false` if USB is already running, Func is held, a development fallback skips this boot, or startup fails. Check `Started()` and `Mounted()` separately; mounted means configured by a host and not suspended.
+The system HID channel remains enabled. `Init()` returns `false` if USB is already running, a development fallback skips this boot, or startup fails. Check `Started()` and `Mounted()` separately; mounted means configured by a host and not suspended.
 
 | API | Data and application responsibility |
 | --- | --- |
@@ -297,7 +296,7 @@ USB audio does not automatically route to the speaker or microphone. Bridge it i
 
 `CardenzaHAL::USB::Init()` (`usb/usb.h`) turns the USB port into one composite device: USB MIDI 1.0, USB Audio 2.0 (stereo 16-bit, 44.1 kHz, both ways, asynchronous with feedback: the host follows the device's clock) and HID (keyboard, consumer keys, a system channel and the firmware's own raw reports). VID 0x0203 (203 Systems). Report IDs and command bytes follow Matrix OS: report 0xCB carries system commands (0x40 Launcher / update mode, 0x41 reboot, 0x42 ROM download mode, 0x43 console, 0x44 identify; answers come back as command | 0x80), and the same commands work as SysEx `F0 23 <command> F7`. The firmware's own reports (0xFF) also come as SysEx `F0 23 7F <bytes> F7` from a host without HID access (a web page with Web MIDI), and `SendAppReport` answers the way the last one came (`F0 24 7F <bytes> F7`, 7-bit). MIDI packets from the firmware and the HAL's SysEx are written one sender at a time, so a SysEx reaches the host whole.
 
-- It takes the chip's only USB PHY from USB-Serial-JTAG: the console moves to the system channel and esptool's port is gone until a restart into the Launcher or the ROM download mode. Holding Func while `Init` runs keeps USB-Serial-JTAG.
+- It takes the chip's only USB PHY from USB-Serial-JTAG: the console moves to the system channel and esptool's port is gone until a restart into the Launcher or the ROM download mode.
 - The ESP32-S3 has four IN endpoints besides EP0, and the device uses all of them (MIDI, audio in, audio feedback, HID). There is no room for CDC.
 - TinyUSB is configured by `usb/config/tusb_config.h` alone. Do not add `esp_tinyusb` (or anything else that configures TinyUSB) to the same firmware.
 - RAM: about 8.5 KB static (the audio FIFOs are 2 KB each way), plus a 4 KB task stack once started.
@@ -331,7 +330,7 @@ Use [`board/pins.h`](board/pins.h) as the source for GPIO assignments. Avoid rec
 | A key swap is missed | Compare complete key snapshots; `isChanged()` only detects count changes. |
 | No speaker audio | Check codec readiness, volume, slot mode, TX enable, and continuous PCM writes; restore output pins after microphone use. |
 | SD unavailable | Check filesystem/card and `Storage::Init()`; the HAL never formats on mount failure. |
-| Serial port disappears after USB starts | Expected PHY handover. For recovery, hold Func while restarting into this firmware so its USB init is skipped; or use a system command to enter Launcher/ROM download mode. |
+| Serial port disappears after USB starts | Expected PHY handover. Use a system command to enter Launcher/ROM download mode. |
 | USB enumerates but produces no audio | Enable a host stream and feed/read USB audio in the app; no automatic hardware routing is installed. |
 
 ## Launcher applications

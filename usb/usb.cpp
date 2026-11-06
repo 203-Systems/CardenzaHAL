@@ -20,7 +20,6 @@
 #include <soc/rtc_cntl_reg.h>
 #include <soc/rtc_cntl_struct.h>
 
-#include "system/system.h"
 #include "tusb.h"
 #include "device/usbd_pvt.h"
 
@@ -478,12 +477,6 @@ bool Init(const Config& config)
     {
         g_skipUsb = 0;
         ESP_LOGW(kTag, "the last start found no host: USB stays on USB-Serial-JTAG this time");
-        return false;
-    }
-    // The way back to esptool on a device whose USB firmware does not answer: hold Func at start.
-    if (System::GetFuncButton())
-    {
-        ESP_LOGW(kTag, "Func held: USB stays on USB-Serial-JTAG");
         return false;
     }
     g_config = config;

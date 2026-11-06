@@ -11,7 +11,7 @@
 // Starting it takes the chip's only USB PHY away from USB-Serial-JTAG: the console and esptool's port
 // go with it. The system channel replaces both: the host reads the console there, and asks the HAL to
 // restart into the Launcher (which brings USB-Serial-JTAG back and takes firmware over it) or into the
-// ROM download mode (esptool). Holding the Func button while Init runs keeps USB-Serial-JTAG instead.
+// ROM download mode (esptool).
 //
 // The ESP32-S3 has four IN endpoints besides EP0, and this device uses all of them: MIDI, audio to
 // the host, the audio feedback endpoint and HID. Nothing else fits next to it (no CDC).
@@ -41,8 +41,8 @@ namespace CardenzaHAL::USB {
         uint16_t fallbackSeconds = 0;
     };
 
-    // Starts the device. False if it is already running, the Func button is held, or the stack could
-    // not start (USB-Serial-JTAG then stays as it was).
+    // Starts the device. False if it is already running, a development fallback skips this boot,
+    // or startup fails.
     bool Init(const Config& config = Config());
     bool Started();
     // Configured by a host and not suspended.

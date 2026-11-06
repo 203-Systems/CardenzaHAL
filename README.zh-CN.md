@@ -136,7 +136,7 @@ idf.py -p <PORT> flash monitor
 
 `LastInitReport()` 提供上述六个模块的结果和 `overall`。整体初始化成功后会缓存结果，再调用一次不会重新挂载缺失的 SD 卡；需要单独调用 `Storage::Init()` 重试。麦克风和 USB **不在整体初始化范围内**；`cardenzaHAL.h` 也不包含 `usb/usb.h`。
 
-只需要部分功能时，可以分别初始化各模块。使用共享 I2C、Func 或初始化 USB 前，先调用 `System::Init()`，并检查各模块的返回值。音频编解码器初始化失败后可以再次调用 `Audio::Init()`，重试频率限制约为每秒一次。
+只需要部分功能时，可以分别初始化各模块。使用共享 I2C 或 Func 前，先调用 `System::Init()`，并检查各模块的返回值。音频编解码器初始化失败后可以再次调用 `Audio::Init()`，重试频率限制约为每秒一次。
 
 ## 键盘与按键灯
 
@@ -270,7 +270,6 @@ void ReadSettings()
 ```cpp
 #include "usb/usb.h"
 
-// After System::Init() or CardenzaHAL::Init():
 CardenzaHAL::USB::Config config;
 config.product = "My Cardenza App";
 config.audio = false;
@@ -280,7 +279,7 @@ config.consumer = false;
 bool started = CardenzaHAL::USB::Init(config);
 ```
 
-系统 HID 通道仍然保留。USB 已启动、Func 按住、开发恢复机制跳过本次启动，或启动失败时，`Init()` 都可能返回 `false`。可分别检查 `Started()` 和 `Mounted()`；后者表示已被主机配置且未挂起。
+系统 HID 通道仍然保留。USB 已启动、开发恢复机制跳过本次启动，或启动失败时，`Init()` 都可能返回 `false`。可分别检查 `Started()` 和 `Mounted()`；后者表示已被主机配置且未挂起。
 
 | 接口 | 数据与应用责任 |
 | --- | --- |
@@ -299,7 +298,7 @@ USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包�
 
 `CardenzaHAL::USB::Init()`（`usb/usb.h`）把 USB 口变成一个复合设备：USB MIDI 1.0、USB 音频 2.0（立体声 16 位 44.1 kHz，双向，异步带反馈：电脑跟随设备的时钟）和 HID（键盘、媒体键、系统通道和固件自己的原始报告）。VID 0x0203（203 Systems）。报告号和指令沿用 Matrix OS：报告 0xCB 是系统指令（0x40 Launcher / 更新模式，0x41 重启，0x42 ROM 下载模式，0x43 控制台，0x44 识别；应答为指令 | 0x80），同样的指令也可以用 SysEx `F0 23 <指令> F7` 发。固件自己的报告（0xFF）在电脑没法用 HID 时（比如用 Web MIDI 的网页）也能用 SysEx `F0 23 7F <字节> F7` 发，`SendAppReport` 按上一条来的方式回复（`F0 24 7F <字节> F7`，7 位）。固件的 MIDI 包和 HAL 的 SysEx 一次只有一方在写，SysEx 到电脑时是完整的。
 
-- 它占用芯片唯一的 USB PHY：控制台转到系统通道，esptool 的串口没有了，直到重启进 Launcher 或 ROM 下载模式。`Init` 时按住 Func 则保留 USB-Serial-JTAG。
+- 它占用芯片唯一的 USB PHY：控制台转到系统通道，esptool 的串口没有了，直到重启进 Launcher 或 ROM 下载模式。
 - ESP32-S3 除 EP0 外只有四个 IN 端点，这个设备全部用上（MIDI、音频输入、音频反馈、HID），放不下 CDC。
 - TinyUSB 只由 `usb/config/tusb_config.h` 配置。同一个固件里不要再加 `esp_tinyusb` 或其他配置 TinyUSB 的东西。
 - 内存：静态约 8.5 KB（音频 FIFO 每个方向 2 KB），启动后再加 4 KB 任务栈。
@@ -333,7 +332,7 @@ GPIO 以 [`board/pins.h`](board/pins.h) 为准。应用应避免重新配置 HAL
 | 换键事件丢失 | 比较完整快照；`isChanged()` 只检测数量变化。 |
 | 没有声音 | 检查编解码器就绪、音量、声道模式、TX 启用和 PCM 连续写入；用过麦克风后需恢复输出引脚。 |
 | SD 卡不可用 | 检查文件系统/卡和 `Storage::Init()`；HAL 不会在挂载失败时格式化。 |
-| 开启 USB 后串口消失 | USB PHY 已切换。恢复时按住 Func 重启到此固件，使它跳过 USB 初始化；或通过系统指令进入 Launcher/ROM 下载模式。 |
+| 开启 USB 后串口消失 | USB PHY 已切换。通过系统指令进入 Launcher/ROM 下载模式。 |
 | USB 枚举成功但没有音频 | 在主机开启音频流，并在应用中供给/读取 USB 音频；HAL 不自动桥接硬件。 |
 
 ## Launcher 应用
