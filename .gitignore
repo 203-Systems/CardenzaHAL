@@ -1,2 +1,5 @@
 build-tests/
 __pycache__/
+examples/*/sdkconfig
+examples/*/sdkconfig.old
+examples/*/build/

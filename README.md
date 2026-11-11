@@ -355,6 +355,12 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 
 `version.txt` holds `major.minor.patch`. The generated header has `kVersion`, `kHash` (the Git commit), `kDirty` (built with local changes, the HAL included) and `kTimeUtc`. Print them at every start with the ELF's hash (`esp_app_get_elf_sha256`), and keep the ELF of every build you give anyone: a backtrace is decoded with it (`xtensa-esp32s3-elf-addr2line -pfiaC -e <firmware>.elf <addresses>`).
 
+## Developer notes, examples and publishing
+
+- [`docs/developing.md`](docs/developing.md): what the chip and its toolchain do that is easy to miss (two RAMs, atomics with PSRAM, `memcpy` and division in hot code, what a flash write stops, reading files, USB and the serial port, debugging a hang), and how a firmware behaves under the 203 Launcher.
+- [`examples/psram_heap`](examples/psram_heap): a small firmware that adds the PSRAM to the heap only for code that asks for it, and replaces `new` so a failed allocation is a null pointer instead of a reboot. `idf.py -C examples/psram_heap build`.
+- [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml): a GitHub Action that publishes a firmware image to the 203 Launcher hub (a Nightly for a push, a release for a `vX.Y.Z` tag) with the App's scoped token.
+
 ## Host tests
 
 [`tests/`](tests) checks the HAL on a computer, without a board or ESP-IDF: the pure calculations (key debounce and the key-count guard, LED frames, the backlight curve) and the driver sources against fake ESP-IDF drivers that fail on purpose, so every error path runs. CI runs them on every push and pull request.

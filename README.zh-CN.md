@@ -357,6 +357,12 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 
 `version.txt` 写 `主.次.修订`。生成的头文件里有 `kVersion`、`kHash`（Git 提交）、`kDirty`（带本地改动构建，HAL 的改动也算）和 `kTimeUtc`。每次开机连同 ELF 的哈希（`esp_app_get_elf_sha256`）一起打印出来，并保存给过别人的每个版本的 ELF：解析调用栈要用它（`xtensa-esp32s3-elf-addr2line -pfiaC -e <固件>.elf <地址>`）。
 
+## 开发须知、示例与发布
+
+- [`docs/developing.zh-CN.md`](docs/developing.zh-CN.md)：芯片和工具链容易忽略的地方（两种内存、开 PSRAM 后的原子操作、热路径里的 `memcpy` 和除法、写闪存会停掉什么、读文件、USB 与串口、排查卡死），以及固件在 203 Launcher 下应该怎样运行。
+- [`examples/psram_heap`](examples/psram_heap)：一个小固件，把 PSRAM 加进堆、只给明确申请的代码用，并替换 `new`，让申请失败变成空指针而不是重启。`idf.py -C examples/psram_heap build`。
+- [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：用 App 的专用令牌把固件发布到 203 Launcher hub 的 GitHub Action（推送是 Nightly，`vX.Y.Z` 标签是正式版）。
+
 ## 主机测试
 
 [`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线），以及驱动源码在故意出错的假 ESP-IDF 驱动下运行，让每条出错路径都走一遍。CI 在每次推送和每个 PR 上运行它们。

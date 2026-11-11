@@ -1,0 +1,5 @@
+# The PSRAM is mapped but malloc does not use it: the example adds it to the heap with its own
+# capability (main/main.cpp), so malloc, C libraries and drivers stay in internal RAM.
+CONFIG_SPIRAM_USE_MEMMAP=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../board/partitions.csv"
