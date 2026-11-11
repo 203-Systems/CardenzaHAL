@@ -318,6 +318,22 @@ Use [`board/pins.h`](board/pins.h) as the source for GPIO assignments. Avoid rec
 | GPIO0 | Func button and ROM boot selection |
 | Internal USB PHY | USB device or USB-Serial-JTAG |
 
+## Board defaults, partitions and flashing
+
+The HAL ships what the board is, as defaults a firmware can take (none is enforced):
+
+- [`board/sdkconfig.defaults`](board/sdkconfig.defaults): 16 MB flash in quad I/O at 120 MHz (as the 203 Launcher's bootloader runs it), the 2 MB PSRAM at 120 MHz, a 1000 Hz FreeRTOS tick (`Display::Present` waits per band; at 100 Hz a screen takes 170 ms), FAT with 512-byte sectors and long names. List it first in `SDKCONFIG_DEFAULTS`, your own defaults after it:
+  ```cmake
+  set(SDKCONFIG_DEFAULTS "${CMAKE_CURRENT_LIST_DIR}/components/CardenzaHAL/board/sdkconfig.defaults;sdkconfig.defaults")
+  include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+  ```
+- [`board/sdkconfig.debug`](board/sdkconfig.debug): for debug builds, a hung task restarts the board with a backtrace (task watchdog panic, idle tasks watched, run-time statistics).
+- [`board/partitions.csv`](board/partitions.csv): the default partition table. **The device's partition table belongs to the 203 Launcher**: a firmware installed through the Launcher goes into a slot the Launcher makes. This table only matters for a board flashed directly, and then it keeps the Launcher's regions exactly where the Launcher has them (NVS, otadata, the Launcher's own slot reserved, coredump) and puts the firmware after them in `ota_0` (0x170000, 4 MB). Name it with `CONFIG_PARTITION_TABLE_CUSTOM=y` and `CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="<path to the HAL>/board/partitions.csv"`. Never put anything else below 0x170000.
+- [`tools/cardenza_flash.py`](tools/cardenza_flash.py): flashes a build the safe way. It reads the board's partition table first and **refuses when the board has the Launcher** (a full flash would erase the Launcher and its list of installed software); install through the Launcher instead, or pass `--replace-launcher` to erase it on purpose. It also warns when the build's own table would overlap the Launcher.
+  ```sh
+  python3 components/CardenzaHAL/tools/cardenza_flash.py -p /dev/ttyACM0 build
+  ```
+
 ## Host tests
 
 [`tests/`](tests) checks the HAL on a computer, without a board or ESP-IDF: the pure calculations (key debounce and the key-count guard, LED frames, the backlight curve) and the driver sources against fake ESP-IDF drivers that fail on purpose, so every error path runs. CI runs them on every push and pull request.
