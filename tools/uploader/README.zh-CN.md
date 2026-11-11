@@ -15,7 +15,7 @@ python -m venv .venv
 # macOS / Linux
 source .venv/bin/activate
 # Windows PowerShell：.venv\Scripts\Activate.ps1
-python -m pip install -r tools/requirements.txt
+python -m pip install -r tools/uploader/requirements.txt
 python -m serial.tools.list_ports -v
 ```
 
@@ -33,13 +33,13 @@ ESP32-S3 芯片检查不能证明固件引脚与 Cardenza 匹配。
 先离线检查镜像，无需连接设备或安装依赖：
 
 ```sh
-python tools/serial_flasher.py --check -f ../MyApp/build/my_app.bin
+python tools/uploader/serial_flasher.py --check -f ../MyApp/build/my_app.bin
 ```
 
 让设备返回 Launcher 主界面，然后上传：
 
 ```sh
-python tools/serial_flasher.py --no-reset -p COM8 -f ../MyApp/build/my_app.bin -n MyApp
+python tools/uploader/serial_flasher.py --no-reset -p COM8 -f ../MyApp/build/my_app.bin -n MyApp
 ```
 
 脚本查询 `Launcher ...`，发送 `flash firmware MyApp <size>`，确认
@@ -65,7 +65,7 @@ BIN；只提取并发送应用部分。存在多个有效应用时会拒绝，�
 上传后设备已进入 App，需要再次返回 Launcher。登记工具不刷写、不复位。
 
 ```sh
-python tools/register_app.py -p COM8 --list
+python tools/uploader/register_app.py -p COM8 --list
 python -c "import uuid; print(uuid.uuid4())"
 ```
 
@@ -86,8 +86,8 @@ python -c "import uuid; print(uuid.uuid4())"
 从 `--list` 输出确认实际分区 `label`，将下文 `app0` 替换为该标签：
 
 ```sh
-python tools/register_app.py -p COM8 --label app0 --metadata ../MyApp/app.json
-python tools/register_app.py -p COM8 --list
+python tools/uploader/register_app.py -p COM8 --label app0 --metadata ../MyApp/app.json
+python tools/uploader/register_app.py -p COM8 --list
 ```
 
 预期先看到 `OK registered`，随后列表中该条目为 `Registered`，UUID、名称、
@@ -118,7 +118,7 @@ Launcher 会拒绝与其他分区重复的 UUID，以及直接替换已有身份
 
 | 现象 | 处理 |
 | --- | --- |
-| 缺 pyserial / esptool | 在运行脚本的同一 Python 环境安装 `tools/requirements.txt`。`--no-reset` 不需要 esptool。 |
+| 缺 pyserial / esptool | 在运行脚本的同一 Python 环境安装 `tools/uploader/requirements.txt`。`--no-reset` 不需要 esptool。 |
 | App 启动后串口消失 | 从 App 界面或 HAL 系统命令 `0x40` 返回 Launcher，再列举端口。 |
 | Launcher 超时 / `ERR busy` | 回到主界面，关闭串口监视器，核对端口，用 `--no-reset` 重试。 |
 | BIN 无效 / 合并镜像有多个应用 | 使用构建目录里的未签名 Cardenza 应用 BIN。 |
@@ -140,5 +140,5 @@ Launcher 会拒绝与其他分区重复的 UUID，以及直接替换已有身份
 上游命令变更时需核对协议并运行：
 
 ```sh
-python -m unittest discover -s tools/tests -v
+python -m unittest discover -s tools/uploader/tests -v
 ```

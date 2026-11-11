@@ -337,4 +337,4 @@ GPIO 以 [`board/pins.h`](board/pins.h) 为准。应用应避免重新配置 HAL
 
 ## Launcher 应用
 
-上传和登记工具及完整使用步骤见 [tools/README.zh-CN.md](tools/README.zh-CN.md)。
+上传和登记工具及完整使用步骤见 [tools/uploader/README.zh-CN.md](tools/uploader/README.zh-CN.md)。

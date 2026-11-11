@@ -335,4 +335,4 @@ Use [`board/pins.h`](board/pins.h) as the source for GPIO assignments. Avoid rec
 
 ## Launcher applications
 
-Upload and registration tools with setup instructions are included in [tools/README.md](tools/README.md).
+Upload and registration tools with setup instructions are included in [tools/uploader/README.md](tools/uploader/README.md).

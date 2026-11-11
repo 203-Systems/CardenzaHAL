@@ -29,7 +29,7 @@ except ImportError:
 
 def require_serial():
     if serial is None:
-        raise ValueError("Missing pyserial. Run: python -m pip install -r tools/requirements.txt")
+        raise ValueError("Missing pyserial. Run: python -m pip install -r tools/uploader/requirements.txt")
 
 READY_PREFIX = "READY"
 

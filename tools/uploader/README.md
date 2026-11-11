@@ -15,7 +15,7 @@ python -m venv .venv
 # macOS / Linux
 source .venv/bin/activate
 # Windows PowerShell: .venv\Scripts\Activate.ps1
-python -m pip install -r tools/requirements.txt
+python -m pip install -r tools/uploader/requirements.txt
 python -m serial.tools.list_ports -v
 ```
 
@@ -34,13 +34,13 @@ Checking the ESP32-S3 chip ID cannot establish board pin compatibility.
 Validate the image before connecting (no dependencies required):
 
 ```sh
-python tools/serial_flasher.py --check -f ../MyApp/build/my_app.bin
+python tools/uploader/serial_flasher.py --check -f ../MyApp/build/my_app.bin
 ```
 
 Return to the Launcher's home screen, then upload:
 
 ```sh
-python tools/serial_flasher.py --no-reset -p COM8 -f ../MyApp/build/my_app.bin -n MyApp
+python tools/uploader/serial_flasher.py --no-reset -p COM8 -f ../MyApp/build/my_app.bin -n MyApp
 ```
 
 The tool waits for `Launcher ...`, sends `flash firmware MyApp <size>`, checks
@@ -70,7 +70,7 @@ Upload reboots into the app. Return to Launcher before running these commands.
 Registration never flashes or resets the device.
 
 ```sh
-python tools/register_app.py -p COM8 --list
+python tools/uploader/register_app.py -p COM8 --list
 python -c "import uuid; print(uuid.uuid4())"
 ```
 
@@ -92,8 +92,8 @@ UUID for different apps. Read the exact `label` from `--list` and substitute it
 for `app0`:
 
 ```sh
-python tools/register_app.py -p COM8 --label app0 --metadata ../MyApp/app.json
-python tools/register_app.py -p COM8 --list
+python tools/uploader/register_app.py -p COM8 --label app0 --metadata ../MyApp/app.json
+python tools/uploader/register_app.py -p COM8 --list
 ```
 
 Expect `OK registered`, then a `Registered` entry with the intended UUID/name,
@@ -127,7 +127,7 @@ a Cardenza Launcher app BIN and follow the upstream update guide below.
 
 | Symptom | Action |
 | --- | --- |
-| Missing pyserial/esptool | Install `tools/requirements.txt` in the Python environment used to run the tool. `--no-reset` does not need esptool. |
+| Missing pyserial/esptool | Install `tools/uploader/requirements.txt` in the Python environment used to run the tool. `--no-reset` does not need esptool. |
 | Port missing after app USB starts | Return to Launcher using the app UI or HAL system command `0x40`; list ports again. |
 | Launcher timeout / `ERR busy` | Return to its home screen, close serial monitors, verify the port and retry with `--no-reset`. |
 | Invalid BIN / multiple merged apps | Supply the unsigned Cardenza app-only BIN from the build directory. |
@@ -150,5 +150,5 @@ and [serial console implementation](https://github.com/203-Systems/203-launcher/
 When Launcher changes these commands, compare the protocol and rerun:
 
 ```sh
-python -m unittest discover -s tools/tests -v
+python -m unittest discover -s tools/uploader/tests -v
 ```
