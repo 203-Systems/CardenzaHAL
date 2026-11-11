@@ -3,7 +3,7 @@
 #include <array>
 #include <cstdint>
 
-#include "keyboard/internal/led_brightness.h"
+#include "internal/led_brightness.h"  // relative to this file: hosts that include it by path find it too
 
 // Key LED light as the eye sees it. Pure: a firmware, its simulator and its tests can all use it.
 //
