@@ -51,7 +51,7 @@ A Cardenza normally runs the 203 Launcher, which installs and starts firmwares. 
 - is installed into a slot the Launcher makes: it never changes the partition table, the otadata, or the Launcher's slot. A board is flashed directly only when it has no Launcher ([`board/partitions.csv`](../board/partitions.csv) keeps the Launcher's regions even then, and [`tools/cardenza_flash.py`](../tools/cardenza_flash.py) refuses to erase a Launcher);
 - keeps its data on the SD card, in its own folder, and leaves the Launcher's NVS records alone (above);
 - runs with the Launcher's bootloader, which sets the flash to QIO: build it so;
-- names itself in its app description: `PROJECT_VER` is the version the Launcher shows (`cardenza_read_version`), the project name what it shows for a firmware it does not know;
+- carries its version in its app description: `PROJECT_VER` (`cardenza_read_version`) is the version the Launcher shows under it. Its name in the list is not the project name: it is the name it was registered or installed under, and a directly flashed firmware shows its partition label;
 - goes back to the Launcher with a plain restart (`esp_restart()`; `command launcher` over USB does it from a computer);
 - is published to the Launcher hub with [`.github/actions/launcher-publish`](../.github/actions/launcher-publish/action.yml): a Nightly for a push to main, a release for a tag `vX.Y.Z` equal to its version.
 
