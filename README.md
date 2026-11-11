@@ -335,6 +335,4 @@ Use [`board/pins.h`](board/pins.h) as the source for GPIO assignments. Avoid rec
 
 ## Launcher applications
 
-See the [203-launcher application registration guide](https://github.com/203-Systems/203-launcher/blob/main/docs/REGISTERED_SOFTWARE.md#developer-workflow) for metadata and registration commands.
-
 Upload and registration tools with setup instructions are included in [tools/README.md](tools/README.md).
