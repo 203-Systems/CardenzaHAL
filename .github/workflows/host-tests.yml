@@ -1,0 +1,20 @@
+# The HAL's host tests (tests/): its pure calculations and its driver sources against fake ESP-IDF
+# drivers. No board and no ESP-IDF needed.
+name: Host tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          cmake -S tests -B build-tests -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build-tests -j
+      - name: Test
+        run: ctest --test-dir build-tests --output-on-failure
