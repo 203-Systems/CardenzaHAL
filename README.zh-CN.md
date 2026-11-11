@@ -338,3 +338,5 @@ GPIO 以 [`board/pins.h`](board/pins.h) 为准。应用应避免重新配置 HAL
 ## Launcher 应用
 
 应用元数据和登记命令见 [203-launcher 应用登记指南](https://github.com/203-Systems/203-launcher/blob/main/docs/REGISTERED_SOFTWARE.md#developer-workflow)。
+
+上传和登记工具及完整使用步骤见 [tools/README.zh-CN.md](tools/README.zh-CN.md)。
