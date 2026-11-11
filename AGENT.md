@@ -8,7 +8,8 @@
 - `CardenzaHAL::System::GetI2CBus()` belongs in the public `system.h` surface.
 - Keep includes relative to this repository; never include through a consumer's path such as `Devices/Cardenza/cardenza/...`.
 - Target the current board only: LED_EN GPIO47, clock GPIO48, data GPIO21. Do not add legacy pin maps or compatibility APIs.
-- Keyboard LED APIs use 0–15. Keep per-key scanning at four bit planes / 16 duties and global hardware PWM at a fixed gamma-2 curve. Do not add alternative brightness modes.
+- Keyboard LED APIs use 0–15. Keep per-key scanning at four bit planes / 16 duties and global hardware PWM at a fixed gamma-2 curve. Do not add alternative brightness modes; `keyboard/led_light.h` (perceived brightness to duty) is a helper a firmware may call, not a mode of the driver.
+- `keyboard/led_light.h` and `keyboard/key_settle.h` are pure headers (no ESP-IDF), usable by simulators and host tests; keep them so, and test them in `tests/`.
 - Keyboard OE uses LEDC timer 1 / channel 6; backlight uses timer 0 / channel 7. Both must use APB because ESP32-S3 low-speed LEDC timers share their clock source.
 - Keep test apps (firmware), experiments, firmware binaries, build directories, device dumps, and runtime logs outside this HAL repository.
 - Host tests of the HAL's own code live in `tests/` (CMake, no ESP-IDF: pure calculations, and the driver sources against the fake ESP-IDF drivers in `tests/hal_faults/fakes`); CI runs them on every push and pull request. A change to a calculation or an error path comes with its test.
