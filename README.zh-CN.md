@@ -331,7 +331,7 @@ HAL 附带了这块板子本身的事实，作为固件可以直接用的默认�
   ```
 - [`board/sdkconfig.debug`](board/sdkconfig.debug)：调试版本用。任务卡住时板子带着调用栈重启（任务看门狗触发 panic、检查空闲任务、统计各任务的 CPU 占用）。
 - [`board/partitions.csv`](board/partitions.csv)：默认分区表。**设备上的分区表归 203 Launcher 管**：经 Launcher 安装的固件放在 Launcher 划出的分区里。这张表只在直接刷机时才用到，此时它把 Launcher 的区域原样留在 Launcher 的位置（NVS、otadata、Launcher 自己的分区留空、coredump），固件放在它们后面的 `ota_0`（0x170000，4 MB）。用 `CONFIG_PARTITION_TABLE_CUSTOM=y` 和 `CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="<HAL 的路径>/board/partitions.csv"` 指定它。0x170000 以下不要放别的东西。
-- [`tools/cardenza_flash.py`](tools/cardenza_flash.py)：安全地刷入一次构建。它先读板子上的分区表，**板子上装着 Launcher 就拒绝**（整片刷会抹掉 Launcher 和它的已装软件列表）；请改用 Launcher 安装，或者加 `--replace-launcher` 有意抹掉它。固件自带的分区表会压到 Launcher 时，它也会提醒。
+- [`tools/cardenza_flash.py`](tools/cardenza_flash.py)：安全地刷入一次构建。它先读板子上的分区表，**板子上装着 Launcher 就拒绝**（整片刷会抹掉 Launcher 和它的已装软件列表）；请改用 Launcher 安装；开发时也可以用 `--app-into <分区名>` 只把程序镜像写进 Launcher 的某个程序分区（Launcher 的开发流程：之后在 Launcher 里启动或登记它）。`--replace-launcher` 会有意抹掉 Launcher。固件自带的分区表会压到 Launcher 时，它也会提醒。
   ```sh
   python3 components/CardenzaHAL/tools/cardenza_flash.py -p /dev/ttyACM0 build
   ```

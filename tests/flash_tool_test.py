@@ -44,4 +44,15 @@ head[48:48 + 5] = b"0.2.0"
 head[80:80 + 11] = b"launcher203"
 assert tool.describe_image(bytes(head)) == "launcher203 0.2.0"
 assert tool.describe_image(b"\xff" * 0x100) is None
+# --app-into: the app image of a build, and an app partition that can take it.
+FLASH_ARGS = "--flash_mode dio --flash_freq 80m --flash_size 16MB\n0x0 bootloader/bootloader.bin\n0x170000 MyFirmware.bin\n0x8000 partition_table/partition-table.bin\n0xe000 ota_data_initial.bin\n"
+assert tool.app_image(FLASH_ARGS) == "MyFirmware.bin"
+assert tool.app_image("--flash_mode dio\n0x0 bootloader/bootloader.bin\n") is None
+launcher_entries = tool.parse_table(LAUNCHER)
+slot, why = tool.app_slot(launcher_entries, "app_1", 0x100000)
+assert slot is not None and slot["offset"] == 0x170000 and why is None
+assert tool.app_slot(launcher_entries, "app0", 0x1000)[0] is None  # the Launcher itself
+assert "does not fit" in tool.app_slot(launcher_entries, "app_1", 0x300000)[1]
+assert "not an app" in tool.app_slot(launcher_entries, "nvs", 1)[1]
+assert "no partition" in tool.app_slot(launcher_entries, "nothing", 1)[1]
 print("flash tool ok")
