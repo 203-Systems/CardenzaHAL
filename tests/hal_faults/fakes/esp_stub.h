@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdlib>
 
 // Test-only SDK boundary. The actual HAL sources are linked unchanged; these
 // functions inject driver failures and record ownership, without emulating a board.
@@ -56,6 +57,13 @@ inline bool Bad(const char* point) { return fail == point; }
 inline int Result(const char* point) { return Bad(point) ? ESP_FAIL : ESP_OK; }
 }
 inline std::int64_t esp_timer_get_time() { return Fake::now; }
+
+// heap_caps: one RAM on the host; Fake::fail = "heap" makes every allocation fail.
+#define MALLOC_CAP_8BIT (1u << 2)
+#define MALLOC_CAP_SPIRAM (1u << 10)
+#define MALLOC_CAP_INTERNAL (1u << 11)
+inline void* heap_caps_malloc(std::size_t size, std::uint32_t) { return Fake::Bad("heap") ? nullptr : std::malloc(size); }
+inline void heap_caps_free(void* block) { std::free(block); }
 constexpr int ESP_RST_POWERON = 1, ESP_RST_SW = 3;
 inline int esp_reset_reason() { return Fake::resetReason; }
 

@@ -171,6 +171,8 @@ bool ok = CardenzaHAL::Display::Present(framebuffer, &dirty, 1);
 
 使用原生渲染接口时，获取 `GetPanel()` / `GetPanelIO()` 句柄，完成绘制提交后调用无参数的 `Present()`，等待排队绘制完成并显示画面。不要把自定义 panel-IO 回调与帧缓冲版 `Present()` 混用。屏幕提交和控制应由同一任务调用。
 
+整屏一次是 17 ms 的 SPI，占了 50 fps 一帧的大半。**`PresentChanged(framebuffer)`** 自己算出哪里变了，只发那些：每行按 30 像素一段算哈希，每条 8 行的带子只发变了的行、横向覆盖变了的段；每帧另外整条重发一带，约 0.34 秒整屏刷新一遍。帧缓冲要 4 字节对齐（`alignas(4)`）；4.3 KB 的哈希表第一次用时才申请（有 PSRAM 就放 PSRAM），申请不到就整帧发送。它和其他 `Present` 二选一，不要混用。计算部分是 [`display/changed_regions.h`](display/changed_regions.h)，纯头文件，主机测试或自己负责发送的固件也能用。
+
 ## 音频输出
 
 接口：[`audio/audio.h`](audio/audio.h)。

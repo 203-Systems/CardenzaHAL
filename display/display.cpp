@@ -1,13 +1,16 @@
 #include "display.h"
+#include "changed_regions.h"
 #include "backlight_brightness.h"
 #include "../board/pins.h"
 
 #include <algorithm>
 #include <cstring>
+#include <new>
 #include <driver/gpio.h>
 #include <driver/ledc.h>
 #include <driver/spi_master.h>
 #include <esp_attr.h>
+#include <esp_heap_caps.h>
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_commands.h>
@@ -331,6 +334,33 @@ bool Present(const uint16_t* framebuffer, const Region* regions, std::size_t cou
     }
     fullRefreshRequired = false;
     return true;
+}
+
+namespace {
+// PresentChanged's table of row hashes, made on its first frame (PSRAM when there is some: it is read
+// once a frame). Null after that: no room, so every frame goes whole.
+ChangedRegions* changedRegions = nullptr;
+bool changedRegionsTried = false;
+}
+
+bool PresentChanged(const uint16_t* framebuffer)
+{
+    if (framebuffer == nullptr) return false;
+    if (!changedRegionsTried)
+    {
+        changedRegionsTried = true;
+        const std::size_t bytes = ChangedRegions::kHashCount * sizeof(uint32_t);
+        void* hashes = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (hashes == nullptr) hashes = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        void* finder = hashes != nullptr ? heap_caps_malloc(sizeof(ChangedRegions), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) : nullptr;
+        if (finder != nullptr) changedRegions = new (finder) ChangedRegions(static_cast<uint32_t*>(hashes));
+        else if (hashes != nullptr) heap_caps_free(hashes);
+    }
+    if (changedRegions == nullptr) return Present(framebuffer);
+    Region regions[ChangedRegions::kMaxRegions];
+    const std::size_t count = changedRegions->Find(framebuffer, regions);
+    // A failed send leaves the panel unsure: Present sends the whole screen next time.
+    return Present(framebuffer, regions, count);
 }
 
 bool Present()

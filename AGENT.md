@@ -4,7 +4,7 @@
 - Keep `CardenzaHAL` lightweight and generic. Expose native ESP-IDF handles rather than app-level wrappers.
 - `CardenzaHAL::Audio` exposes the TX `i2s` channel, volume, and `Init(i2s_slot_mode_t)` for mono/stereo configuration. Use native ESP-IDF types; keep PCM conversion and rendering in consumers.
 - `CardenzaHAL::Mic` should expose the RX `i2s` channel only. Device-level input start/read/stop wrappers belong above the HAL.
-- `CardenzaHAL::Display` should expose native panel and panel-IO handles.
+- `CardenzaHAL::Display` should expose native panel and panel-IO handles. `display/region.h` and `display/changed_regions.h` stay pure (no ESP-IDF) so host code and tests can include them; `PresentChanged` is the driver's way to send only what changed.
 - `CardenzaHAL::System::GetI2CBus()` belongs in the public `system.h` surface.
 - Keep includes relative to this repository; never include through a consumer's path such as `Devices/Cardenza/cardenza/...`.
 - Target the current board only: LED_EN GPIO47, clock GPIO48, data GPIO21. Do not add legacy pin maps or compatibility APIs.
