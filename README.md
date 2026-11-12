@@ -339,6 +339,14 @@ The HAL ships what the board is, as defaults a firmware can take (none is enforc
   python3 components/CardenzaHAL/tools/cardenza_flash.py -p /dev/ttyACM0 build
   ```
 
+## Host tools
+
+Command-line tools for the computer the board is plugged into (Python 3, no board needed to read them):
+
+- [`tools/cardenza_usb.py`](tools/cardenza_usb.py): the host side of `usb/usb.h`. `list` shows the board's HID, MIDI and audio devices; `command identify|reboot|launcher|download` restarts it (into the Launcher, or into ROM download mode, the way to flash a firmware that runs USB and so has no serial port); `console <seconds>` prints its console and log; `app <text>` talks to the firmware's own app channel. A firmware's own tool can import it. Needs `pip install hidapi`; MIDI goes through macOS CoreMIDI.
+- [`tools/cardenza_flash.py`](tools/cardenza_flash.py): flashes a build without erasing the Launcher (above).
+- [`tools/check_submodule.py`](tools/check_submodule.py): for a firmware that has the HAL as a git submodule, fails when the HAL has local changes or sits on a commit upstream `main` does not have, and makes pushes from it impossible. Run it before every build, so HAL changes are made upstream and every firmware gets the same HAL.
+
 ## Host tests
 
 [`tests/`](tests) checks the HAL on a computer, without a board or ESP-IDF: the pure calculations (key debounce and the key-count guard, LED frames, the backlight curve) and the driver sources against fake ESP-IDF drivers that fail on purpose, so every error path runs. CI runs them on every push and pull request.

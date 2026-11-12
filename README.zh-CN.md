@@ -341,6 +341,14 @@ HAL 附带了这块板子本身的事实，作为固件可以直接用的默认�
   python3 components/CardenzaHAL/tools/cardenza_flash.py -p /dev/ttyACM0 build
   ```
 
+## 电脑端工具
+
+给板子所连电脑用的命令行工具（Python 3）：
+
+- [`tools/cardenza_usb.py`](tools/cardenza_usb.py)：`usb/usb.h` 的电脑端。`list` 列出板子的 HID、MIDI 和音频设备；`command identify|reboot|launcher|download` 重启它（进 Launcher，或进 ROM 下载模式：固件开了 USB 就没有串口，要这样才能刷）；`console <秒数>` 打印控制台和日志；`app <文字>` 和固件自己的应用通道对话。固件自己的工具可以导入它。需要 `pip install hidapi`；MIDI 走 macOS 的 CoreMIDI。
+- [`tools/cardenza_flash.py`](tools/cardenza_flash.py)：刷机时不会抹掉 Launcher（见上）。
+- [`tools/check_submodule.py`](tools/check_submodule.py)：固件以 git 子模块使用 HAL 时，HAL 有本地改动、或停在上游 `main` 没有的提交上就报错，并且禁止从里面推送。每次构建前运行它，这样 HAL 的改动都在上游做，所有固件用的是同一份 HAL。
+
 ## 主机测试
 
 [`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线），以及驱动源码在故意出错的假 ESP-IDF 驱动下运行，让每条出错路径都走一遍。CI 在每次推送和每个 PR 上运行它们。

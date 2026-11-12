@@ -37,4 +37,6 @@ add_subdirectory(hal_faults)
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
   add_test(NAME CardenzaFlashToolTests COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/flash_tool_test.py)
+  # tools/cardenza_usb.py (SysEx framing, limits) and tools/check_submodule.py (a scratch git repository).
+  add_test(NAME CardenzaHostToolsTests COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/host_tools_test.py)
 endif()
