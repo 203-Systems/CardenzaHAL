@@ -8,7 +8,8 @@
 - `CardenzaHAL::System::GetI2CBus()` belongs in the public `system.h` surface.
 - Keep includes relative to this repository; never include through a consumer's path such as `Devices/Cardenza/cardenza/...`.
 - Target the current board only: LED_EN GPIO47, clock GPIO48, data GPIO21. Do not add legacy pin maps or compatibility APIs.
-- Keyboard LED APIs use 0–15. Keep per-key scanning at four bit planes / 16 duties and global hardware PWM at a fixed gamma-2 curve. Do not add alternative brightness modes.
+- Keyboard LED APIs use 0–15. Keep per-key scanning at four bit planes / 16 duties and global hardware PWM at a fixed gamma-2 curve. Do not add alternative brightness modes; `keyboard/led_light.h` (perceived brightness to duty) is a helper a firmware may call, not a mode of the driver.
+- `keyboard/led_light.h` and `keyboard/key_settle.h` are pure headers (no ESP-IDF), usable by simulators and host tests; keep them so, and test them in `tests/`.
 - Keyboard OE uses LEDC timer 1 / channel 6; backlight uses timer 0 / channel 7. Both must use APB because ESP32-S3 low-speed LEDC timers share their clock source.
 - `board/` holds the board's defaults (`sdkconfig.defaults`, `sdkconfig.debug`, `partitions.csv`); none is enforced. `board/partitions.csv` keeps the 203 Launcher's fixed regions exactly as the Launcher has them (203-launcher `boards/cardenza/partitions.csv`: nvs, otadata, the Launcher's slot reserved as data, coredump) and puts the firmware from 0x170000; when the Launcher's layout changes, change it with it. A flash tool must never erase the Launcher without being told to (`tools/cardenza_flash.py --replace-launcher`).
 - Keep test apps (firmware), experiments, firmware binaries, build directories, device dumps, and runtime logs outside this HAL repository.

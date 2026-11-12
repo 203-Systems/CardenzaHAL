@@ -150,6 +150,11 @@ All LED brightness values are **0..15** and are clamped to that range. Enable ou
 
 For animation, fill a `LedFrame` at index `y * LED_COLUMNS + x`, then call `setLEDFrame()` to publish once. Global brightness is independent of the stored per-key levels: `setLEDGlobalBrightness(0)` darkens all keys, and `15` is maximum. Per-key output uses four bit planes; global output uses a fixed gamma-2 PWM curve. Call key snapshot and LED control APIs from one application control task.
 
+Two optional helpers sit above the driver. Both are plain headers, so a simulator or a test on a computer can use them too:
+
+- [`keyboard/led_light.h`](keyboard/led_light.h): per-key levels are linear duty, which the eye does not see as linear (level 7 looks far brighter than half). `Light::PerceivedToLevel(perceived)` maps a perceived brightness 0..15 to the level to send (gamma 2.6, judged on the board; every lit level stays lit), and `Light::LightPermille(perceived, global)` gives the light a key shows, for a simulator to draw.
+- [`keyboard/key_settle.h`](keyboard/key_settle.h): `KeySettle<N>` filters the keys whose wrong reading does the most damage (modifiers, navigation). A state counts once it has held 12 ms, and a key that reads as held for over 15 s counts as released until it lets go (both times can be set). Feed it each key's reading once a frame; `Glitches()` and `Stuck()` count what it filtered out, for a log.
+
 ## Display
 
 Public API: [`display/display.h`](display/display.h).
@@ -361,4 +366,4 @@ ctest --test-dir build-tests --output-on-failure
 
 ## Launcher applications
 
-See the [203-launcher application registration guide](https://github.com/203-Systems/203-launcher/blob/main/docs/REGISTERED_SOFTWARE.md#developer-workflow) for metadata and registration commands.
+Upload and registration tools with setup instructions are included in [tools/uploader/README.md](tools/uploader/README.md).
