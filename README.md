@@ -487,6 +487,7 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`examples/psram_heap`](examples/psram_heap): a small firmware that adds the PSRAM to the heap only for code that asks for it, and replaces `new` so a failed allocation is a null pointer instead of a reboot. `idf.py -C examples/psram_heap build`.
 - [`examples/launcher_net`](examples/launcher_net): reads the Launcher's settings, joins its Wi-Fi, makes one HTTPS request and takes everything down, logging time and RAM at each step; its `sdkconfig.defaults` is the reference set of options for a firmware using Net. `idf.py -C examples/launcher_net build`.
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml): a GitHub Action that publishes a firmware image to the 203 Launcher hub (a Nightly for a push, a release for a `vX.Y.Z` tag) with the App's scoped token.
+- **AI agents and the 203 community**: for publishing a firmware's versions, reading its feature requests, check reports or sending it to a device, install the 203 community skill once: `curl -fsSL https://community.203.io/skill/install.sh | sh` (into `~/.claude/skills/203-community`; details on https://community.203.io/agents).
 
 ## Host tests
 

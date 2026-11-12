@@ -489,6 +489,7 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`examples/psram_heap`](examples/psram_heap)：一个小固件，把 PSRAM 加进堆、只给明确申请的代码用，并替换 `new`，让申请失败变成空指针而不是重启。`idf.py -C examples/psram_heap build`。
 - [`examples/launcher_net`](examples/launcher_net)：读出 Launcher 的设置，连上它的 Wi-Fi，发一个 HTTPS 请求再把一切关掉，每一步都打印耗时和内存；它的 `sdkconfig.defaults` 是使用 Net 的固件的参考配置。`idf.py -C examples/launcher_net build`。
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：用 App 的专用令牌把固件发布到 203 Launcher hub 的 GitHub Action（推送是 Nightly，`vX.Y.Z` 标签是正式版）。
+- **AI 代理与 203 社区**：要发布固件版本、读取用户需求、查看检查报告或把固件发到设备，先装一次 203 社区 skill：`curl -fsSL https://community.203.io/skill/install.sh | sh`（装到 `~/.claude/skills/203-community`；说明见 https://community.203.io/agents）。
 
 ## 主机测试
 
