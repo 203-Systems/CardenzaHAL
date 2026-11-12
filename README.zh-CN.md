@@ -152,6 +152,11 @@ idf.py -p <PORT> flash monitor
 
 做动画时，先填充 `LedFrame`，索引为 `y * LED_COLUMNS + x`，再调用一次 `setLEDFrame()` 发布。全局亮度不会修改已保存的单键亮度：`setLEDGlobalBrightness(0)` 全灭，`15` 为最大值。单键使用四个位平面控制，全局使用固定 gamma-2 PWM。按键快照读取和 LED 控制统一放在一个应用控制任务中。
 
+驱动之上有两个可选的辅助头文件。它们都是纯头文件，电脑上的模拟器和测试也能用：
+
+- [`keyboard/led_light.h`](keyboard/led_light.h)：单键等级是线性占空比，人眼看起来并不线性（7 级看着远比一半亮）。`Light::PerceivedToLevel(perceived)` 把 0..15 的感知亮度换成要发送的等级（gamma 2.6，在板上目测定的；亮着的等级不会变灭），`Light::LightPermille(perceived, global)` 给出这个键实际发出的光，供模拟器绘制。
+- [`keyboard/key_settle.h`](keyboard/key_settle.h)：`KeySettle<N>` 给读错了代价最大的键（修饰键、导航键）再加一道过滤：状态保持 12 ms 才算数；读成按住超过 15 秒的键算作已松开，直到它真的松开（两个时间都可设）。每帧把各键的读数喂给它；`Glitches()` 和 `Stuck()` 统计过滤掉了什么，可写进日志。
+
 ## 屏幕显示
 
 接口：[`display/display.h`](display/display.h)。
