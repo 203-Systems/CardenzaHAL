@@ -24,6 +24,8 @@
 
 写内部闪存期间，两个核的缓存都会停（一次 NVS 写约 45 ms）：闪存里的代码和不在 IRAM 的中断都跟着停（按键灯扫描停在某一行上，那一行就亮了）。数据放 SD 卡。如果一定要用 NVS，用自己的命名空间，绝不擦除整个分区：那里存着 203 Launcher 的已装软件登记。
 
+读取 Launcher 保存的 Wi-Fi 网络和社区账号不需要写权限：[`Net::ReadLauncherSettings`](../net/net.h) 通过只读的分区表项打开分区，从不修复它。Wi-Fi 不加限制时会写 NVS：Net 用 RAM 存储启动它，用 Wi-Fi 的固件要设置 `CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE=n`（否则 PHY 会把校准数据存进 NVS）。详见 README 的“网络”一节。
+
 ## SD 卡上的文件
 
 - **不要通过没有缓冲的 `FILE` 读**：newlib 会一个字节一个字节地读（一个 2 KB 的块花了 33 ms，还占住一个核）。对文件描述符用 `read()`，或者给 `FILE` 设缓冲。
@@ -49,7 +51,7 @@
 Cardenza 平时运行 203 Launcher，由它安装和启动各个固件。被它启动的固件：
 
 - 装在 Launcher 划出的分区里：从不改分区表、otadata 和 Launcher 自己的分区。在电脑上用 [`tools/uploader`](../tools/uploader/README.zh-CN.md) 把编好的固件交给 Launcher 安装（`serial_flasher.py`），再登记名称、UUID 和版本（`register_app.py`）。只有没装 Launcher 的板子才直接刷（即使那样，[`board/partitions.csv`](../board/partitions.csv) 也保留 Launcher 的区域，[`tools/cardenza_flash.py`](../tools/cardenza_flash.py) 拒绝抹掉 Launcher）；
-- 数据放在 SD 卡上自己的文件夹里，不碰 Launcher 的 NVS 记录（见上）；
+- 数据放在 SD 卡上自己的文件夹里，不碰 Launcher 的 NVS 记录（见上）；可以通过 `net/net.h` 读取 Launcher 保存的 Wi-Fi 网络和社区账号；
 - 运行在 Launcher 的 bootloader 下，闪存是 QIO：按 QIO 构建；
 - 在 app 描述里带上版本号：`PROJECT_VER`（`cardenza_read_version`）就是 Launcher 在它下面显示的版本。列表里的名字不是项目名，而是登记或安装时用的名字；直接刷进去的固件显示分区名；
 - 用一次普通重启回到 Launcher（`esp_restart()`；从电脑上用 USB 的 `command launcher` 也行）；

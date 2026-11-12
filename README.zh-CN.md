@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-CardenzaHAL 是 Cardenza（ESP32-S3）的 ESP-IDF 硬件层。你可以用它读取 56 键键盘、控制每颗按键灯、向 240 × 135 屏幕绘图、播放 PCM 音频、访问 SD 卡，以及给固件加入 USB MIDI、音频和 HID 功能。
+CardenzaHAL 是 Cardenza（ESP32-S3）的 ESP-IDF 硬件层。你可以用它读取 56 键键盘、控制每颗按键灯、向 240 × 135 屏幕绘图、播放 PCM 音频、访问 SD 卡，给固件加入 USB MIDI、音频和 HID 功能，以及通过 203 Launcher 设置好的 Wi-Fi 上网。
 
 HAL 负责硬件初始化，并提供原生 ESP-IDF 句柄；应用负责界面绘制、键位映射、音频处理、文件格式和主循环。本仓库是组件，需要接入固件工程使用。
 
@@ -134,7 +134,7 @@ idf.py -p <PORT> flash monitor
 | Storage | 否 | 尝试挂载 `/sdcard` |
 | IR | 否 | 准备红外发射器 |
 
-`LastInitReport()` 提供上述六个模块的结果和 `overall`。整体初始化成功后会缓存结果，再调用一次不会重新挂载缺失的 SD 卡；需要单独调用 `Storage::Init()` 重试。麦克风和 USB **不在整体初始化范围内**；`cardenzaHAL.h` 也不包含 `usb/usb.h`。
+`LastInitReport()` 提供上述六个模块的结果和 `overall`。整体初始化成功后会缓存结果，再调用一次不会重新挂载缺失的 SD 卡；需要单独调用 `Storage::Init()` 重试。麦克风、USB 和网络（[Net](#网络wi-fi-与-https)）**不在整体初始化范围内**；`cardenzaHAL.h` 也不包含 `usb/usb.h` 和 `net/net.h`。
 
 只需要部分功能时，可以分别初始化各模块。使用共享 I2C 或 Func 前，先调用 `System::Init()`，并检查各模块的返回值。音频编解码器初始化失败后可以再次调用 `Audio::Init()`，重试频率限制约为每秒一次。
 
@@ -312,6 +312,123 @@ USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包�
 - `keyboard = true` 时，macOS 会请用户识别一次键盘，电脑上的工具也只有在"输入监控"权限下才能打开 HID 接口（包括系统通道）。SysEx 不需要权限。
 - 已在 macOS 上实测（2026-11-02）：MIDI 双向、HID 和 SysEx 系统指令、控制台、44.1 kHz 双向音频。全速下反馈值按 10.14 发 3 字节（TinyUSB 默认的 16.16 会让 macOS 在 128 ms 后停播）；请求 Microsoft OS 字符串的主机收到 16.16（Windows，未测试）。TinyUSB 的 DWC2 驱动不会重启错过帧的同步 OUT 传输；HAL 在 20 ms 收不到数据时重启播放端点。
 
+## 网络（Wi-Fi 与 HTTPS）
+
+公开接口：[`net/net.h`](net/net.h)；纯头文件（不依赖 ESP-IDF，电脑上也能用）[`net/launcher_settings.h`](net/launcher_settings.h)、[`net/http_request.h`](net/http_request.h) 和 [`net/connect_order.h`](net/connect_order.h)。
+
+给偶尔需要上网的固件用（分享一段录音、查点东西），用的是 203 Launcher 设置好的 Wi-Fi 网络和社区账号。不调用就什么都不运行，`Init()` 也不会启动它：`ReadLauncherSettings` 读出 Launcher 保存的内容，`Connect` 打开 Wi-Fi，`Send` 发 HTTP(S) 请求，`Disconnect` 把一切关掉、把内存还回去。
+
+```cpp
+#include "net/net.h"
+#include <cstdio>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+namespace Net = CardenzaHAL::Net;
+
+// 单独一个任务：每个调用都会阻塞几秒。
+void WhoAmITask(void*)
+{
+    static Net::LauncherSettings settings;  // 1.6 KB：不放在栈上
+    Net::ConnectReport report;
+    if (Net::ReadLauncherSettings(settings) == Net::SettingsResult::Ok && settings.account.Bound() &&
+        Net::Connect(settings, report) == Net::ConnectStatus::Connected)
+    {
+        settings.Forget();  // Wi-Fi 密码用完了
+        char url[160], auth[96];
+        std::snprintf(url, sizeof(url), "%s/me", settings.account.api);
+        std::snprintf(auth, sizeof(auth), "Bearer %s", settings.account.token);
+        const Net::Header headers[] = {{"Authorization", auth}, {"Accept", "application/json"}};
+        Net::Request request;
+        request.url = url;
+        request.headers = headers;
+        request.headerCount = 2;
+        static char body[2048];
+        Net::Response response;
+        response.body = body;
+        response.capacity = sizeof(body);
+        if (Net::Send(request, response) == Net::SendStatus::Ok && response.status == 200) {
+            // body 里是 JSON 回复（response.truncated：原本更长）
+        }
+        Net::Disconnect();
+    }
+    vTaskDelete(nullptr);
+}
+// xTaskCreatePinnedToCore(WhoAmITask, "net", 8192, nullptr, 2, nullptr, 0);
+```
+
+文件从它的文件描述符一块一块地发（`kUploadBlockBytes`，4 KB，读进内部 RAM，因为 SD 卡的 DMA 够不到 PSRAM），每块之后报告进度：
+
+```cpp
+const int fd = open("/sdcard/take.wav", O_RDONLY);
+struct stat info;
+fstat(fd, &info);
+const Net::Header headers[] = {{"Content-Type", "audio/wav"}};
+Net::Request request;
+request.method = "PUT";
+request.url = signedUploadUrl;
+request.headers = headers;
+request.headerCount = 1;
+request.bodyFd = fd;
+request.bodyFileLength = info.st_size;
+Net::Response response;  // 不给缓冲区：只要状态码
+Net::Send(request, response, [](void*, uint64_t sent, uint64_t total) {
+    // 显示 sent / total；返回 false 就停止
+    return true;
+});
+close(fd);
+```
+
+| 调用 | 作用 |
+| --- | --- |
+| `ReadLauncherSettings(settings)` | 读出 Launcher 的账号、保存的网络（密码已解密）和上次连接的网络。返回 `Ok`、`NoPartition`（不是 Launcher 的分区表）或 `Unreadable`（见下文）。不需要 Wi-Fi。 |
+| `Connect(settings, report, timeoutMs = 20000, cancelled, context)` | 先连 Launcher 上次连过的网络，在它的信道上直接连、不扫描；不行就扫描（约 1.5 秒），按信号从强到弱试范围内保存过的网络（每个最多 15 秒，期间重连两次）。返回 `Connected`、`NoNetworks`、`NotFound`、`AuthFailed`（密码被拒，或握手超时）、`Failed`、`NoMemory`、`Cancelled`；`report` 里有网络名、信号、耗时和错误码。失败时把打开的东西全部关掉。 |
+| `Connected()` | 拿到了 IP 地址。连接断了不会自动重连：再调用 `Connect`。 |
+| `Disconnect()` | 停止并反初始化 Wi-Fi，删掉它的 netif，以及（如果是 Net 建的）默认事件循环。 |
+| `Send(request, response, progress, cancelled, context)` | 一个请求，每次新建连接。`https` 用 ESP-IDF 的证书包校验；不跟随重定向。回复正文写进调用者的缓冲区（以零结尾，更长时 `truncated`）。`Ok` 表示收到了回复，不论 HTTP 状态码是多少。 |
+| `RunningImageDigest(hex)` | 正在运行的镜像的 SHA-256，社区用它认出一个构建（64 位十六进制）。第一次调用会读取并校验整个镜像，结果会保存下来。 |
+
+`ValidRequest`（`net/http_request.h`）是 `Send` 先做的检查：方法是 GET、POST、PUT、DELETE、HEAD 或 PATCH；`http://` 或 `https://` 的 URL，没有用户信息和片段，路径和查询是可打印 ASCII；头的名字是 token，值里没有控制字符（没有 CR 或 LF）；不能有 `Host`、`Content-Length`、`Transfer-Encoding`、`Connection` 头（由 Net 设置）；正文来自内存或文件，不能两者都给，最多 `INT_MAX` 字节。
+
+**线程。** 在固件自己的一个任务里调用 Net，一次一个调用，绝不在界面或音频任务里调用。给它 6-8 KB 的栈（TLS 握手在上面运行；[`examples/launcher_net`](examples/launcher_net) 会打印实际用了多少），优先级低于界面。连接时大约每 100 ms 检查一次 `cancelled`，上传时每块之间检查一次；单个网络操作（建立连接、一次读或写）仍可能阻塞到 `Request::timeoutMs`。按下面的配置，Wi-Fi 任务（优先级 23）、lwIP 任务（18）和事件循环任务（20，总在核 0）都在核 0 上运行。固件自己已经在用 Wi-Fi 时，Net 拒绝启动 Wi-Fi。
+
+**Launcher 的设置**保存在设备上所有固件共用的 NVS 分区里（`nvs`，0x9000）。Net 读 Launcher 的三个命名空间，**从不写入任何东西**：
+
+| 命名空间 | 键 | Net 中的对应 |
+| --- | --- | --- |
+| `l_account` | `token`（`ccd_` + 64 位十六进制）、`api`（社区 API 地址，`https://community.203.io/api`）、`user_id`、`user_name`、`device_id`（芯片的 12 位十六进制 MAC） | `LauncherAccount`；和 Launcher 一样，token 不合法或没有 api 的记录不算绑定（`Bound()` 为假）；超过 63 字节的名字在字符边界截断 |
+| `l_wifi` | 每个保存的网络，用 SSID 的 CRC-32 作键：`s_<CRC>` 是 SSID，`p_<CRC>` 是密码（用 Launcher 的密钥和 IV 做 AES-128-CBC 加 PKCS#7 填充，再 base64；开放网络为空），`b_<CRC>` = 1 | `networks[]`，最多 16 个；缺了某一项或解不开的条目和 Launcher 一样跳过 |
+| `launcher` | `wifi_last`（上次连接的 SSID）、`wifi_ch`（它的信道） | `lastSsid`、`lastChannel` |
+
+分区通过一份标成只读的分区表项副本打开：NVS 可能做的每次写入或擦除都经过 `esp_partition_write` / `write_raw` / `erase_range`，它们在碰到闪存之前就拒绝只读表项（`ESP_ERR_NOT_ALLOWED`），NVS 也不允许在上面打开读写句柄。ESP-IDF 的 NVS 在打开分区时，遇到几种状态会写入：空白分区（新建一页）、被断电打断的换页（把它做完）、写了一半的条目或被打断的写入留下的重复值、对不上的 blob 片段。在只读副本上，这时打开会失败，或者（其中几种）只在内存里丢掉受影响的条目；Net 把 NVS 统计的已写条目数和闪存上各页的实际数目对比，有出入就报告 `Unreadable`。它从不修复：Launcher 下次启动时会修好自己的分区。用更新的 NVS 格式写的分区、没有空闲页的分区也是 `Unreadable`。固件自己已经打开 `nvs` 时，Net 直接通过它读，并保持打开。Net 的其他部分不碰 NVS：Wi-Fi 以 `nvs_enable = 0` 和 `WIFI_STORAGE_RAM` 启动，固件关掉 PHY 的校准数据存储（见下文）。
+
+**内存。**
+
+- 链接进来时（固件只要调用了任何一个 Net 函数）：约 36 KB 静态内部 RAM（Wi-Fi、PHY 和 lwIP 的数据，以及即使关掉 IRAM 选项也必须留在 IRAM 里的 13 KB Wi-Fi、PHY 和系统代码）和约 610 KB 闪存，这是在一个已经运行 HAL 和 USB、使用下面这些选项的固件上测得的。从不调用 Net 的固件不受影响，各个内存段大小完全不变。
+- 连接期间：Wi-Fi 的接收缓冲区（6 个 1.6 KB 的静态缓冲区，从 `esp_wifi_init` 到 `esp_wifi_deinit`；动态缓冲区只在收发帧时占用），以及 Wi-Fi、lwIP 和事件任务：大约 40-60 KB 内部 RAM，实际数字由示例在板子上测出。
+- 请求期间：esp_http_client 的缓冲区（1 KB，以及请求行）、上传块（4 KB，内部 RAM，只在发文件时）和 TCP 发送缓冲（上传时最多 16 KB），都在内部 RAM；TLS 30-50 KB（16 KB 接收和 4 KB 发送的记录缓冲、服务器证书、握手），在设置了 `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC` 时放在 PSRAM。
+- `Disconnect` 之后：lwIP 自己的任务会留下来（ESP-IDF 5.3 不能反初始化 lwIP：连同 3 KB 的栈约 4 KB），NVS 保留一个很小的管理对象；ESP-IDF 每次 `ReadLauncherSettings` 还会漏掉 8 字节（`nvs_flash_init_partition_ptr` 创建的分区对象）。
+- PSRAM：按 [`examples/psram_heap`](examples/psram_heap) 的方式把 PSRAM 只给明确申请的代码（`CONFIG_SPIRAM_USE_MEMMAP`）时，Wi-Fi 和 lwIP 留在内部 RAM：ESP-IDF 的 `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` 需要 `SPIRAM_USE_CAPS_ALLOC` 或 `SPIRAM_USE_MALLOC`，而且申请的是 `MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM`，这种区域没有这个能力；`CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC` 的条件也一样。所以 mbedTLS 通过 Net 自己的分配器进 PSRAM：设置 `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC` 后，Net 在第一次连接之前安装它（`mbedtls_platform_set_calloc_free`），优先 PSRAM，没有 PSRAM 时用内部 RAM；在这个模式下 ESP-IDF 自己只会让 mbedTLS 用普通的 `calloc`。ESP32-S3 的硬件 AES 和 SHA 可以用 PSRAM 里的缓冲区：它们的 DMA 能访问 PSRAM，ESP-IDF 的驱动会在前后回写缓存，或者经过内部 RAM 的小块中转。把 PSRAM 放进 malloc 的固件（`SPIRAM_USE_CAPS_ALLOC` / `SPIRAM_USE_MALLOC`）也可以改用 ESP-IDF 自带的选项。
+
+**sdkconfig。** [`examples/launcher_net/sdkconfig.defaults`](examples/launcher_net/sdkconfig.defaults) 是参考配置，放在板子的默认配置之后：
+
+| 选项 | 原因 |
+| --- | --- |
+| `CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE=n` | 打开时，PHY 在 Wi-Fi 启动时从 NVS 命名空间 `phy` 读校准数据，完整校准后写回去：固件以读写方式打开了 NVS 时会写进 Launcher 的分区，没打开时每次启动都打印一行错误。关掉后每次都完整校准。 |
+| `CONFIG_ESP_WIFI_NVS_ENABLED=n` | Wi-Fi 自己把设置存进 NVS 的默认值（Net 初始化时本来也会关掉）。 |
+| `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y` | 通过 Net 的分配器把 TLS 内存放进 PSRAM（见上文）。不设置的话，每个连接 mbedTLS 要占 30-50 KB 内部 RAM。 |
+| `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y`、`CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y` | ESP-IDF 证书包里常用的一半（42 个根证书，17 KB）就有社区需要的：ISRG Root X1（Let's Encrypt，Vercel 给自己托管的域名用它，比如 `cardenza.203.io`）、GTS Root R1 和 GlobalSign Root CA（`*.vercel.app`）、GTS Root R4（`*.supabase.co`，社区的存储）。 |
+| `CONFIG_ESP_WIFI_IRAM_OPT=n`、`CONFIG_ESP_WIFI_RX_IRAM_OPT=n`、`CONFIG_LWIP_IRAM_OPTIMIZATION=n` | IRAM 留给固件的热点代码（音频）。Wi-Fi 和 lwIP 在闪存里运行，吞吐量会低一些。 |
+| `CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n`、`CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n` | 只作为站点连接用密码保护的网络：代码更少。 |
+| `CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6`、`DYNAMIC_RX_BUFFER_NUM=16`、`DYNAMIC_TX_BUFFER_NUM=16`、`RX_BA_WIN=6` | Wi-Fi 的缓冲区在内部 RAM（每个 1.6 KB）。块确认窗口不能超过动态接收缓冲区数，也不能超过静态接收缓冲区数的两倍。 |
+| `CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384`、`CONFIG_LWIP_TCP_WND_DEFAULT=5760` | 上传：TCP 在收到确认前能发出去的量决定了长往返时间下的速度（16 KB、往返 200 ms 约 80 KB/s，ESP-IDF 默认的 5.7 KB 不到 30 KB/s）。回复都很小。 |
+| `CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y`、`CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y` | 网络任务放在核 0，核 1 留给固件。 |
+| `CONFIG_SPIRAM_USE_MEMMAP=y` | PSRAM 只给明确申请的代码（examples/psram_heap）。 |
+
+不检查证书的有效期（`CONFIG_MBEDTLS_HAVE_TIME_DATE` 保持关闭：设备没有时钟）。
+
+**限制。** 2.4 GHz 网络，有密码（WPA、WPA2、WPA3 个人版）或开放；不支持企业网络；隐藏网络只能作为上次连接的网络连上（扫描看不到它的名字）。不跟随重定向，不保持连接（每个请求一个连接），不支持代理和 HTTP/2。只信任 ESP-IDF 5.3 证书包里的根证书：Let's Encrypt 较新的根证书（YR、YE）不在里面，用它们的网站只要还发送由 ISRG Root X1 交叉签名的证书链（2026 年仍然如此）就能连上。回复正文只保留调用者缓冲区放得下的部分。
+
 ## 硬件资源归属
 
 GPIO 以 [`board/pins.h`](board/pins.h) 为准。应用应避免重新配置 HAL 占用的资源：
@@ -326,6 +443,7 @@ GPIO 以 [`board/pins.h`](board/pins.h) 为准。应用应避免重新配置 HAL
 | GPIO47/48/21 | 按键灯使能、时钟、数据 |
 | GPIO0 | Func 按键与 ROM 启动选择 |
 | 内部 USB PHY | USB 设备或 USB-Serial-JTAG |
+| Wi-Fi 射频 | Net，在 `Connect` 和 `Disconnect` 之间 |
 
 ## 板子默认配置、分区表与刷机
 
@@ -368,11 +486,12 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 
 - [`docs/developing.zh-CN.md`](docs/developing.zh-CN.md)：芯片和工具链容易忽略的地方（两种内存、开 PSRAM 后的原子操作、热路径里的 `memcpy` 和除法、写闪存会停掉什么、读文件、USB 与串口、排查卡死），以及固件在 203 Launcher 下应该怎样运行。
 - [`examples/psram_heap`](examples/psram_heap)：一个小固件，把 PSRAM 加进堆、只给明确申请的代码用，并替换 `new`，让申请失败变成空指针而不是重启。`idf.py -C examples/psram_heap build`。
+- [`examples/launcher_net`](examples/launcher_net)：读出 Launcher 的设置，连上它的 Wi-Fi，发一个 HTTPS 请求再把一切关掉，每一步都打印耗时和内存；它的 `sdkconfig.defaults` 是使用 Net 的固件的参考配置。`idf.py -C examples/launcher_net build`。
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：用 App 的专用令牌把固件发布到 203 Launcher hub 的 GitHub Action（推送是 Nightly，`vX.Y.Z` 标签是正式版）。
 
 ## 主机测试
 
-[`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线），以及驱动源码在故意出错的假 ESP-IDF 驱动下运行，让每条出错路径都走一遍。CI 在每次推送和每个 PR 上运行它们。
+[`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线，以及 Net 的：Launcher 保存网络的格式（用 Launcher 自己的代码生成的数据检验）、请求检查、尝试网络的顺序），以及驱动源码在故意出错的假 ESP-IDF 驱动下运行，让每条出错路径都走一遍。CI 在每次推送和每个 PR 上运行它们。
 
 ```sh
 cmake -S tests -B build-tests

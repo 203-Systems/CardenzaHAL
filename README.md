@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-CardenzaHAL is the ESP-IDF hardware layer for Cardenza, an ESP32-S3 device. Use it to read the 56-key keyboard, drive individual key LEDs, draw to the 240 × 135 display, play PCM audio, access an SD card, and add USB MIDI, audio, and HID to your firmware.
+CardenzaHAL is the ESP-IDF hardware layer for Cardenza, an ESP32-S3 device. Use it to read the 56-key keyboard, drive individual key LEDs, draw to the 240 × 135 display, play PCM audio, access an SD card, add USB MIDI, audio, and HID to your firmware, and reach the internet over the Wi-Fi the 203 Launcher set up.
 
 The HAL provides hardware initialization and native ESP-IDF handles. Your application owns rendering, key mappings, audio processing, file formats, and the main loop. This repository is a component, not a standalone firmware or a desktop simulator.
 
@@ -132,7 +132,7 @@ These are commands for your consuming firmware. Launcher-distributed application
 | Storage | No | Attempts to mount `/sdcard` |
 | IR | No | Prepares the transmitter |
 
-`LastInitReport()` exposes these six results and `overall`. A successful aggregate initialization is cached; calling it again does not remount a missing card. Retry `Storage::Init()` separately. Microphone and USB initialization are **not** included, and `cardenzaHAL.h` does not include `usb/usb.h`.
+`LastInitReport()` exposes these six results and `overall`. A successful aggregate initialization is cached; calling it again does not remount a missing card. Retry `Storage::Init()` separately. Microphone, USB and the network ([Net](#network-wi-fi-and-https)) are **not** included, and `cardenzaHAL.h` includes neither `usb/usb.h` nor `net/net.h`.
 
 You can initialize individual modules for a smaller application. Call `System::Init()` before using the shared I2C bus or Func button. Check each module's result. Codec failures can be retried through `Audio::Init()`; retry attempts are rate limited to about once per second.
 
@@ -310,6 +310,123 @@ USB audio does not automatically route to the speaker or microphone. Bridge it i
 - With `keyboard = true`, macOS asks the user to identify the keyboard once, and a host tool may open the HID interface (system channel included) only with the Input Monitoring permission. SysEx needs no permission.
 - Tested on macOS (2026-11-02): MIDI both ways, system commands over HID and SysEx, the console, audio both ways at 44.1 kHz. On full speed the feedback goes out as 10.14 in 3 bytes (macOS stops playing after 128 ms on TinyUSB's 16.16); a host that asks for the Microsoft OS string gets 16.16 (Windows, not tested). TinyUSB's DWC2 driver does not restart an isochronous OUT transfer that missed its frame; the HAL restarts the playback endpoint after 20 ms without data.
 
+## Network (Wi-Fi and HTTPS)
+
+Public API: [`net/net.h`](net/net.h); plain headers (no ESP-IDF, usable on a computer) [`net/launcher_settings.h`](net/launcher_settings.h), [`net/http_request.h`](net/http_request.h) and [`net/connect_order.h`](net/connect_order.h).
+
+For a firmware that reaches the internet now and then (share a recording, check something) over the Wi-Fi networks and the community account the 203 Launcher set up. Nothing runs until asked, and `Init()` does not start it: `ReadLauncherSettings` reads what the Launcher saved, `Connect` brings Wi-Fi up, `Send` makes HTTP(S) requests, `Disconnect` takes everything down again and gives the memory back.
+
+```cpp
+#include "net/net.h"
+#include <cstdio>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+namespace Net = CardenzaHAL::Net;
+
+// A task of its own: every call blocks for seconds.
+void WhoAmITask(void*)
+{
+    static Net::LauncherSettings settings;  // 1.6 KB: off the stack
+    Net::ConnectReport report;
+    if (Net::ReadLauncherSettings(settings) == Net::SettingsResult::Ok && settings.account.Bound() &&
+        Net::Connect(settings, report) == Net::ConnectStatus::Connected)
+    {
+        settings.Forget();  // the Wi-Fi passwords are not needed any more
+        char url[160], auth[96];
+        std::snprintf(url, sizeof(url), "%s/me", settings.account.api);
+        std::snprintf(auth, sizeof(auth), "Bearer %s", settings.account.token);
+        const Net::Header headers[] = {{"Authorization", auth}, {"Accept", "application/json"}};
+        Net::Request request;
+        request.url = url;
+        request.headers = headers;
+        request.headerCount = 2;
+        static char body[2048];
+        Net::Response response;
+        response.body = body;
+        response.capacity = sizeof(body);
+        if (Net::Send(request, response) == Net::SendStatus::Ok && response.status == 200) {
+            // body holds the JSON answer (response.truncated: it was longer)
+        }
+        Net::Disconnect();
+    }
+    vTaskDelete(nullptr);
+}
+// xTaskCreatePinnedToCore(WhoAmITask, "net", 8192, nullptr, 2, nullptr, 0);
+```
+
+A file is sent from its descriptor, a block at a time (`kUploadBlockBytes`, 4 KB, read into internal RAM because the SD card's DMA cannot reach PSRAM), with progress after each block:
+
+```cpp
+const int fd = open("/sdcard/take.wav", O_RDONLY);
+struct stat info;
+fstat(fd, &info);
+const Net::Header headers[] = {{"Content-Type", "audio/wav"}};
+Net::Request request;
+request.method = "PUT";
+request.url = signedUploadUrl;
+request.headers = headers;
+request.headerCount = 1;
+request.bodyFd = fd;
+request.bodyFileLength = info.st_size;
+Net::Response response;  // no buffer: only the status is wanted
+Net::Send(request, response, [](void*, uint64_t sent, uint64_t total) {
+    // show sent / total; return false to stop
+    return true;
+});
+close(fd);
+```
+
+| Call | Does |
+| --- | --- |
+| `ReadLauncherSettings(settings)` | The Launcher's account, saved networks (passwords decrypted) and last network. `Ok`, `NoPartition` (not a Launcher's partition table) or `Unreadable` (see below). No Wi-Fi needed. |
+| `Connect(settings, report, timeoutMs = 20000, cancelled, context)` | Joins the network the Launcher joined last, on its channel without a scan; otherwise scans (about 1.5 s) and tries the saved networks in range, strongest first (each try at most 15 s, two reconnects within it). `Connected`, `NoNetworks`, `NotFound`, `AuthFailed` (a password refused, or a handshake that timed out), `Failed`, `NoMemory`, `Cancelled`; `report` has the network, its signal, the time and the error. Everything is taken down again when it fails. |
+| `Connected()` | Has an IP address. A dropped connection is not rejoined: call `Connect` again. |
+| `Disconnect()` | Wi-Fi stopped and deinitialized, its netif and (if Net made it) the default event loop deleted. |
+| `Send(request, response, progress, cancelled, context)` | One request over a fresh connection. `https` is checked against ESP-IDF's certificate bundle; redirects are not followed. The answer's body goes into the caller's buffer (zero-terminated, `truncated` when longer). `Ok` means an answer came, whatever its HTTP status. |
+| `RunningImageDigest(hex)` | The running image's SHA-256 as the community knows a build (64 hex digits). The first call reads and verifies the whole image; the result is kept. |
+
+`ValidRequest` (`net/http_request.h`) is what `Send` checks first: a method of GET, POST, PUT, DELETE, HEAD or PATCH; an `http://` or `https://` URL without user info or fragment, its path and query in printable ASCII; header names that are tokens and values without control characters (no CR or LF); no `Host`, `Content-Length`, `Transfer-Encoding` or `Connection` header (Net sets them); a body from memory or from a file, not both, of at most `INT_MAX` bytes.
+
+**Threading.** Call Net from one task of your own, one call at a time, never from the UI or the audio task. Give it a stack of 6-8 KB (a TLS handshake runs on it; [`examples/launcher_net`](examples/launcher_net) logs what it used) and a priority below the UI. `cancelled` is polled about every 100 ms while connecting and between upload blocks; one network operation (connecting, one read or write) can still take up to `Request::timeoutMs`. Wi-Fi's task (priority 23), lwIP's (18) and the event loop's (20, always core 0) run with the options below on core 0. Net refuses to start Wi-Fi the firmware already runs itself.
+
+**The Launcher's settings** live in the NVS partition every firmware on the device shares (`nvs`, 0x9000). Net reads three of the Launcher's namespaces and **never writes anything**:
+
+| Namespace | Keys | Net's view |
+| --- | --- | --- |
+| `l_account` | `token` (`ccd_` + 64 hex), `api` (the community's API base, `https://community.203.io/api`), `user_id`, `user_name`, `device_id` (the chip's 12-hex MAC) | `LauncherAccount`; as for the Launcher, a record without a valid token or an api is no binding (`Bound()` false); a name over 63 bytes is cut at a character |
+| `l_wifi` | per saved network, by the CRC-32 of its SSID: `s_<CRC>` the SSID, `p_<CRC>` the password (AES-128-CBC with PKCS#7 under the Launcher's key and IV, base64; empty for an open network), `b_<CRC>` = 1 | `networks[]`, at most 16; an entry missing a part or not decrypting is left out, as the Launcher does |
+| `launcher` | `wifi_last` (the SSID it joined last), `wifi_ch` (its channel) | `lastSsid`, `lastChannel` |
+
+The partition is opened through a copy of its partition entry marked read-only: every write or erase NVS could make goes through `esp_partition_write` / `write_raw` / `erase_range`, which refuse a read-only entry (`ESP_ERR_NOT_ALLOWED`) before the flash is touched, and NVS refuses read-write handles on it. ESP-IDF's NVS writes while it opens a partition in a few states: a blank partition (it starts a page), a page move cut by a power loss (it finishes the move), an entry half written or a value found twice after an interrupted write, blob parts that do not match. On the read-only copy the open then fails or (for some of them) drops the affected items in RAM only; Net compares NVS's count of written entries with the pages on the flash and reports any difference as `Unreadable`. It never repairs: the Launcher repairs its partition the next time it starts. A partition written by a newer NVS format, or without a free page, is `Unreadable` too. When the firmware has opened `nvs` itself, Net reads through it and leaves it open. Nothing else in Net touches NVS: Wi-Fi starts with `nvs_enable = 0` and `WIFI_STORAGE_RAM`, and the firmware turns the PHY's calibration storage off (below).
+
+**Memory.**
+
+- Linked (as soon as a firmware calls any Net function): about 36 KB of static internal RAM (Wi-Fi's, the PHY's and lwIP's data, and 13 KB of Wi-Fi, PHY and system code that must stay in IRAM even with the IRAM options off) and about 610 KB of flash, measured on a firmware that already runs the HAL and USB with the options below. A firmware that never calls Net is unchanged: every memory section keeps its size.
+- While connected: Wi-Fi's receive buffers (6 static ones of 1.6 KB from `esp_wifi_init` to `esp_wifi_deinit`, dynamic ones while frames come), the Wi-Fi, lwIP and event tasks: some 40-60 KB of internal RAM, measured by the example on the board.
+- During a request: esp_http_client's buffers (1 KB, and the request line), the upload block (4 KB, internal, file bodies only) and TCP's send buffer (up to 16 KB while uploading), internal; TLS 30-50 KB (a 16 KB receive and a 4 KB send record buffer, the server's certificates, the handshake) in PSRAM with `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC`.
+- After `Disconnect`: lwIP's own task stays (ESP-IDF 5.3 cannot deinitialize lwIP: about 4 KB with its 3 KB stack), and NVS keeps its small manager object; ESP-IDF also leaves 8 bytes per `ReadLauncherSettings` (the partition object `nvs_flash_init_partition_ptr` makes).
+- PSRAM: with the PSRAM added to the heap for those who ask ([`examples/psram_heap`](examples/psram_heap), `CONFIG_SPIRAM_USE_MEMMAP`), Wi-Fi and lwIP stay internal: ESP-IDF's `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` needs `SPIRAM_USE_CAPS_ALLOC` or `SPIRAM_USE_MALLOC` and asks for `MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM`, which such a region does not have, and `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC` needs the same. So mbedTLS goes to PSRAM through Net's own allocator: with `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC`, Net installs it (`mbedtls_platform_set_calloc_free`) before its first connection, PSRAM first and internal RAM when there is no PSRAM; ESP-IDF itself leaves mbedTLS on plain `calloc` in that mode. The ESP32-S3's hardware AES and SHA take PSRAM buffers: their DMA reaches PSRAM, and ESP-IDF's drivers write the cache back around it or bounce through small internal blocks. A firmware that puts PSRAM in malloc (`SPIRAM_USE_CAPS_ALLOC` / `SPIRAM_USE_MALLOC`) may use ESP-IDF's options instead.
+
+**sdkconfig.** [`examples/launcher_net/sdkconfig.defaults`](examples/launcher_net/sdkconfig.defaults) is the reference set, after the board's defaults:
+
+| Option | Why |
+| --- | --- |
+| `CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE=n` | On, the PHY reads its calibration from NVS namespace `phy` when Wi-Fi starts and writes it after a full calibration: into the Launcher's partition if the firmware has NVS open read-write, an error line at every start if not. Off, it calibrates fully each time. |
+| `CONFIG_ESP_WIFI_NVS_ENABLED=n` | Wi-Fi's own default for keeping its settings in NVS (Net turns it off at init anyway). |
+| `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y` | TLS memory in PSRAM through Net's allocator (above). Without it, mbedTLS takes 30-50 KB of internal RAM per connection. |
+| `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y`, `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y` | The common half of ESP-IDF's bundle (42 roots, 17 KB) has what the community needs: ISRG Root X1 (Let's Encrypt, which Vercel uses for its own domains such as `cardenza.203.io`), GTS Root R1 and GlobalSign Root CA (`*.vercel.app`), GTS Root R4 (`*.supabase.co`, the community's storage). |
+| `CONFIG_ESP_WIFI_IRAM_OPT=n`, `CONFIG_ESP_WIFI_RX_IRAM_OPT=n`, `CONFIG_LWIP_IRAM_OPTIMIZATION=n` | IRAM is the firmware's hot code (audio). Wi-Fi and lwIP run from flash, at some throughput. |
+| `CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n`, `CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n` | A station on a network with a password: less code. |
+| `CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6`, `DYNAMIC_RX_BUFFER_NUM=16`, `DYNAMIC_TX_BUFFER_NUM=16`, `RX_BA_WIN=6` | Wi-Fi's buffers are internal RAM (1.6 KB each). The block-ack window may not exceed the dynamic receive buffers or twice the static ones. |
+| `CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384`, `CONFIG_LWIP_TCP_WND_DEFAULT=5760` | Uploads: what TCP sends before an acknowledgement sets the speed over a long round trip (16 KB at 200 ms is about 80 KB/s, ESP-IDF's 5.7 KB under 30 KB/s). Answers are small. |
+| `CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y`, `CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y` | Network tasks on core 0, so that core 1 stays the firmware's. |
+| `CONFIG_SPIRAM_USE_MEMMAP=y` | PSRAM only for those who ask (examples/psram_heap). |
+
+Certificate dates are not checked (`CONFIG_MBEDTLS_HAVE_TIME_DATE` stays off: the device has no clock).
+
+**Limits.** 2.4 GHz networks with a password (WPA, WPA2, WPA3-Personal) or open; no enterprise networks; a hidden network is reached only as the last network (a scan cannot name it). No redirects, no keep-alive (one connection per request), no proxies, no HTTP/2. Trust comes from ESP-IDF 5.3's bundle only: Let's Encrypt's newer roots (YR, YE) are not in it, and sites under them work while they send the chain cross-signed by ISRG Root X1 (as they do in 2026). The response body is only what fits the caller's buffer.
+
 ## Hardware resource ownership
 
 Use [`board/pins.h`](board/pins.h) as the source for GPIO assignments. Avoid reconfiguring resources owned by the HAL:
@@ -324,6 +441,7 @@ Use [`board/pins.h`](board/pins.h) as the source for GPIO assignments. Avoid rec
 | GPIO47/48/21 | Key LED enable / clock / data |
 | GPIO0 | Func button and ROM boot selection |
 | Internal USB PHY | USB device or USB-Serial-JTAG |
+| Wi-Fi radio | Net, between `Connect` and `Disconnect` |
 
 ## Board defaults, partitions and flashing
 
@@ -366,11 +484,12 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 
 - [`docs/developing.md`](docs/developing.md): what the chip and its toolchain do that is easy to miss (two RAMs, atomics with PSRAM, `memcpy` and division in hot code, what a flash write stops, reading files, USB and the serial port, debugging a hang), and how a firmware behaves under the 203 Launcher.
 - [`examples/psram_heap`](examples/psram_heap): a small firmware that adds the PSRAM to the heap only for code that asks for it, and replaces `new` so a failed allocation is a null pointer instead of a reboot. `idf.py -C examples/psram_heap build`.
+- [`examples/launcher_net`](examples/launcher_net): reads the Launcher's settings, joins its Wi-Fi, makes one HTTPS request and takes everything down, logging time and RAM at each step; its `sdkconfig.defaults` is the reference set of options for a firmware using Net. `idf.py -C examples/launcher_net build`.
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml): a GitHub Action that publishes a firmware image to the 203 Launcher hub (a Nightly for a push, a release for a `vX.Y.Z` tag) with the App's scoped token.
 
 ## Host tests
 
-[`tests/`](tests) checks the HAL on a computer, without a board or ESP-IDF: the pure calculations (key debounce and the key-count guard, LED frames, the backlight curve) and the driver sources against fake ESP-IDF drivers that fail on purpose, so every error path runs. CI runs them on every push and pull request.
+[`tests/`](tests) checks the HAL on a computer, without a board or ESP-IDF: the pure calculations (key debounce and the key-count guard, LED frames, the backlight curve, and Net's: the Launcher's saved-network format against vectors made by the Launcher's own code, request checks, the order networks are tried in) and the driver sources against fake ESP-IDF drivers that fail on purpose, so every error path runs. CI runs them on every push and pull request.
 
 ```sh
 cmake -S tests -B build-tests
