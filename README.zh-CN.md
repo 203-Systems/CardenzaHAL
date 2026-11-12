@@ -347,4 +347,4 @@ ctest --test-dir build-tests --output-on-failure
 
 ## Launcher 应用
 
-应用元数据和登记命令见 [203-launcher 应用登记指南](https://github.com/203-Systems/203-launcher/blob/main/docs/REGISTERED_SOFTWARE.md#developer-workflow)。
+上传和登记工具及完整使用步骤见 [tools/uploader/README.zh-CN.md](tools/uploader/README.zh-CN.md)。

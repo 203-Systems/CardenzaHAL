@@ -345,4 +345,4 @@ ctest --test-dir build-tests --output-on-failure
 
 ## Launcher applications
 
-See the [203-launcher application registration guide](https://github.com/203-Systems/203-launcher/blob/main/docs/REGISTERED_SOFTWARE.md#developer-workflow) for metadata and registration commands.
+Upload and registration tools with setup instructions are included in [tools/uploader/README.md](tools/uploader/README.md).
