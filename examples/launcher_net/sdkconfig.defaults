@@ -1,0 +1,57 @@
+# What a firmware using Net (net/net.h) sets, after the board's defaults (board/sdkconfig.defaults).
+# Checked with ESP-IDF 5.3.5. Each option says why; README.md ("Network") has the whole picture.
+
+# PSRAM in the heap only for what asks for it (examples/psram_heap): malloc, drivers, Wi-Fi and lwIP
+# stay in internal RAM; Net puts TLS (below) and scan lists there.
+CONFIG_SPIRAM_USE_MEMMAP=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../board/partitions.csv"
+
+# Nothing is ever written to the Launcher's NVS. With this on, the PHY reads its calibration from NVS
+# namespace "phy" when Wi-Fi starts and writes it after a full calibration: into the Launcher's
+# partition if NVS is open read-write, and an error line every start if it is not. Off, it calibrates
+# fully each time (a few ms more).
+CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE=n
+# Wi-Fi's own default for keeping its configuration in NVS (Net starts it with nvs_enable = 0 and RAM
+# storage anyway).
+CONFIG_ESP_WIFI_NVS_ENABLED=n
+
+# TLS memory (a 16 KB receive and a 4 KB send buffer, certificates, the handshake: 30-50 KB) in PSRAM:
+# Net installs its own mbedTLS allocator, PSRAM first and internal RAM when there is none. With the
+# PSRAM added as above, ESP-IDF's "External SPIRAM" mode is not selectable (it needs
+# SPIRAM_USE_CAPS_ALLOC or SPIRAM_USE_MALLOC).
+CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y
+# Server certificates are checked against ESP-IDF's bundle; the common half of it is enough: ISRG Root
+# X1 (Let's Encrypt: Vercel's own domains such as community.203.io) and GTS Root R1 / R4 and GlobalSign
+# Root CA (Google Trust Services: *.vercel.app and *.supabase.co). Dates are not checked (no clock:
+# CONFIG_MBEDTLS_HAVE_TIME_DATE stays off).
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+
+# Internal instruction RAM belongs to the firmware's hot code (audio): Wi-Fi and lwIP run from flash.
+# Costs throughput (ESP-IDF: 10-20%), which a firmware uploading now and then does not need.
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_LWIP_IRAM_OPTIMIZATION=n
+# A station on a home network: no access point, no WPA2-Enterprise (the Launcher saves passwords only).
+CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
+
+# Wi-Fi's buffers are internal RAM (about 1.6 KB each). The static receive buffers are taken by
+# esp_wifi_init and given back by esp_wifi_deinit; the dynamic ones only while frames come and go. The
+# block-ack window may not exceed the dynamic receive buffers or twice the static ones.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_RX_BA_WIN=6
+# Uploads: TCP sends up to this much before an acknowledgement, so it sets the speed over a long round
+# trip (16 KB at 200 ms is about 80 KB/s; ESP-IDF's 5.7 KB is under 30 KB/s). Internal RAM, while
+# sending only. The receive window stays at ESP-IDF's 5.7 KB: answers are small.
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
+CONFIG_LWIP_TCP_WND_DEFAULT=5760
+
+# Wi-Fi's and lwIP's tasks on core 0 (Wi-Fi's priority 23, lwIP's 18), so that a firmware can keep
+# core 1 for its time-critical work. The task calling Net is the firmware's: a stack of 6-8 KB (TLS),
+# below the UI and the audio.
+CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y
+CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y

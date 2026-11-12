@@ -2,3 +2,7 @@ build-tests/
 .venv/
 __pycache__/
 *.py[cod]
+examples/*/managed_components/
+examples/*/dependencies.lock
+examples/*/sdkconfig
+examples/*/sdkconfig.old
