@@ -349,6 +349,19 @@ HAL 附带了这块板子本身的事实，作为固件可以直接用的默认�
 - [`tools/cardenza_flash.py`](tools/cardenza_flash.py)：刷机时不会抹掉 Launcher（见上）。
 - [`tools/check_submodule.py`](tools/check_submodule.py)：固件以 git 子模块使用 HAL 时，HAL 有本地改动、或停在上游 `main` 没有的提交上就报错，并且禁止从里面推送。每次构建前运行它，这样 HAL 的改动都在上游做，所有固件用的是同一份 HAL。
 
+## 版本与构建信息
+
+[`cmake/firmware_info.cmake`](cmake/firmware_info.cmake) 给固件提供版本号和每次构建的身份，日志或崩溃都能对上是哪一次构建：
+
+```cmake
+include(${CMAKE_CURRENT_LIST_DIR}/components/CardenzaHAL/cmake/firmware_info.cmake)
+cardenza_read_version(${CMAKE_CURRENT_LIST_DIR}/version.txt PROJECT_VER)   # 在 project() 之前：Launcher 显示的版本
+# 在打印它的组件里：
+cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h NAMESPACE my::build)
+```
+
+`version.txt` 写 `主.次.修订`。生成的头文件里有 `kVersion`、`kHash`（Git 提交）、`kDirty`（带本地改动构建，HAL 的改动也算）和 `kTimeUtc`。每次开机连同 ELF 的哈希（`esp_app_get_elf_sha256`）一起打印出来，并保存给过别人的每个版本的 ELF：解析调用栈要用它（`xtensa-esp32s3-elf-addr2line -pfiaC -e <固件>.elf <地址>`）。
+
 ## 主机测试
 
 [`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线），以及驱动源码在故意出错的假 ESP-IDF 驱动下运行，让每条出错路径都走一遍。CI 在每次推送和每个 PR 上运行它们。

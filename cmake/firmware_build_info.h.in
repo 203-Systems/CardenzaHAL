@@ -1,0 +1,11 @@
+#pragma once
+
+// Generated at every build (CardenzaHAL cmake/firmware_info.cmake). The release version is version.txt.
+namespace @NAMESPACE@ {
+
+inline constexpr char kVersion[] = "@BUILD_VERSION@";
+inline constexpr char kHash[] = "@BUILD_HASH@";
+inline constexpr bool kDirty = @BUILD_DIRTY@;
+inline constexpr char kTimeUtc[] = "@BUILD_TIME@";
+
+}  // namespace @NAMESPACE@

@@ -347,6 +347,19 @@ Command-line tools for the computer the board is plugged into (Python 3, no boar
 - [`tools/cardenza_flash.py`](tools/cardenza_flash.py): flashes a build without erasing the Launcher (above).
 - [`tools/check_submodule.py`](tools/check_submodule.py): for a firmware that has the HAL as a git submodule, fails when the HAL has local changes or sits on a commit upstream `main` does not have, and makes pushes from it impossible. Run it before every build, so HAL changes are made upstream and every firmware gets the same HAL.
 
+## Version and build information
+
+[`cmake/firmware_info.cmake`](cmake/firmware_info.cmake) gives a firmware its version and what each build is, so a log or a crash can be traced to the build that made it:
+
+```cmake
+include(${CMAKE_CURRENT_LIST_DIR}/components/CardenzaHAL/cmake/firmware_info.cmake)
+cardenza_read_version(${CMAKE_CURRENT_LIST_DIR}/version.txt PROJECT_VER)   # before project(): the version the Launcher shows
+# in the component that prints it:
+cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h NAMESPACE my::build)
+```
+
+`version.txt` holds `major.minor.patch`. The generated header has `kVersion`, `kHash` (the Git commit), `kDirty` (built with local changes, the HAL included) and `kTimeUtc`. Print them at every start with the ELF's hash (`esp_app_get_elf_sha256`), and keep the ELF of every build you give anyone: a backtrace is decoded with it (`xtensa-esp32s3-elf-addr2line -pfiaC -e <firmware>.elf <addresses>`).
+
 ## Host tests
 
 [`tests/`](tests) checks the HAL on a computer, without a board or ESP-IDF: the pure calculations (key debounce and the key-count guard, LED frames, the backlight curve) and the driver sources against fake ESP-IDF drivers that fail on purpose, so every error path runs. CI runs them on every push and pull request.

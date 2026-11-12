@@ -33,6 +33,10 @@ add_test(NAME CardenzaKeyboardHelperTests COMMAND CardenzaKeyboardHelperTests)
 
 add_subdirectory(hal_faults)
 
+# cmake/firmware_info.cmake: version.txt, the generated header, Git's commit and local changes.
+add_test(NAME CardenzaBuildInfoTests COMMAND ${CMAKE_COMMAND} -DWORK=${CMAKE_CURRENT_BINARY_DIR}/build-info-test
+         -P ${CMAKE_CURRENT_SOURCE_DIR}/build_info_test.cmake)
+
 # tools/cardenza_flash.py: partition tables, the Launcher on a board, build tables that would overwrite it.
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
