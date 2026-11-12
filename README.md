@@ -170,6 +170,8 @@ bool ok = CardenzaHAL::Display::Present(framebuffer, &dirty, 1);
 
 Rectangles must have positive dimensions and stay within the screen. The first submission and recovery after a failed submission always send the full screen. A zero rectangle count means unchanged pixels after that initial full frame.
 
+A whole frame is 17 ms of SPI, most of a 50 fps frame. **`PresentChanged(framebuffer)`** works out what changed by itself and sends only that: it hashes each row in 30-pixel segments, sends the changed rows of each 8-row band across the span of their changed segments, and sends one band whole every frame so the screen is refreshed completely about every 0.34 s. The framebuffer must be 4-byte aligned (`alignas(4)`); its 4.3 KB table of hashes is made on first use (PSRAM when there is some), and without room it sends whole frames. Use it or the other `Present` calls, not both. The calculation is [`display/changed_regions.h`](display/changed_regions.h), a plain header a host test or a firmware with its own presenting can use.
+
 `SetBrightness(0..255)` takes a perceived brightness level; the HAL applies gamma 2.2. The request is staged until the first successful `Present()`. Cold boots reset the panel; software restarts preserve its previous pixels until presentation.
 
 For a native renderer, use `GetPanel()` / `GetPanelIO()`, then the no-argument `Present()` to drain queued draws and reveal the frame. Do not combine a custom panel-IO callback with the framebuffer `Present()` path. Keep display submission and control on one task.

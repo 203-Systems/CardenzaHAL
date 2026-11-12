@@ -31,6 +31,11 @@ add_executable(CardenzaKeyboardHelperTests keyboard_helpers_test.cpp ${cardenza_
 target_include_directories(CardenzaKeyboardHelperTests PRIVATE ${hal_root})
 add_test(NAME CardenzaKeyboardHelperTests COMMAND CardenzaKeyboardHelperTests)
 
+# display/changed_regions.h: what PresentChanged sends.
+add_executable(CardenzaChangedRegionsTests changed_regions_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaChangedRegionsTests PRIVATE ${hal_root})
+add_test(NAME CardenzaChangedRegionsTests COMMAND CardenzaChangedRegionsTests)
+
 add_subdirectory(hal_faults)
 
 # cmake/firmware_info.cmake: version.txt, the generated header, Git's commit and local changes.

@@ -1,7 +1,7 @@
 # hal_root: the HAL's root, set by ../CMakeLists.txt.
 set(fake_include ${CMAKE_CURRENT_BINARY_DIR}/sdk-headers)
 # Generate include-name shims in the build tree, keeping test SDK definitions in one file.
-foreach(header esp_log.h esp_attr.h esp_check.h esp_ipc.h esp_timer.h esp_system.h esp_vfs_fat.h sdmmc_cmd.h
+foreach(header esp_heap_caps.h esp_log.h esp_attr.h esp_check.h esp_ipc.h esp_timer.h esp_system.h esp_vfs_fat.h sdmmc_cmd.h
     esp_lcd_panel_io.h esp_lcd_panel_ops.h esp_lcd_panel_commands.h esp_lcd_panel_vendor.h
     driver/gpio.h driver/i2s_std.h driver/i2s_pdm.h driver/i2c_master.h driver/spi_master.h
     driver/gptimer.h driver/ledc.h driver/sdmmc_host.h driver/rmt_encoder.h driver/rmt_tx.h
@@ -34,7 +34,7 @@ endforeach()
 foreach(fault panel_reset panel_init spi_bus display_pwm)
   add_test(NAME HalDisplay_${fault} COMMAND CardenzaHalFaultTests display ${fault})
 endforeach()
-foreach(scenario cold warm dirty timeout warm_timeout draw brightness display_duty_update display_callback display_semaphore native invalid)
+foreach(scenario cold warm dirty timeout warm_timeout draw brightness display_duty_update display_callback display_semaphore native invalid changed changed_no_memory)
   add_test(NAME HalDisplayPresent_${scenario} COMMAND CardenzaDisplayPresentTests ${scenario})
 endforeach()
 foreach(fault i2c state)

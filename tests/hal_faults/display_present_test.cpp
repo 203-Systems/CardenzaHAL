@@ -127,6 +127,35 @@ void Native()
             "native submission did not drain before revealing, or replaced the caller's callback");
 }
 
+// PresentChanged: the first frame whole, then what changed plus one band of eight rows a frame.
+void Changed(bool memory)
+{
+    if (!memory) Fake::fail = "heap";
+    alignas(4) static Frame frame;
+    frame = MakeFrame();
+    Require(Display::Init() && Display::PresentChanged(frame.data()) && Fake::displayPixels == frame,
+            "the first changed-frame present was not the whole screen");
+    const std::size_t whole = static_cast<std::size_t>(Display::WIDTH) * Display::HEIGHT;
+    std::size_t before = Fake::transferredPixels;
+    frame[70 * Display::WIDTH + 100] ^= 0xffff;
+    Require(Display::PresentChanged(frame.data()) && Fake::displayPixels == frame, "a changed pixel did not reach the panel");
+    const std::size_t sent = Fake::transferredPixels - before;
+    if (memory)
+        Require(sent <= 30 + Display::WIDTH * 8, "more than the changed segment and one refresh band was sent");
+    else
+        Require(sent == whole, "without its table the frame was not sent whole");
+    // Unchanged frames: only the refresh band, a different one each time, the whole screen in turn.
+    before = Fake::transferredPixels;
+    Fake::displayPixels.fill(0);
+    for (int band = 0; band < 17; ++band) Require(Display::PresentChanged(frame.data()), "an unchanged frame failed");
+    if (memory)
+    {
+        Require(Fake::transferredPixels - before == whole, "the refresh bands did not add up to one screen");
+        Require(Fake::displayPixels == frame, "the refresh bands did not bring the whole screen back");
+    }
+    Fake::fail.clear();
+}
+
 void Invalid()
 {
     const auto frame = MakeFrame();
@@ -151,6 +180,7 @@ int main(int argc, char** argv)
         else if (scenario == "timeout" || scenario == "warm_timeout") Timeout(scenario == "warm_timeout");
         else if (scenario == "native") Native();
         else if (scenario == "invalid") Invalid();
+        else if (scenario == "changed" || scenario == "changed_no_memory") Changed(scenario == "changed");
         else FailAndRetry(scenario);
         std::cout << "Display " << scenario << " passed\n";
     } catch (const std::exception& error) {
