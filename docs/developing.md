@@ -48,7 +48,7 @@ A firmware that starts USB (`USB::Init`) takes the PHY from USB-Serial-JTAG: it 
 
 A Cardenza normally runs the 203 Launcher, which installs and starts firmwares. A firmware it starts:
 
-- is installed into a slot the Launcher makes: it never changes the partition table, the otadata, or the Launcher's slot. A board is flashed directly only when it has no Launcher ([`board/partitions.csv`](../board/partitions.csv) keeps the Launcher's regions even then, and [`tools/cardenza_flash.py`](../tools/cardenza_flash.py) refuses to erase a Launcher);
+- is installed into a slot the Launcher makes: it never changes the partition table, the otadata, or the Launcher's slot. From a computer, [`tools/uploader`](../tools/uploader/README.md) sends a build to the Launcher (`serial_flasher.py`) and registers its name, UUID and version (`register_app.py`). A board is flashed directly only when it has no Launcher ([`board/partitions.csv`](../board/partitions.csv) keeps the Launcher's regions even then, and [`tools/cardenza_flash.py`](../tools/cardenza_flash.py) refuses to erase a Launcher);
 - keeps its data on the SD card, in its own folder, and leaves the Launcher's NVS records alone (above);
 - runs with the Launcher's bootloader, which sets the flash to QIO: build it so;
 - carries its version in its app description: `PROJECT_VER` (`cardenza_read_version`) is the version the Launcher shows under it. Its name in the list is not the project name: it is the name it was registered or installed under, and a directly flashed firmware shows its partition label;
