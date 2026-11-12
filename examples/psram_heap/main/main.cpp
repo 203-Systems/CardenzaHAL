@@ -25,6 +25,13 @@
 #include <esp_psram.h>
 #include <sdkconfig.h>
 
+#if CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+// ESP-IDF puts the .bss of what is marked EXT_RAM_BSS_ATTR (and of Wi-Fi, lwIP, the supplicant) here,
+// at the start of the PSRAM.
+extern "C" uint8_t _ext_ram_bss_start;
+extern "C" uint8_t _ext_ram_bss_end;
+#endif
+
 namespace {
 
 constexpr char kTag[] = "psram_heap";
@@ -57,13 +64,29 @@ void AddPsramToHeap()
     }
     // Priority 0 says what the region is (SPIRAM); malloc's default caps never match it.
     const uint32_t caps[] = {MALLOC_CAP_SPIRAM, 0, MALLOC_CAP_8BIT | MALLOC_CAP_32BIT};
-    const intptr_t start = reinterpret_cast<intptr_t>(first);
-    if (heap_caps_add_region_with_caps(caps, start, start + static_cast<intptr_t>(size)) != ESP_OK)
+    intptr_t start = reinterpret_cast<intptr_t>(first);
+    const intptr_t end = start + static_cast<intptr_t>(size);
+#if CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+    // .bss that lives in the PSRAM (CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY) sits at its start: the
+    // heap begins after it, or it would hand out memory those variables use.
+    const intptr_t bssStart = reinterpret_cast<intptr_t>(&_ext_ram_bss_start);
+    const intptr_t bssEnd = reinterpret_cast<intptr_t>(&_ext_ram_bss_end);
+    if (bssEnd > bssStart)
+    {
+        if (bssStart != start || bssEnd >= end)
+        {
+            ESP_LOGE(kTag, "PSRAM at %p but its .bss at %p: not used", first, &_ext_ram_bss_start);
+            return;
+        }
+        start = (bssEnd + 15) & ~static_cast<intptr_t>(15);
+    }
+#endif
+    if (heap_caps_add_region_with_caps(caps, start, end) != ESP_OK)
     {
         ESP_LOGE(kTag, "PSRAM could not be added to the heap");
         return;
     }
-    ESP_LOGI(kTag, "PSRAM: %u bytes at %p, for what asks for it", static_cast<unsigned>(size), first);
+    ESP_LOGI(kTag, "PSRAM: %u bytes at %p, for what asks for it", static_cast<unsigned>(end - start), reinterpret_cast<void*>(start));
 #endif
 }
 

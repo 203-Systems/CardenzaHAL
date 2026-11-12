@@ -404,7 +404,7 @@ close(fd);
 
 **内存。**
 
-- 链接进来时（固件只要调用了任何一个 Net 函数）：约 36 KB 静态内部 RAM（Wi-Fi、PHY 和 lwIP 的数据，以及即使关掉 IRAM 选项也必须留在 IRAM 里的 13 KB Wi-Fi、PHY 和系统代码）和约 610 KB 闪存，这是在一个已经运行 HAL 和 USB、使用下面这些选项的固件上测得的。从不调用 Net 的固件不受影响，各个内存段大小完全不变。
+- 链接进来时（固件只要调用了任何一个 Net 函数）：约 36 KB 静态内部 RAM（Wi-Fi、PHY 和 lwIP 的数据，以及即使关掉 IRAM 选项也必须留在 IRAM 里的 13 KB Wi-Fi、PHY 和系统代码）和约 610 KB 闪存，这是在一个已经运行 HAL 和 USB、使用下面这些选项的固件上测得的。从不调用 Net 的固件不受影响，各个内存段大小完全不变。打开 `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY`（见下表）后，其中约 14 KB，即 Wi-Fi（`net80211`、`pp`）、lwIP 和 supplicant 的 `.bss`，会移到 PSRAM：CardenzaSynth 的静态内部 RAM 因此只增加 20.7 KB，而不是 34 KB。
 - 连接期间：Wi-Fi 的接收缓冲区（6 个 1.6 KB 的静态缓冲区，从 `esp_wifi_init` 到 `esp_wifi_deinit`；动态缓冲区只在收发帧时占用），以及 Wi-Fi、lwIP 和事件任务：大约 40-60 KB 内部 RAM，实际数字由示例在板子上测出。
 - 请求期间：esp_http_client 的缓冲区（1 KB，以及请求行）、上传块（4 KB，内部 RAM，只在发文件时）和 TCP 发送缓冲（上传时最多 16 KB），都在内部 RAM；TLS 30-50 KB（16 KB 接收和 4 KB 发送的记录缓冲、服务器证书、握手），在设置了 `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC` 时放在 PSRAM。
 - `Disconnect` 之后：lwIP 自己的任务会留下来（ESP-IDF 5.3 不能反初始化 lwIP：连同 3 KB 的栈约 4 KB），NVS 保留一个很小的管理对象；ESP-IDF 每次 `ReadLauncherSettings` 还会漏掉 8 字节（`nvs_flash_init_partition_ptr` 创建的分区对象）。
@@ -424,6 +424,7 @@ close(fd);
 | `CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384`、`CONFIG_LWIP_TCP_WND_DEFAULT=5760` | 上传：TCP 在收到确认前能发出去的量决定了长往返时间下的速度（16 KB、往返 200 ms 约 80 KB/s，ESP-IDF 默认的 5.7 KB 不到 30 KB/s）。回复都很小。 |
 | `CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y`、`CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y` | 网络任务放在核 0，核 1 留给固件。 |
 | `CONFIG_SPIRAM_USE_MEMMAP=y` | PSRAM 只给明确申请的代码（examples/psram_heap）。 |
+| `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y` | Wi-Fi、lwIP 和 supplicant 的 `.bss`（约 14 KB）放到 PSRAM，只在联网时使用。它可以和 `SPIRAM_USE_MEMMAP` 一起用，但 ESP-IDF 把它放在 PSRAM 的开头：自己把 PSRAM 加进堆的固件必须从 `_ext_ram_bss_end` 之后开始加（两个示例都这样做），否则堆会把这些变量的内存再分出去。ESP-IDF 随之去掉 `SPIRAM_IGNORE_NOTFOUND`：PSRAM 起不来时板子不再启动。 |
 
 不检查证书的有效期（`CONFIG_MBEDTLS_HAVE_TIME_DATE` 保持关闭：设备没有时钟）。
 

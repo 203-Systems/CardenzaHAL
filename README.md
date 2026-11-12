@@ -402,7 +402,7 @@ The partition is opened through a copy of its partition entry marked read-only: 
 
 **Memory.**
 
-- Linked (as soon as a firmware calls any Net function): about 36 KB of static internal RAM (Wi-Fi's, the PHY's and lwIP's data, and 13 KB of Wi-Fi, PHY and system code that must stay in IRAM even with the IRAM options off) and about 610 KB of flash, measured on a firmware that already runs the HAL and USB with the options below. A firmware that never calls Net is unchanged: every memory section keeps its size.
+- Linked (as soon as a firmware calls any Net function): about 36 KB of static internal RAM (Wi-Fi's, the PHY's and lwIP's data, and 13 KB of Wi-Fi, PHY and system code that must stay in IRAM even with the IRAM options off) and about 610 KB of flash, measured on a firmware that already runs the HAL and USB with the options below. A firmware that never calls Net is unchanged: every memory section keeps its size. With `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY` (below) about 14 KB of it, the `.bss` of Wi-Fi (`net80211`, `pp`), lwIP and the supplicant, moves to PSRAM: CardenzaSynth's static internal RAM grew by 20.7 KB instead of 34 KB.
 - While connected: Wi-Fi's receive buffers (6 static ones of 1.6 KB from `esp_wifi_init` to `esp_wifi_deinit`, dynamic ones while frames come), the Wi-Fi, lwIP and event tasks: some 40-60 KB of internal RAM, measured by the example on the board.
 - During a request: esp_http_client's buffers (1 KB, and the request line), the upload block (4 KB, internal, file bodies only) and TCP's send buffer (up to 16 KB while uploading), internal; TLS 30-50 KB (a 16 KB receive and a 4 KB send record buffer, the server's certificates, the handshake) in PSRAM with `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC`.
 - After `Disconnect`: lwIP's own task stays (ESP-IDF 5.3 cannot deinitialize lwIP: about 4 KB with its 3 KB stack), and NVS keeps its small manager object; ESP-IDF also leaves 8 bytes per `ReadLauncherSettings` (the partition object `nvs_flash_init_partition_ptr` makes).
@@ -422,6 +422,7 @@ The partition is opened through a copy of its partition entry marked read-only: 
 | `CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384`, `CONFIG_LWIP_TCP_WND_DEFAULT=5760` | Uploads: what TCP sends before an acknowledgement sets the speed over a long round trip (16 KB at 200 ms is about 80 KB/s, ESP-IDF's 5.7 KB under 30 KB/s). Answers are small. |
 | `CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y`, `CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y` | Network tasks on core 0, so that core 1 stays the firmware's. |
 | `CONFIG_SPIRAM_USE_MEMMAP=y` | PSRAM only for those who ask (examples/psram_heap). |
+| `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y` | Wi-Fi's, lwIP's and the supplicant's `.bss` (about 14 KB) in PSRAM, used only while connected. It works with `SPIRAM_USE_MEMMAP`, but ESP-IDF puts it at the start of the PSRAM: a firmware that adds the PSRAM to the heap itself must begin the region after `_ext_ram_bss_end` (both examples do), or the heap hands out those variables' memory. ESP-IDF then drops `SPIRAM_IGNORE_NOTFOUND`: the board no longer boots without its PSRAM. |
 
 Certificate dates are not checked (`CONFIG_MBEDTLS_HAVE_TIME_DATE` stays off: the device has no clock).
 

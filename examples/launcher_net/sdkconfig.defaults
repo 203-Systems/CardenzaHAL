@@ -28,6 +28,10 @@ CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
 
+# The .bss of Wi-Fi, lwIP and the supplicant (about 14 KB of the static internal RAM Net costs) in PSRAM:
+# used only while connected. The firmware's own PSRAM heap must then begin after it (main.cpp).
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+
 # Internal instruction RAM belongs to the firmware's hot code (audio): Wi-Fi and lwIP run from flash.
 # Costs throughput (ESP-IDF: 10-20%), which a firmware uploading now and then does not need.
 CONFIG_ESP_WIFI_IRAM_OPT=n

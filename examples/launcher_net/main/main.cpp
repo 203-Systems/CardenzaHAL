@@ -23,6 +23,12 @@
 
 namespace {
 
+#if CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+// Wi-Fi's, lwIP's and the supplicant's .bss, at the start of the PSRAM (sdkconfig.defaults).
+extern "C" uint8_t _ext_ram_bss_start;
+extern "C" uint8_t _ext_ram_bss_end;
+#endif
+
 namespace Net = CardenzaHAL::Net;
 constexpr char kTag[] = "launcher_net";
 constexpr char kDefaultApi[] = "https://community.203.io/api";
@@ -40,8 +46,19 @@ void AddPsramToHeap()
         static_cast<char*>(last) != static_cast<char*>(first) + size - 1)
         return;
     const uint32_t caps[] = {MALLOC_CAP_SPIRAM, 0, MALLOC_CAP_8BIT | MALLOC_CAP_32BIT};
-    const intptr_t start = reinterpret_cast<intptr_t>(first);
-    heap_caps_add_region_with_caps(caps, start, start + static_cast<intptr_t>(size));
+    intptr_t start = reinterpret_cast<intptr_t>(first);
+    const intptr_t end = start + static_cast<intptr_t>(size);
+#if CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+    // The heap begins after the .bss ESP-IDF put at the start of the PSRAM (examples/psram_heap).
+    const intptr_t bssStart = reinterpret_cast<intptr_t>(&_ext_ram_bss_start);
+    const intptr_t bssEnd = reinterpret_cast<intptr_t>(&_ext_ram_bss_end);
+    if (bssEnd > bssStart)
+    {
+        if (bssStart != start || bssEnd >= end) return;
+        start = (bssEnd + 15) & ~static_cast<intptr_t>(15);
+    }
+#endif
+    heap_caps_add_region_with_caps(caps, start, end);
 #endif
 }
 
