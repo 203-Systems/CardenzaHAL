@@ -2,6 +2,7 @@
 #   cmake -S tests -B build-tests && cmake --build build-tests && ctest --test-dir build-tests
 # - logic_test, key_count_guard_test: the pure calculations the HAL runs on the device (key debounce and
 #   the key-count guard, LED frames, the backlight curve).
+# - net_test: the pure parts of net/ (the Launcher's settings format, request checks, connect order).
 # - hal_faults: the HAL's driver sources against fake ESP-IDF drivers (fakes/esp_stub.h) that fail on
 #   purpose, so every error path is taken and leaves the hardware in a known state.
 cmake_minimum_required(VERSION 3.20)
@@ -35,6 +36,14 @@ add_test(NAME CardenzaKeyboardHelperTests COMMAND CardenzaKeyboardHelperTests)
 add_executable(CardenzaChangedRegionsTests changed_regions_test.cpp ${cardenza_test_guard})
 target_include_directories(CardenzaChangedRegionsTests PRIVATE ${hal_root})
 add_test(NAME CardenzaChangedRegionsTests COMMAND CardenzaChangedRegionsTests)
+
+# net/: the Launcher's saved-network storage (CRC-32 keys, base64, AES-128-CBC against vectors made by
+# the Launcher's own code), request checks, the order networks are tried in, the NVS page check.
+add_executable(CardenzaNetTests net_test.cpp
+  ${hal_root}/net/connect_order.cpp ${hal_root}/net/http_request.cpp ${hal_root}/net/launcher_settings.cpp
+  ${cardenza_test_guard})
+target_include_directories(CardenzaNetTests PRIVATE ${hal_root})
+add_test(NAME CardenzaNetTests COMMAND CardenzaNetTests)
 
 add_subdirectory(hal_faults)
 
