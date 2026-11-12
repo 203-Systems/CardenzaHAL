@@ -152,6 +152,11 @@ idf.py -p <PORT> flash monitor
 
 做动画时，先填充 `LedFrame`，索引为 `y * LED_COLUMNS + x`，再调用一次 `setLEDFrame()` 发布。全局亮度不会修改已保存的单键亮度：`setLEDGlobalBrightness(0)` 全灭，`15` 为最大值。单键使用四个位平面控制，全局使用固定 gamma-2 PWM。按键快照读取和 LED 控制统一放在一个应用控制任务中。
 
+驱动之上有两个可选的辅助头文件。它们都是纯头文件，电脑上的模拟器和测试也能用：
+
+- [`keyboard/led_light.h`](keyboard/led_light.h)：单键等级是线性占空比，人眼看起来并不线性（7 级看着远比一半亮）。`Light::PerceivedToLevel(perceived)` 把 0..15 的感知亮度换成要发送的等级（gamma 2.6，在板上目测定的；亮着的等级不会变灭），`Light::LightPermille(perceived, global)` 给出这个键实际发出的光，供模拟器绘制。
+- [`keyboard/key_settle.h`](keyboard/key_settle.h)：`KeySettle<N>` 给读错了代价最大的键（修饰键、导航键）再加一道过滤：状态保持 12 ms 才算数；读成按住超过 15 秒的键算作已松开，直到它真的松开（两个时间都可设）。每帧把各键的读数喂给它；`Glitches()` 和 `Stuck()` 统计过滤掉了什么，可写进日志。
+
 ## 屏幕显示
 
 接口：[`display/display.h`](display/display.h)。
@@ -331,7 +336,7 @@ HAL 附带了这块板子本身的事实，作为固件可以直接用的默认�
   ```
 - [`board/sdkconfig.debug`](board/sdkconfig.debug)：调试版本用。任务卡住时板子带着调用栈重启（任务看门狗触发 panic、检查空闲任务、统计各任务的 CPU 占用）。
 - [`board/partitions.csv`](board/partitions.csv)：默认分区表。**设备上的分区表归 203 Launcher 管**：经 Launcher 安装的固件放在 Launcher 划出的分区里。这张表只在直接刷机时才用到，此时它把 Launcher 的区域原样留在 Launcher 的位置（NVS、otadata、Launcher 自己的分区留空、coredump），固件放在它们后面的 `ota_0`（0x170000，4 MB）。用 `CONFIG_PARTITION_TABLE_CUSTOM=y` 和 `CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="<HAL 的路径>/board/partitions.csv"` 指定它。0x170000 以下不要放别的东西。
-- [`tools/cardenza_flash.py`](tools/cardenza_flash.py)：安全地刷入一次构建。它先读板子上的分区表，**板子上装着 Launcher 就拒绝**（整片刷会抹掉 Launcher 和它的已装软件列表）；请改用 Launcher 安装，或者加 `--replace-launcher` 有意抹掉它。固件自带的分区表会压到 Launcher 时，它也会提醒。
+- [`tools/cardenza_flash.py`](tools/cardenza_flash.py)：安全地刷入一次构建。它先读板子上的分区表，**板子上装着 Launcher 就拒绝**（整片刷会抹掉 Launcher 和它的已装软件列表）；请改用 Launcher 安装；开发时也可以用 `--app-into <分区名>` 只把程序镜像写进 Launcher 的某个程序分区（Launcher 的开发流程：之后在 Launcher 里启动或登记它）。`--replace-launcher` 会有意抹掉 Launcher。固件自带的分区表会压到 Launcher 时，它也会提醒。
   ```sh
   python3 components/CardenzaHAL/tools/cardenza_flash.py -p /dev/ttyACM0 build
   ```
@@ -390,4 +395,4 @@ ctest --test-dir build-tests --output-on-failure
 
 ## Launcher 应用
 
-应用元数据和登记命令见 [203-launcher 应用登记指南](https://github.com/203-Systems/203-launcher/blob/main/docs/REGISTERED_SOFTWARE.md#developer-workflow)。
+上传和登记工具及完整使用步骤见 [tools/uploader/README.zh-CN.md](tools/uploader/README.zh-CN.md)。

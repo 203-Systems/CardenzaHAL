@@ -8,7 +8,8 @@
 - `CardenzaHAL::System::GetI2CBus()` belongs in the public `system.h` surface.
 - Keep includes relative to this repository; never include through a consumer's path such as `Devices/Cardenza/cardenza/...`.
 - Target the current board only: LED_EN GPIO47, clock GPIO48, data GPIO21. Do not add legacy pin maps or compatibility APIs.
-- Keyboard LED APIs use 0–15. Keep per-key scanning at four bit planes / 16 duties and global hardware PWM at a fixed gamma-2 curve. Do not add alternative brightness modes.
+- Keyboard LED APIs use 0–15. Keep per-key scanning at four bit planes / 16 duties and global hardware PWM at a fixed gamma-2 curve. Do not add alternative brightness modes; `keyboard/led_light.h` (perceived brightness to duty) is a helper a firmware may call, not a mode of the driver.
+- `keyboard/led_light.h` and `keyboard/key_settle.h` are pure headers (no ESP-IDF), usable by simulators and host tests; keep them so, and test them in `tests/`.
 - Keyboard OE uses LEDC timer 1 / channel 6; backlight uses timer 0 / channel 7. Both must use APB because ESP32-S3 low-speed LEDC timers share their clock source.
 - `docs/developing.md` (and its Chinese twin) is what every firmware developer should know about the chip, the toolchain and the 203 Launcher; add to it when a firmware learns something the hard way, with the measurement. `examples/` are small ESP-IDF projects that build (`idf.py -C examples/<name> build`); they are not part of the component.
 - `tools/` holds host tools for firmware developers (Python 3, standard library plus hidapi / sounddevice where noted): keep them generic (any firmware on the HAL), importable, and tested in `tests/` without a board. A firmware's own protocol on the app channel belongs in that firmware's tools.

@@ -1,5 +1,4 @@
 build-tests/
+.venv/
 __pycache__/
-examples/*/sdkconfig
-examples/*/sdkconfig.old
-examples/*/build/
+*.py[cod]

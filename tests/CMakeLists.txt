@@ -26,6 +26,11 @@ add_executable(CardenzaKeyCountGuardTests key_count_guard_test.cpp ${cardenza_te
 target_include_directories(CardenzaKeyCountGuardTests PRIVATE ${hal_root})
 add_test(NAME CardenzaKeyCountGuardTests COMMAND CardenzaKeyCountGuardTests)
 
+# keyboard/key_settle.h and keyboard/led_light.h: pure helpers above the keyboard driver.
+add_executable(CardenzaKeyboardHelperTests keyboard_helpers_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaKeyboardHelperTests PRIVATE ${hal_root})
+add_test(NAME CardenzaKeyboardHelperTests COMMAND CardenzaKeyboardHelperTests)
+
 add_subdirectory(hal_faults)
 
 # cmake/firmware_info.cmake: version.txt, the generated header, Git's commit and local changes.

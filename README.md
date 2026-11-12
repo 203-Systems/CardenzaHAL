@@ -150,6 +150,11 @@ All LED brightness values are **0..15** and are clamped to that range. Enable ou
 
 For animation, fill a `LedFrame` at index `y * LED_COLUMNS + x`, then call `setLEDFrame()` to publish once. Global brightness is independent of the stored per-key levels: `setLEDGlobalBrightness(0)` darkens all keys, and `15` is maximum. Per-key output uses four bit planes; global output uses a fixed gamma-2 PWM curve. Call key snapshot and LED control APIs from one application control task.
 
+Two optional helpers sit above the driver. Both are plain headers, so a simulator or a test on a computer can use them too:
+
+- [`keyboard/led_light.h`](keyboard/led_light.h): per-key levels are linear duty, which the eye does not see as linear (level 7 looks far brighter than half). `Light::PerceivedToLevel(perceived)` maps a perceived brightness 0..15 to the level to send (gamma 2.6, judged on the board; every lit level stays lit), and `Light::LightPermille(perceived, global)` gives the light a key shows, for a simulator to draw.
+- [`keyboard/key_settle.h`](keyboard/key_settle.h): `KeySettle<N>` filters the keys whose wrong reading does the most damage (modifiers, navigation). A state counts once it has held 12 ms, and a key that reads as held for over 15 s counts as released until it lets go (both times can be set). Feed it each key's reading once a frame; `Glitches()` and `Stuck()` count what it filtered out, for a log.
+
 ## Display
 
 Public API: [`display/display.h`](display/display.h).
@@ -329,7 +334,7 @@ The HAL ships what the board is, as defaults a firmware can take (none is enforc
   ```
 - [`board/sdkconfig.debug`](board/sdkconfig.debug): for debug builds, a hung task restarts the board with a backtrace (task watchdog panic, idle tasks watched, run-time statistics).
 - [`board/partitions.csv`](board/partitions.csv): the default partition table. **The device's partition table belongs to the 203 Launcher**: a firmware installed through the Launcher goes into a slot the Launcher makes. This table only matters for a board flashed directly, and then it keeps the Launcher's regions exactly where the Launcher has them (NVS, otadata, the Launcher's own slot reserved, coredump) and puts the firmware after them in `ota_0` (0x170000, 4 MB). Name it with `CONFIG_PARTITION_TABLE_CUSTOM=y` and `CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="<path to the HAL>/board/partitions.csv"`. Never put anything else below 0x170000.
-- [`tools/cardenza_flash.py`](tools/cardenza_flash.py): flashes a build the safe way. It reads the board's partition table first and **refuses when the board has the Launcher** (a full flash would erase the Launcher and its list of installed software); install through the Launcher instead, or pass `--replace-launcher` to erase it on purpose. It also warns when the build's own table would overlap the Launcher.
+- [`tools/cardenza_flash.py`](tools/cardenza_flash.py): flashes a build the safe way. It reads the board's partition table first and **refuses when the board has the Launcher** (a full flash would erase the Launcher and its list of installed software); install through the Launcher instead, or, while developing, write only the app image into one of the Launcher's app partitions with `--app-into <label>` (the Launcher's developer workflow: then start or register it in the Launcher). `--replace-launcher` erases the Launcher on purpose. It also warns when the build's own table would overlap the Launcher.
   ```sh
   python3 components/CardenzaHAL/tools/cardenza_flash.py -p /dev/ttyACM0 build
   ```
@@ -388,4 +393,4 @@ ctest --test-dir build-tests --output-on-failure
 
 ## Launcher applications
 
-See the [203-launcher application registration guide](https://github.com/203-Systems/203-launcher/blob/main/docs/REGISTERED_SOFTWARE.md#developer-workflow) for metadata and registration commands.
+Upload and registration tools with setup instructions are included in [tools/uploader/README.md](tools/uploader/README.md).
