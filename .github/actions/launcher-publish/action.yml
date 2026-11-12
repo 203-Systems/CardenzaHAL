@@ -1,0 +1,69 @@
+# Publishes a firmware image to the 203 Launcher hub: a Nightly for a push, a release for a tag
+# vX.Y.Z. The hub's Edge function checks the image, mirrors it and records it; this step holds only
+# the App's scoped token (a repository secret), never database or storage keys.
+#
+#   - uses: 203-Systems/CardenzaHAL/.github/actions/launcher-publish@<commit>
+#     with:
+#       image: dist/MyFirmware.bin
+#       app-id: ${{ vars.LAUNCHER_APP_ID }}
+#       app-token: ${{ secrets.LAUNCHER_APP_TOKEN }}
+#
+# Run it only for pushes to main and for version tags, after the build and the tests passed. A tag must
+# equal the firmware's version (version.txt, the app description's version the Launcher shows).
+name: Publish to the 203 Launcher hub
+description: Uploads a firmware image to the 203 Launcher hub, as a Nightly (push) or a release (vX.Y.Z tag).
+inputs:
+  image:
+    description: The firmware image (.bin) to publish.
+    required: true
+  app-id:
+    description: The App's id on the hub.
+    required: true
+  app-token:
+    description: The App's scoped publish token. Without it a push publishes nothing (a notice) and a tag fails.
+    required: false
+    default: ""
+  target:
+    description: The device the image is for.
+    required: false
+    default: cardenza
+  publish-url:
+    description: The hub's publish endpoint.
+    required: false
+    default: https://uullfvoakowofzhaqdix.supabase.co/functions/v1/publish
+outputs:
+  status:
+    description: published, unchanged, or skipped (no token on a push).
+    value: ${{ steps.publish.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - id: publish
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        APP_ID: ${{ inputs.app-id }}
+        APP_TOKEN: ${{ inputs.app-token }}
+        TARGET: ${{ inputs.target }}
+        PUBLISH_URL: ${{ inputs.publish-url }}
+      run: |
+        set -euo pipefail
+        if [ -z "$APP_TOKEN" ]; then
+          if [ "$GITHUB_REF_TYPE" = tag ]; then echo "::error::no app-token: a release cannot be published"; exit 1; fi
+          echo "::notice::no app-token: no Nightly was published."
+          echo "status=skipped" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        test -s "$IMAGE" || { echo "::error::$IMAGE is missing or empty"; exit 1; }
+        if [ "$GITHUB_REF_TYPE" = tag ]; then
+          set -- -F release_type=release -F "tag=$GITHUB_REF_NAME"
+        else
+          set -- -F release_type=nightly -F "source_commit=$GITHUB_SHA"
+        fi
+        response="$RUNNER_TEMP/launcher-publish.json"
+        curl --fail-with-body --silent --show-error --max-time 300 --retry 2 -X POST "$PUBLISH_URL" \
+          -H "Authorization: Bearer $APP_TOKEN" "$@" -F "app_id=$APP_ID" -F "target=$TARGET" \
+          -F "image=@$IMAGE;type=application/octet-stream" -o "$response"
+        jq -e '.status == "published" or .status == "unchanged"' "$response" > /dev/null
+        jq '{status, channel, version, build, sha256, cleanup_pending}' "$response"
+        echo "status=$(jq -r .status "$response")" >> "$GITHUB_OUTPUT"
