@@ -1,0 +1,21 @@
+# Cardenza's default partition table: safe beside the 203 Launcher. Not enforced; a firmware names it
+# in CONFIG_PARTITION_TABLE_CUSTOM_FILENAME (board/sdkconfig.defaults says how).
+#
+# The device's partition table belongs to the Launcher. A firmware installed through the Launcher
+# goes into a slot the Launcher makes, and this table is never used; it only matters when a board is
+# flashed directly (idf.py flash, esptool). Then it must leave the Launcher's regions as the Launcher
+# has them (203-launcher, boards/cardenza/partitions.csv):
+#   nvs       0x9000    0x5000    the same: the Launcher keeps its registry here
+#   otadata   0xe000    0x2000    the same
+#   app0      0x10000   0x150000  the Launcher itself: reserved here as data, so nothing is ever
+#                                 written there and the build does not size a firmware against it
+#   coredump  0x160000  0x10000   the same
+# The firmware goes after them, in ota_0 from 0x170000, where the Launcher's installed software starts.
+# Do not put anything else below 0x170000. tools/cardenza_flash.py refuses to flash a board that has the
+# Launcher, and warns about a table that would overlap it.
+# Name,    Type, SubType,  Offset,   Size
+nvs,       data, nvs,      0x9000,   0x5000
+otadata,   data, ota,      0xe000,   0x2000
+launcher,  data, 0x40,     0x10000,  0x150000
+coredump,  data, coredump, 0x160000, 0x10000
+ota_0,     app,  ota_0,    0x170000, 0x400000

@@ -1,0 +1,16 @@
+# Cardenza debug defaults: a firmware that hangs restarts with a backtrace instead of staying frozen.
+# Add it after the other defaults for a debug or test build (never needed for a release):
+#   set(SDKCONFIG_DEFAULTS "<HAL>/board/sdkconfig.defaults;sdkconfig.defaults;<HAL>/board/sdkconfig.debug")
+# A task stuck for the watchdog's time (5 s by default) panics: the panic handler prints the
+# backtrace (decode it with xtensa-esp32s3-elf-addr2line -pfiaC -e <firmware>.elf <addresses>) and
+# the board restarts. The idle tasks are watched, so a core that never yields is caught too; a task of
+# the firmware's own (its UI loop, say) is watched once it calls esp_task_wdt_add(nullptr) and then
+# esp_task_wdt_reset() every round. Run-time statistics give each task's share of the CPU
+# (vTaskGetRunTimeStats).
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y

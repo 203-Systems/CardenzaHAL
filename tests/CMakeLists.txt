@@ -32,3 +32,9 @@ target_include_directories(CardenzaKeyboardHelperTests PRIVATE ${hal_root})
 add_test(NAME CardenzaKeyboardHelperTests COMMAND CardenzaKeyboardHelperTests)
 
 add_subdirectory(hal_faults)
+
+# tools/cardenza_flash.py: partition tables, the Launcher on a board, build tables that would overwrite it.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME CardenzaFlashToolTests COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/flash_tool_test.py)
+endif()

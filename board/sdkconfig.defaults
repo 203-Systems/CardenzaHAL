@@ -1,0 +1,42 @@
+# Cardenza board defaults: what the board is, measured on it. Not enforced: a firmware lists this file
+# first in SDKCONFIG_DEFAULTS and its own defaults after it, which win where they differ. In the
+# firmware's top-level CMakeLists.txt, before include($ENV{IDF_PATH}/tools/cmake/project.cmake):
+#   set(SDKCONFIG_DEFAULTS "${CMAKE_CURRENT_LIST_DIR}/<path to the HAL>/board/sdkconfig.defaults;sdkconfig.defaults")
+# Checked with ESP-IDF 5.3.5.
+
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# W25Q128JV with IO2 / IO3 wired: quad I/O, as the 203 Launcher's bootloader runs it. The bootloader
+# decides how the cache reads the flash, so a firmware the Launcher starts runs QIO whatever it was built
+# with: build it so too. In DIO, code running from flash cost about 40% more (CardenzaSynth's audio).
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+# 120 MHz single data rate. The PSRAM shares the clock and has to run at 120 MHz too (below). The app
+# tunes the timing at its start, so it holds under the Launcher's bootloader as well. Against 80 MHz,
+# code from flash took 10-20% less time.
+CONFIG_ESPTOOLPY_FLASHFREQ_120M=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
+# A millisecond tick. Display::Present waits for each 8-row band it sends, and esp_lcd does not yield
+# from the transfer's completion, so the waiting task runs at the next tick: at 100 Hz a band takes
+# 10 ms instead of 1, and a whole screen 170 ms.
+CONFIG_FREERTOS_HZ=1000
+# 2 MB of quad PSRAM (ESP32-S3R2) on the flash bus; a board without it still starts. With PSRAM on,
+# ESP-IDF builds everything with -mdisable-hardware-atomics: atomics become library calls, and
+# std::atomic_flag::test_and_set becomes a plain load and store (not atomic: use
+# std::atomic<bool>::exchange). How the heap uses it is the firmware's choice (CONFIG_SPIRAM_USE_*; see
+# examples/psram_heap).
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_SPEED_120M=y
+CONFIG_SPIRAM_BOOT_INIT=y
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+# The SD card (Storage::Init, FAT): 512-byte sectors (with 4096 every open file carries a 4 KB buffer of
+# internal RAM) and long file names.
+CONFIG_FATFS_SECTOR_512=y
+CONFIG_WL_SECTOR_SIZE_512=y
+CONFIG_FATFS_LFN_HEAP=y
+# The partition table is the firmware's to name, with its own path to the HAL (board/partitions.csv:
+# the default, safe beside the 203 Launcher):
+#   CONFIG_PARTITION_TABLE_CUSTOM=y
+#   CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="<path to the HAL from the project>/board/partitions.csv"
