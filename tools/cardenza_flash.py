@@ -2,16 +2,19 @@
 """Flash a firmware build to a Cardenza without erasing the 203 Launcher.
 
 usage: python3 <HAL>/tools/cardenza_flash.py -p PORT [BUILD_DIR] [--check-only] [--replace-launcher]
+       python3 <HAL>/tools/cardenza_flash.py -p PORT [BUILD_DIR] --app-into LABEL
 
 The device's partition table belongs to the Launcher. A firmware installed through the Launcher goes
 into a slot the Launcher makes; flashing a build directly (idf.py flash) writes its own bootloader and
 partition table instead, and on a board that has the Launcher that erases the Launcher and its list of
 installed software. So before writing anything this reads the board (in download mode):
 
-- The board has the Launcher (an app partition of subtype test at 0x10000 with an image in it): it
-  refuses. Install the firmware through the Launcher instead (copy BUILD_DIR/<name>.bin to the SD card
-  and install it from the Launcher's file browser, or use the Launcher's serial installer).
-  --replace-launcher flashes anyway, erasing the Launcher on purpose.
+- The board has the Launcher (an app partition of subtype test at 0x10000 with an image in it): a full
+  flash is refused. Either install the firmware through the Launcher (copy BUILD_DIR/<name>.bin to the
+  SD card and install it from the Launcher's file browser, or use the Launcher's serial installer), or,
+  while developing, write only the app image into one of the Launcher's app partitions with
+  --app-into LABEL (the Launcher's developer workflow: back in the Launcher, start or register it).
+  --replace-launcher flashes everything anyway, erasing the Launcher on purpose.
 - Otherwise it writes the build as idf.py flash would (BUILD_DIR/flash_args).
 
 It also checks the build's own partition table: a table that puts anything other than the Launcher's
@@ -77,6 +80,31 @@ def describe_image(head):
     return (project + " " + version).strip()
 
 
+def app_image(flash_args_text):
+    """The app image of a build: the file flash_args writes that is not the bootloader, the partition
+    table or the initial otadata."""
+    for line in flash_args_text.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) == 2 and not parts[1].startswith(("bootloader/", "partition_table/")) and parts[1] != "ota_data_initial.bin":
+            return parts[1]
+    return None
+
+
+def app_slot(entries, label, image_size):
+    """The board's app partition named label, or (None, why it cannot take the image)."""
+    for entry in entries:
+        if entry["name"] != label:
+            continue
+        if entry["type"] != TYPE_APP:
+            return None, "%s is not an app partition" % label
+        if entry["subtype"] == SUBTYPE_TEST or entry["offset"] < APP_FIRST:
+            return None, "%s is the Launcher's own partition" % label
+        if image_size > entry["size"]:
+            return None, "the image (%d bytes) does not fit %s (%d bytes)" % (image_size, label, entry["size"])
+        return entry, None
+    return None, "the board has no partition %s (labels: %s)" % (label, ", ".join(e["name"] for e in entries if e["type"] == TYPE_APP))
+
+
 def table_problems(entries):
     """What in a build's table would overwrite the Launcher on a board that has it."""
     problems = []
@@ -111,6 +139,7 @@ def main():
     parser.add_argument("build", nargs="?", default="build")
     parser.add_argument("--check-only", action="store_true")
     parser.add_argument("--replace-launcher", action="store_true")
+    parser.add_argument("--app-into", metavar="LABEL", help="write only the app image into this app partition of the board")
     args = parser.parse_args()
 
     flash_args = os.path.join(args.build, "flash_args")
@@ -125,7 +154,25 @@ def main():
     table = read_flash(args.port, TABLE_OFFSET, TABLE_SIZE)
     if table is None:
         sys.exit("cardenza_flash: could not read the board (is it in download mode on %s?)" % args.port)
-    slot = launcher_slot(parse_table(table))
+    entries = parse_table(table)
+    if args.app_into:
+        with open(flash_args) as file:
+            image = app_image(file.read())
+        if image is None:
+            sys.exit("cardenza_flash: %s names no app image" % flash_args)
+        target, why = app_slot(entries, args.app_into, os.path.getsize(os.path.join(args.build, image)))
+        if target is None:
+            sys.exit("cardenza_flash: not flashing: " + why)
+        print("cardenza_flash: writing %s alone into %s at 0x%x; the bootloader and the partition table stay" % (
+            image, target["name"], target["offset"]))
+        if args.check_only:
+            return 0
+        result = esptool(args.port, "-b", "460800", "--before", "default_reset", "--after", "hard_reset", "write_flash",
+                         hex(target["offset"]), image, cwd=args.build)
+        if result == 0:
+            print("cardenza_flash: done. In the Launcher, start it from the list, or register it (203-launcher tools/register_app.py).")
+        return result
+    slot = launcher_slot(entries)
     image = None
     if slot is not None:
         head = read_flash(args.port, slot["offset"], 0x100)
@@ -135,7 +182,8 @@ def main():
         if not args.replace_launcher:
             sys.exit("cardenza_flash: not flashing: a full flash would erase the Launcher and its list of installed software.\n"
                      "  Install the firmware through the Launcher: copy %s to the SD card and install it from the\n"
-                     "  Launcher's file browser, or use the Launcher's serial installer.\n"
+                     "  Launcher's file browser, or use the Launcher's serial installer. While developing,\n"
+                     "  --app-into LABEL writes only the app into one of the Launcher's app partitions.\n"
                      "  --replace-launcher flashes anyway and erases the Launcher." % os.path.join(args.build, "<name>.bin"))
         print("cardenza_flash: --replace-launcher: the Launcher will be erased.")
     else:

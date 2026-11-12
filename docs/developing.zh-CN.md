@@ -48,7 +48,7 @@
 
 Cardenza 平时运行 203 Launcher，由它安装和启动各个固件。被它启动的固件：
 
-- 装在 Launcher 划出的分区里：从不改分区表、otadata 和 Launcher 自己的分区。只有没装 Launcher 的板子才直接刷（即使那样，[`board/partitions.csv`](../board/partitions.csv) 也保留 Launcher 的区域，[`tools/cardenza_flash.py`](../tools/cardenza_flash.py) 拒绝抹掉 Launcher）；
+- 装在 Launcher 划出的分区里：从不改分区表、otadata 和 Launcher 自己的分区。在电脑上用 [`tools/uploader`](../tools/uploader/README.zh-CN.md) 把编好的固件交给 Launcher 安装（`serial_flasher.py`），再登记名称、UUID 和版本（`register_app.py`）。只有没装 Launcher 的板子才直接刷（即使那样，[`board/partitions.csv`](../board/partitions.csv) 也保留 Launcher 的区域，[`tools/cardenza_flash.py`](../tools/cardenza_flash.py) 拒绝抹掉 Launcher）；
 - 数据放在 SD 卡上自己的文件夹里，不碰 Launcher 的 NVS 记录（见上）；
 - 运行在 Launcher 的 bootloader 下，闪存是 QIO：按 QIO 构建；
 - 在 app 描述里带上版本号：`PROJECT_VER`（`cardenza_read_version`）就是 Launcher 在它下面显示的版本。列表里的名字不是项目名，而是登记或安装时用的名字；直接刷进去的固件显示分区名；
