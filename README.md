@@ -318,6 +318,16 @@ Use [`board/pins.h`](board/pins.h) as the source for GPIO assignments. Avoid rec
 | GPIO0 | Func button and ROM boot selection |
 | Internal USB PHY | USB device or USB-Serial-JTAG |
 
+## Host tests
+
+[`tests/`](tests) checks the HAL on a computer, without a board or ESP-IDF: the pure calculations (key debounce and the key-count guard, LED frames, the backlight curve) and the driver sources against fake ESP-IDF drivers that fail on purpose, so every error path runs. CI runs them on every push and pull request.
+
+```sh
+cmake -S tests -B build-tests
+cmake --build build-tests
+ctest --test-dir build-tests --output-on-failure
+```
+
 ## Troubleshooting
 
 | Symptom | Check |

@@ -10,7 +10,8 @@
 - Target the current board only: LED_EN GPIO47, clock GPIO48, data GPIO21. Do not add legacy pin maps or compatibility APIs.
 - Keyboard LED APIs use 0–15. Keep per-key scanning at four bit planes / 16 duties and global hardware PWM at a fixed gamma-2 curve. Do not add alternative brightness modes.
 - Keyboard OE uses LEDC timer 1 / channel 6; backlight uses timer 0 / channel 7. Both must use APB because ESP32-S3 low-speed LEDC timers share their clock source.
-- Keep test apps, experiments, firmware binaries, build directories, device dumps, and runtime logs outside this HAL repository.
+- Keep test apps (firmware), experiments, firmware binaries, build directories, device dumps, and runtime logs outside this HAL repository.
+- Host tests of the HAL's own code live in `tests/` (CMake, no ESP-IDF: pure calculations, and the driver sources against the fake ESP-IDF drivers in `tests/hal_faults/fakes`); CI runs them on every push and pull request. A change to a calculation or an error path comes with its test.
 - Do not bring back copyleft code (the old GPL `keyboard/keymap.h` was removed on purpose).
 - Do not start builds unless the user explicitly asks. Changes here affect every consumer (CardenzaSynth, Cardenza-MPE); bump the submodule in each one.
 - USB (`usb/usb.h`): one composite device, TinyUSB configured only by `usb/config/tusb_config.h` (the component injects it into TinyUSB; never add `esp_tinyusb`). All four non-control IN endpoints of the ESP32-S3 are in use; a new interface needs one of them back. Keep Matrix OS's report IDs and command bytes (0xCB system, 0xFF app; 0x40 / 0x41 as in Matrix OS) so host tools work across 203 devices; new HAL commands take the next free byte after 0x44. Restarting out of USB always hands the PHY back to USB-Serial-JTAG first (`sw_hw_usb_phy_sel = 0`): the Launcher and esptool depend on it.
