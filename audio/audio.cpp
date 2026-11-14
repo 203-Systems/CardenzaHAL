@@ -3,6 +3,7 @@
 #include "../board/pins.h"
 #include "../system/system.h"
 
+#include <esp_attr.h>
 #include <esp_log.h>
 #include <driver/gpio.h>
 #include <driver/i2s_std.h>
@@ -27,6 +28,24 @@ constexpr int64_t kCodecRetryUs = 1000 * 1000;
 std::atomic<uint8_t> outputVolume{100};
 
 constexpr char kLogTag[] = "CardenzaAudio";
+
+// Written by the TX DMA interrupt only (one writer, aligned 32-bit words: no atomic read-modify-write,
+// which would be a library call with PSRAM on), read by anyone.
+volatile uint32_t txSent = 0;
+volatile uint32_t txEmpty = 0;
+
+bool IRAM_ATTR OnTxSent(i2s_chan_handle_t, i2s_event_data_t*, void*)
+{
+    txSent = txSent + 1;
+    return false;
+}
+
+// The queue of written buffers was empty when the DMA wanted the next: it sends silence.
+bool IRAM_ATTR OnTxEmpty(i2s_chan_handle_t, i2s_event_data_t*, void*)
+{
+    txEmpty = txEmpty + 1;
+    return false;
+}
 
 constexpr i2s_port_t kAudioPort = I2S_NUM_1;
 constexpr uint32_t kSampleRate = 44100;
@@ -111,6 +130,12 @@ esp_err_t EnsureI2sInitialized(i2s_slot_mode_t mode)
     else
     {
         outputMode = mode;
+        // GetTxCounters. Optional: without them the counters stay at zero.
+        i2s_event_callbacks_t callbacks = {};
+        callbacks.on_sent = OnTxSent;
+        callbacks.on_send_q_ovf = OnTxEmpty;
+        if (i2s_channel_register_event_callback(txChannel, &callbacks, nullptr) != ESP_OK)
+            ESP_LOGW(kLogTag, "TX counters unavailable");
     }
 
     return status;
@@ -177,6 +202,14 @@ bool Init(i2s_slot_mode_t mode)
 i2s_chan_handle_t GetTxChannel()
 {
     return txChannel;
+}
+
+TxCounters GetTxCounters()
+{
+    TxCounters counters;
+    counters.sent = txSent;
+    counters.empty = txEmpty;
+    return counters;
 }
 
 bool IsCodecReady()

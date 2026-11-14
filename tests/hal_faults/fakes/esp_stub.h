@@ -185,7 +185,7 @@ struct i2s_pdm_rx_config_t { int clk_cfg = 0, slot_cfg = 0; i2s_pdm_rx_gpio_conf
 #define I2S_PDM_RX_CLK_DEFAULT_CONFIG(rate) (rate)
 #define I2S_PDM_RX_SLOT_DEFAULT_CONFIG(bits, mode) (bits)
 struct i2s_event_data_t {};
-struct i2s_event_callbacks_t { bool (*on_recv_q_ovf)(i2s_chan_handle_t, i2s_event_data_t*, void*) = nullptr; bool (*on_send_q_ovf)(i2s_chan_handle_t, i2s_event_data_t*, void*) = nullptr; };
+struct i2s_event_callbacks_t { bool (*on_recv)(i2s_chan_handle_t, i2s_event_data_t*, void*) = nullptr; bool (*on_recv_q_ovf)(i2s_chan_handle_t, i2s_event_data_t*, void*) = nullptr; bool (*on_sent)(i2s_chan_handle_t, i2s_event_data_t*, void*) = nullptr; bool (*on_send_q_ovf)(i2s_chan_handle_t, i2s_event_data_t*, void*) = nullptr; };
 struct i2s_chan_info_t { unsigned total_dma_buf_size = 3072; };
 inline int i2s_new_channel(const i2s_chan_config_t* cfg, i2s_chan_handle_t* tx, i2s_chan_handle_t* rx) {
   if (tx) *tx = new I2sChannel{false, false, cfg->id};
