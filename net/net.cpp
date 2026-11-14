@@ -29,6 +29,11 @@
 // - ESP-IDF 5.3 does not free the small NVSPartition object nvs_flash_init_partition_ptr makes when the
 //   partition is closed again (it is not in the list deinit_partition looks in): 8 bytes per read.
 //
+// - One write, for the presence service's handover (WritePending): the command it took goes into the
+//   Launcher's namespace l_pending, right before the restart into the Launcher. NVS is then opened
+//   read-write, as the Launcher opens it at its start (which repairs what a cut write left, as it would
+//   anyway a moment later); a partition that would have to be erased is left alone, and the handover fails.
+//
 // Nothing else here touches NVS: Wi-Fi starts with nvs_enable = 0 and WIFI_STORAGE_RAM. The PHY keeps
 // its calibration in NVS namespace "phy" when CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE is on (it
 // reads it, and writes it after a full calibration); with NVS not open it logs an error and calibrates
@@ -42,6 +47,7 @@
 #include <climits>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <unistd.h>
 
 #include <esp_event.h>
@@ -70,6 +76,8 @@
 
 #include "net/connect_order.h"
 #include "net/internal/nvs_page.h"
+#include "net/internal/shared_use.h"
+#include "net/presence_logic.h"
 
 #if CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC
 extern "C" void* esp_mbedtls_mem_calloc(size_t n, size_t size);
@@ -204,6 +212,71 @@ void ReadLastNetwork(LauncherSettings& settings)
     ReadString(handle, "wifi_last", settings.lastSsid, sizeof(settings.lastSsid));
     if (nvs_get_u8(handle, "wifi_ch", &settings.lastChannel) != ESP_OK) settings.lastChannel = 0;
     nvs_close(handle);
+}
+
+// Settings > Account > Receive firmware (launcher/remote_install, u8, missing: on).
+bool ReadReceiveFirmware()
+{
+    nvs_handle_t handle = 0;
+    if (nvs_open_from_partition(kNvsLabel, "launcher", NVS_READONLY, &handle) != ESP_OK) return true;
+    uint8_t value = 1;
+    if (nvs_get_u8(handle, "remote_install", &value) != ESP_OK) value = 1;
+    nvs_close(handle);
+    return value != 0;
+}
+
+// The firmware and the presence service read (and the handover writes) the shared NVS one at a time:
+// opening and closing the partition is not safe from two tasks at once.
+std::mutex g_settingsMutex;
+
+// Opens "nvs" for reading through the read-only copy of its entry, unless the firmware has it open
+// already. `opened`: the HAL opened it (and closes it with CloseAfterReading).
+SettingsResult OpenForReading(bool& opened)
+{
+    opened = false;
+    const esp_partition_t* partition =
+        esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS, kNvsLabel);
+    if (partition == nullptr)
+    {
+        ESP_LOGW(kTag, "Launcher settings: no NVS partition \"%s\"", kNvsLabel);
+        return SettingsResult::NoPartition;
+    }
+    if (partition->encrypted)
+    {
+        ESP_LOGW(kTag, "Launcher settings: the NVS partition is encrypted");
+        return SettingsResult::Unreadable;
+    }
+    nvs_stats_t stats = {};
+    if (nvs_get_stats(kNvsLabel, &stats) != ESP_ERR_NVS_NOT_INITIALIZED) return SettingsResult::Ok;  // the firmware's
+    uint32_t written = 0;
+    if (!CountWrittenEntries(partition, written))
+    {
+        ESP_LOGW(kTag, "Launcher settings: NVS needs a repair or is newer (left to the Launcher)");
+        return SettingsResult::Unreadable;
+    }
+    g_readOnlyNvs = *partition;
+    g_readOnlyNvs.readonly = true;
+    const esp_err_t err = nvs_flash_init_partition_ptr(&g_readOnlyNvs);
+    if (err != ESP_OK)
+    {
+        ESP_LOGW(kTag, "Launcher settings: NVS cannot be read without writing (%s)", esp_err_to_name(err));
+        return SettingsResult::Unreadable;
+    }
+    const esp_err_t statsErr = nvs_get_stats(kNvsLabel, &stats);
+    if (statsErr != ESP_OK || stats.used_entries != written)
+    {
+        ESP_LOGW(kTag, "Launcher settings: NVS needs a repair (%s, %u of %u entries)", esp_err_to_name(statsErr),
+                 static_cast<unsigned>(stats.used_entries), static_cast<unsigned>(written));
+        nvs_flash_deinit_partition(kNvsLabel);
+        return SettingsResult::Unreadable;
+    }
+    opened = true;
+    return SettingsResult::Ok;
+}
+
+void CloseAfterReading(bool opened)
+{
+    if (opened) nvs_flash_deinit_partition(kNvsLabel);
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -645,53 +718,19 @@ SettingsResult ReadLauncherSettings(LauncherSettings& settings)
     settings.networkCount = 0;
     std::memset(settings.lastSsid, 0, sizeof(settings.lastSsid));
     settings.lastChannel = 0;
+    settings.receiveFirmware = true;
     const int64_t startUs = esp_timer_get_time();
-    const esp_partition_t* partition =
-        esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS, kNvsLabel);
-    if (partition == nullptr)
-    {
-        ESP_LOGW(kTag, "Launcher settings: no NVS partition \"%s\"", kNvsLabel);
-        return SettingsResult::NoPartition;
-    }
-    if (partition->encrypted)
-    {
-        ESP_LOGW(kTag, "Launcher settings: the NVS partition is encrypted");
-        return SettingsResult::Unreadable;
-    }
-
-    nvs_stats_t stats = {};
-    const bool openedByFirmware = nvs_get_stats(kNvsLabel, &stats) != ESP_ERR_NVS_NOT_INITIALIZED;
-    if (!openedByFirmware)
-    {
-        uint32_t written = 0;
-        if (!CountWrittenEntries(partition, written))
-        {
-            ESP_LOGW(kTag, "Launcher settings: NVS needs a repair or is newer (left to the Launcher)");
-            return SettingsResult::Unreadable;
-        }
-        g_readOnlyNvs = *partition;
-        g_readOnlyNvs.readonly = true;
-        const esp_err_t err = nvs_flash_init_partition_ptr(&g_readOnlyNvs);
-        if (err != ESP_OK)
-        {
-            ESP_LOGW(kTag, "Launcher settings: NVS cannot be read without writing (%s)", esp_err_to_name(err));
-            return SettingsResult::Unreadable;
-        }
-        const esp_err_t statsErr = nvs_get_stats(kNvsLabel, &stats);
-        if (statsErr != ESP_OK || stats.used_entries != written)
-        {
-            ESP_LOGW(kTag, "Launcher settings: NVS needs a repair (%s, %u of %u entries)", esp_err_to_name(statsErr),
-                     static_cast<unsigned>(stats.used_entries), static_cast<unsigned>(written));
-            nvs_flash_deinit_partition(kNvsLabel);
-            return SettingsResult::Unreadable;
-        }
-    }
+    std::lock_guard<std::mutex> lock(g_settingsMutex);
+    bool opened = false;
+    const SettingsResult result = OpenForReading(opened);
+    if (result != SettingsResult::Ok) return result;
 
     std::size_t skipped = 0;
     ReadAccount(settings.account);
     ReadNetworks(settings, skipped);
     ReadLastNetwork(settings);
-    if (!openedByFirmware) nvs_flash_deinit_partition(kNvsLabel);
+    settings.receiveFirmware = ReadReceiveFirmware();
+    CloseAfterReading(opened);
 
     ConnectOrder::Attempt last;
     ESP_LOGI(kTag, "Launcher settings read in %u ms: account %s, %u saved network(s)%s, last network %s",
@@ -703,8 +742,9 @@ SettingsResult ReadLauncherSettings(LauncherSettings& settings)
     return SettingsResult::Ok;
 }
 
-ConnectStatus Connect(const LauncherSettings& settings, ConnectReport& report, uint32_t timeoutMs,
-                      CancelCheck cancelled, void* context)
+// Connect, one caller at a time (g_connectMutex).
+static ConnectStatus ConnectNow(const LauncherSettings& settings, ConnectReport& report, uint32_t timeoutMs,
+                                CancelCheck cancelled, void* context)
 {
     report = ConnectReport{};
     const int64_t startUs = esp_timer_get_time();
@@ -848,15 +888,9 @@ bool Connected()
     return g_wifi.events != nullptr && (xEventGroupGetBits(g_wifi.events) & kGotIp) != 0;
 }
 
-void Disconnect()
-{
-    if (g_wifi.events == nullptr) return;
-    TearDown();
-    ESP_LOGI(kTag, "Disconnected");
-    LogHeap("after Disconnect");
-}
-
-SendStatus Send(const Request& request, Response& response, Progress progress, CancelCheck cancelled, void* context)
+// quiet: a success is logged at debug level only (the presence service's polls would fill a firmware's log).
+static SendStatus SendNow(const Request& request, Response& response, Progress progress, CancelCheck cancelled,
+                         void* context, bool quiet)
 {
     response.status = 0;
     response.length = 0;
@@ -1044,7 +1078,11 @@ SendStatus Send(const Request& request, Response& response, Progress progress, C
 
     static const char* const kNames[] = {"ok", "invalid", "not connected", "connect failed", "send failed",
                                          "read failed", "cancelled", "no memory"};
-    if (status == SendStatus::Ok)
+    if (status == SendStatus::Ok && quiet)
+        ESP_LOGD(kTag, "%s %s: %d, sent %llu B, received %u B%s, %u ms", request.method, host, response.status,
+                 static_cast<unsigned long long>(sent), static_cast<unsigned>(response.length),
+                 response.truncated ? " (truncated)" : "", static_cast<unsigned>(MillisSince(startUs)));
+    else if (status == SendStatus::Ok)
         ESP_LOGI(kTag, "%s %s: %d, sent %llu B, received %u B%s, %u ms", request.method, host, response.status,
                  static_cast<unsigned long long>(sent), static_cast<unsigned>(response.length),
                  response.truncated ? " (truncated)" : "", static_cast<unsigned>(MillisSince(startUs)));
@@ -1054,6 +1092,177 @@ SendStatus Send(const Request& request, Response& response, Progress progress, C
                  static_cast<unsigned long long>(sent), static_cast<unsigned long long>(total),
                  static_cast<unsigned>(MillisSince(startUs)));
     return status;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// One connection for the firmware and the presence service
+
+namespace {
+
+std::mutex g_connectMutex;
+uint8_t g_holders = 0;  // Internal::User bits, under g_connectMutex
+std::atomic<int> g_sending[3] = {};
+
+uint8_t Bit(Internal::User user)
+{
+    return static_cast<uint8_t>(user);
+}
+
+// Modem sleep while only the presence service holds Wi-Fi (it asks every 15 s or so: fewer wake-ups and
+// less power); full power while the firmware uses it (uploads).
+void ApplyPowerSave()
+{
+    if (!Connected()) return;
+    esp_wifi_set_ps((g_holders & Bit(Internal::User::Firmware)) != 0 ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM);
+}
+
+}  // namespace
+
+ConnectStatus Internal::Connect(User user, const LauncherSettings& settings, ConnectReport& report,
+                                uint32_t timeoutMs, CancelCheck cancelled, void* context)
+{
+    std::lock_guard<std::mutex> lock(g_connectMutex);
+    const ConnectStatus status = ConnectNow(settings, report, timeoutMs, cancelled, context);
+    if (status == ConnectStatus::Connected)
+        g_holders |= Bit(user);
+    else
+        g_holders &= static_cast<uint8_t>(~Bit(user));
+    ApplyPowerSave();
+    return status;
+}
+
+void Internal::Disconnect(User user)
+{
+    std::lock_guard<std::mutex> lock(g_connectMutex);
+    g_holders &= static_cast<uint8_t>(~Bit(user));
+    if (g_holders != 0)
+    {
+        ApplyPowerSave();
+        return;
+    }
+    if (g_wifi.events == nullptr) return;
+    TearDown();
+    ESP_LOGI(kTag, "Disconnected");
+    LogHeap("after Disconnect");
+}
+
+bool Internal::Holds(User user)
+{
+    std::lock_guard<std::mutex> lock(g_connectMutex);
+    return (g_holders & Bit(user)) != 0;
+}
+
+SendStatus Internal::Send(User user, const Request& request, Response& response, Progress progress,
+                          CancelCheck cancelled, void* context)
+{
+    std::atomic<int>& count = g_sending[Bit(user)];
+    count.fetch_add(1);
+    const SendStatus status = SendNow(request, response, progress, cancelled, context, user == User::Presence);
+    count.fetch_sub(1);
+    return status;
+}
+
+bool Internal::Sending(User user)
+{
+    return g_sending[Bit(user)].load() > 0;
+}
+
+ConnectStatus Connect(const LauncherSettings& settings, ConnectReport& report, uint32_t timeoutMs,
+                      CancelCheck cancelled, void* context)
+{
+    return Internal::Connect(Internal::User::Firmware, settings, report, timeoutMs, cancelled, context);
+}
+
+void Disconnect()
+{
+    Internal::Disconnect(Internal::User::Firmware);
+}
+
+SendStatus Send(const Request& request, Response& response, Progress progress, CancelCheck cancelled, void* context)
+{
+    return Internal::Send(Internal::User::Firmware, request, response, progress, cancelled, context);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The account alone, and the handover
+
+SettingsResult Internal::ReadAccount(LauncherAccount& account, bool& receiveFirmware)
+{
+    Wipe(account.token, sizeof(account.token));
+    account = LauncherAccount{};
+    receiveFirmware = true;
+    std::lock_guard<std::mutex> lock(g_settingsMutex);
+    bool opened = false;
+    const SettingsResult result = OpenForReading(opened);
+    if (result != SettingsResult::Ok) return result;
+    CardenzaHAL::Net::ReadAccount(account);
+    receiveFirmware = ReadReceiveFirmware();
+    CloseAfterReading(opened);
+    return SettingsResult::Ok;
+}
+
+namespace {
+
+// Opens "nvs" read-write for the handover: the firmware's own open partition, else the HAL opens it as the
+// Launcher does at its start. Never erases. `opened`: the HAL opened it.
+bool OpenForWriting(nvs_handle_t& handle, bool& opened)
+{
+    opened = false;
+    nvs_stats_t stats = {};
+    if (nvs_get_stats(kNvsLabel, &stats) == ESP_ERR_NVS_NOT_INITIALIZED)
+    {
+        const esp_err_t err = nvs_flash_init_partition(kNvsLabel);
+        if (err != ESP_OK)
+        {
+            // ESP_ERR_NVS_NO_FREE_PAGES / NEW_VERSION_FOUND: only an erase would open it. Left to the Launcher.
+            ESP_LOGE(kTag, "handover: NVS cannot be opened for writing (%s)", esp_err_to_name(err));
+            return false;
+        }
+        opened = true;
+    }
+    const esp_err_t err = nvs_open_from_partition(kNvsLabel, Presence::Logic::Pending::kNamespace, NVS_READWRITE, &handle);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(kTag, "handover: %s cannot be written (%s)", Presence::Logic::Pending::kNamespace, esp_err_to_name(err));
+        if (opened) nvs_flash_deinit_partition(kNvsLabel);
+        opened = false;
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+bool Internal::WritePending(const PendingCommand& pending)
+{
+    namespace Keys = Presence::Logic::Pending;
+    if (pending.command == nullptr || pending.action == nullptr || pending.api == nullptr) return false;
+    std::lock_guard<std::mutex> lock(g_settingsMutex);
+    nvs_handle_t handle = 0;
+    bool opened = false;
+    if (!OpenForWriting(handle, opened)) return false;
+    const bool unlock = pending.unlock != nullptr && pending.unlock[0] != 0;
+    const bool ok = nvs_erase_all(handle) == ESP_OK && nvs_set_u8(handle, Keys::kVersionKey, Keys::kVersion) == ESP_OK &&
+                    nvs_set_str(handle, Keys::kCommandKey, pending.command) == ESP_OK &&
+                    nvs_set_str(handle, Keys::kActionKey, pending.action) == ESP_OK &&
+                    (!unlock || nvs_set_str(handle, Keys::kUnlockKey, pending.unlock) == ESP_OK) &&
+                    nvs_set_str(handle, Keys::kApiKey, pending.api) == ESP_OK && nvs_commit(handle) == ESP_OK;
+    nvs_close(handle);
+    if (opened) nvs_flash_deinit_partition(kNvsLabel);
+    if (!ok) ESP_LOGE(kTag, "handover: writing %s failed", Keys::kNamespace);
+    return ok;
+}
+
+bool Internal::ClearPending()
+{
+    std::lock_guard<std::mutex> lock(g_settingsMutex);
+    nvs_handle_t handle = 0;
+    bool opened = false;
+    if (!OpenForWriting(handle, opened)) return false;
+    const bool ok = nvs_erase_all(handle) == ESP_OK && nvs_commit(handle) == ESP_OK;
+    nvs_close(handle);
+    if (opened) nvs_flash_deinit_partition(kNvsLabel);
+    return ok;
 }
 
 bool RunningImageDigest(char hex[65])

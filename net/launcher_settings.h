@@ -12,10 +12,18 @@
 //              user_name, device_id (the chip's 12-hex MAC): the community account this device is
 //              bound to (none: not bound).
 //   l_wifi     per saved network, keyed by the CRC-32 of its SSID in upper-case hex:
-//              s_<CRC> the SSID, p_<CRC> its password (AES-128-CBC with PKCS#7 padding under the
-//              Launcher's key and IV, then base64; an open network has an empty one), b_<CRC> = 1.
-//   launcher   wifi_last (the SSID it joined last) and wifi_ch (its channel).
+//              s_<CRC> the SSID, p_<CRC> its password (AES-128-CBC with PKCS#7 padding under a key and
+//              IV every Launcher shares, then base64; an open network has an empty one), b_<CRC> = 1.
+//   launcher   wifi_last (the SSID it joined last), wifi_ch (its channel) and remote_install
+//              (Settings > Account > Receive firmware: 0 off, else or missing on).
 // Firmware only reads them: the Launcher owns these namespaces.
+//
+// None of this is secret from firmware on the device. The passwords are only obfuscated: the key and IV
+// are the same on every Launcher and written below, so any firmware on the board (and anyone who reads
+// the flash) can recover the Wi-Fi passwords, and read the device token as it is. The token is a least-
+// privilege credential for that reason (the community's "device" kind). Real protection would need a
+// per-device key (an eFuse HMAC key, or flash encryption with NVS encryption), which the Launcher does
+// not use today.
 namespace CardenzaHAL::Net {
 
     // The community account the Launcher bound this device to.
@@ -50,13 +58,17 @@ namespace CardenzaHAL::Net {
         std::size_t networkCount = 0;
         char lastSsid[33] = {};      // the network the Launcher joined last ("": none)
         uint8_t lastChannel = 0;     // its channel (0: unknown)
+        // Settings > Account > Receive firmware in the Launcher: off, nothing sent from the community is
+        // taken (the presence service does not ask; net/presence.h).
+        bool receiveFirmware = true;
         // Clears the passwords (call when done with them).
         void Forget();
     };
 
     // The Launcher's way of storing a saved network (203-launcher src/settings.cpp, src/wifi_crypto.cpp).
     namespace LauncherWifi {
-        // The Launcher's AES-128 key and IV for saved passwords.
+        // The Launcher's AES-128 key and IV for saved passwords: the same on every device, so this is
+        // obfuscation, not encryption (see above).
         inline constexpr char kKey[17] = "LauncherWifi2025";
         inline constexpr uint8_t kIv[16] = {0x4C, 0x61, 0x75, 0x6E, 0x63, 0x68, 0x65, 0x72,
                                             0x57, 0x69, 0x66, 0x69, 0x4B, 0x65, 0x79, 0x21};  // "LauncherWifiKey!"
