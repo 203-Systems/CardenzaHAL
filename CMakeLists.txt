@@ -20,6 +20,7 @@ if(COMMAND idf_component_register)
             net/http_request.cpp
             net/launcher_settings.cpp
             net/net.cpp
+            net/presence.cpp
             net/presence_logic.cpp
             storage/storage.cpp
             system/launcher.cpp
@@ -41,7 +42,8 @@ if(COMMAND idf_component_register)
             esp_rom
             log
             usb
-            # Net (net/net.h): linked only into a firmware that calls it.
+            # Net (net/net.h): linked only into a firmware that calls it, or that has the presence service
+            # (CONFIG_CARDENZA_HAL_PRESENCE, Kconfig) started by Init.
             app_update
             esp-tls
             esp_event
@@ -82,6 +84,7 @@ set(cardenza_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/net/http_request.cpp
     ${CMAKE_CURRENT_LIST_DIR}/net/launcher_settings.cpp
     ${CMAKE_CURRENT_LIST_DIR}/net/net.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/net/presence.cpp
     ${CMAKE_CURRENT_LIST_DIR}/net/presence_logic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/launcher.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/system.cpp

@@ -1,6 +1,9 @@
 #include "cardenzaHAL.h"
 
 #include <esp_log.h>
+#include <sdkconfig.h>
+
+#include "net/presence.h"
 
 namespace {
 
@@ -65,6 +68,11 @@ bool Init()
 
     g_initReport.overall = g_initReport.system && g_initReport.keyboard && g_initReport.audio && g_initReport.display;
     g_initialized = g_initReport.overall;
+#if CONFIG_CARDENZA_HAL_PRESENCE
+    // Reachable from the community while this firmware runs (net/presence.h); it starts later, and only
+    // on a board the Launcher bound and connected. Start() runs once however often Init is retried.
+    Presence::Start();
+#endif
     return g_initReport.overall;
 }
 
