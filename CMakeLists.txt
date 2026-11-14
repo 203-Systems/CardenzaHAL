@@ -21,6 +21,7 @@ if(COMMAND idf_component_register)
             net/launcher_settings.cpp
             net/net.cpp
             storage/storage.cpp
+            system/launcher.cpp
             system/system.cpp
             usb/usb.cpp
         INCLUDE_DIRS
@@ -80,6 +81,7 @@ set(cardenza_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/net/http_request.cpp
     ${CMAKE_CURRENT_LIST_DIR}/net/launcher_settings.cpp
     ${CMAKE_CURRENT_LIST_DIR}/net/net.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/launcher.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/system.cpp
     ${CMAKE_CURRENT_LIST_DIR}/usb/usb.cpp
 )

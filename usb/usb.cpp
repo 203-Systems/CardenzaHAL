@@ -20,6 +20,7 @@
 #include <soc/rtc_cntl_reg.h>
 #include <soc/rtc_cntl_struct.h>
 
+#include "system/launcher.h"
 #include "tusb.h"
 #include "device/usbd_pvt.h"
 
@@ -614,8 +615,13 @@ void RestartIntoDownloadMode()
 
 void RestartIntoLauncher()
 {
-    ESP_LOGW(kTag, "restarting into the Launcher");
-    Restart();
+    if (g_started.load())
+    {
+        tud_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    // With the Launcher's restart ticket: its home screen even when "Resume after reset" is on.
+    System::RestartIntoLauncher();
 }
 
 }  // namespace CardenzaHAL::USB
