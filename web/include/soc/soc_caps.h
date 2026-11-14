@@ -1,0 +1,20 @@
+#pragma once
+// The ESP32-S3's capabilities that the driver headers depend on.
+#define SOC_CPU_CORES_NUM 2
+#define SOC_GPIO_PIN_COUNT 49
+#define SOC_I2S_NUM 2
+#define SOC_I2S_HW_VERSION_2 1
+#define SOC_I2S_SUPPORTS_PDM 1
+#define SOC_I2S_SUPPORTS_PDM_TX 1
+#define SOC_I2S_SUPPORTS_PDM_RX 1
+#define SOC_I2S_SUPPORTS_TDM 1
+#define SOC_I2S_PDM_MAX_RX_LINES 4
+#define SOC_I2C_NUM 2
+#define SOC_LEDC_CHANNEL_NUM 8
+#define SOC_LEDC_TIMER_BIT_WIDTH 14
+#define SOC_TIMER_GROUP_TOTAL_TIMERS 4
+#define SOC_GPTIMER_SUPPORTED 1
+#define SOC_SPIRAM_SUPPORTED 1
+#define SOC_USB_OTG_SUPPORTED 1
+#define SOC_SDMMC_HOST_SUPPORTED 1
+#define SOC_RMT_SUPPORTED 1

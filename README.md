@@ -4,7 +4,7 @@
 
 CardenzaHAL is the ESP-IDF hardware layer for Cardenza, an ESP32-S3 device. Use it to read the 56-key keyboard, drive individual key LEDs, draw to the 240 × 135 display, play PCM audio, access an SD card, and add USB MIDI, audio, and HID to your firmware.
 
-The HAL provides hardware initialization and native ESP-IDF handles. Your application owns rendering, key mappings, audio processing, file formats, and the main loop. This repository is a component, not a standalone firmware or a desktop simulator.
+The HAL provides hardware initialization and native ESP-IDF handles. Your application owns rendering, key mappings, audio processing, file formats, and the main loop. This repository is a component, not a standalone firmware; its web target builds your firmware into a browser simulator as well ([Web simulator](#web-simulator)).
 
 ## Requirements
 
@@ -366,11 +366,55 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 
 - [`docs/developing.md`](docs/developing.md): what the chip and its toolchain do that is easy to miss (two RAMs, atomics with PSRAM, `memcpy` and division in hot code, what a flash write stops, reading files, USB and the serial port, debugging a hang), and how a firmware behaves under the 203 Launcher.
 - [`examples/psram_heap`](examples/psram_heap): a small firmware that adds the PSRAM to the heap only for code that asks for it, and replaces `new` so a failed allocation is a null pointer instead of a reboot. `idf.py -C examples/psram_heap build`.
+- [`examples/hal_check`](examples/hal_check): the board through the HAL, key by key: every key's cell and LED, a tone per held key from an audio task, HOME. It builds for the board and for the browser alike.
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml): a GitHub Action that publishes a firmware image to the 203 Launcher hub (a Nightly for a push, a release for a `vX.Y.Z` tag) with the App's scoped token.
+
+## Web simulator
+
+The HAL's web target ([`web/`](web)) builds a firmware written on CardenzaHAL, from the same source, into a WebAssembly simulator that runs at full speed in a browser: the screen, the 4 × 14 keys and their LEDs, HOME, the speaker, the SD card and USB MIDI. It is the version a firmware shows in the community player, and a quick way to try a change without a board.
+
+### Build the simulator version
+
+You need [Emscripten](https://emscripten.org/docs/getting_started/downloads.html) (`emsdk install latest`, `emsdk activate latest`) and CMake 3.20 or later; ESP-IDF is not needed. From the firmware project (the folder with `idf.py`'s top-level `CMakeLists.txt`):
+
+```sh
+python3 components/CardenzaHAL/tools/cardenza_web.py build .
+python3 components/CardenzaHAL/tools/cardenza_web.py serve build-web/site   # http://localhost:8000/
+```
+
+`build` configures the project with the HAL's ESP-IDF build shim in place of ESP-IDF (`web/idf`): your `CMakeLists.txt` files, `main/`, `components/`, `EXTRA_COMPONENT_DIRS`, `managed_components/` and your `sdkconfig` (or `SDKCONFIG_DEFAULTS`) are used as they are. The folder it writes (default `build-web/site`, `--out` to choose) holds `index.html`, `<project>.js`, `<project>.wasm`, `cardenza-sim.js` and `sim.json` (target, firmware name and version, the HAL's version and commit, the key map, each file's size and SHA-256). Any static web server can host it. It needs no cross-origin isolation (no COOP / COEP: it uses no SharedArrayBuffer), only `Access-Control-Allow-Origin: *` when it is shown from another origin (always so inside `<iframe sandbox="allow-scripts">`, whose origin is opaque), and `.wasm` as `application/wasm` (it compiles from the downloaded bytes otherwise). In such a frame the browser gives it no storage (the card lives in memory) and no MIDI or microphone; opened as a page of its own it keeps the card and NVS in IndexedDB. `serve` sends those headers and also offers the site framed that way, from a second port, at `/__sandbox.html`. `--hal <dir>` builds against another CardenzaHAL; by default the firmware's own copy is used when it has `web/`, else the one the tool belongs to (with a warning), `--debug` builds with assertions.
+
+Exit codes: `0` built; `1` your code does not build (the compiler's output follows); `2` usage, or not an ESP-IDF project; `3` the firmware does not follow the HAL (one line each on stderr: `unsupported: <function>`, `unsupported-header: <header>`, or `unsupported-source: <file>` for assembly and prebuilt libraries); `4` Emscripten or CMake is missing (with how to install it).
+
+The page fills its window (the board, 7:4, on black), takes the computer keyboard by key position (the table is in `sim.json` and shown by the player) and touch or mouse on its own keys (a right click latches one), starts sound on the first click or key, and tells the page around it `{"cardenza_sim":"ready"}` once `app_main` runs, then `{"cardenza_sim":"keys","keys":[…]}`; also `restarted`, `crashed` and `stopped` (three crashes in 10 s), `ir` and `app_report`. The page around it can send the firmware's app channel `{"cardenza_sim":"app","data":[…]}`. URL parameters: `?sd=0` (no card), `?sdmb=<MB>` (its size, default 8192), `?log=1` (the console under the board). `esp_restart` and a crash start a new instance in the same page (sound, screen and MIDI stay).
+
+A firmware's CMake can tell the web build by the variable `CARDENZA_HAL_WEB` (its code by the definition of the same name), for the rare place it must: a vendored library with a web build of its own that keys on `__EMSCRIPTEN__` (which stays defined: the C library needs it), say.
+
+### What "follows the HAL" means
+
+A firmware follows the HAL when it reaches the hardware only through the HAL's API and the native handles it gives (the display's panel and panel IO, the I2S channels, the I2C bus, the SD card's files), plus FreeRTOS and the ESP-IDF system services. The web target provides exactly that, with the device's behaviour:
+
+| Area | On the web target |
+| --- | --- |
+| FreeRTOS | Tasks, priorities, two cores (`xTaskCreatePinnedToCore`), delays on the tick, queues, semaphores, mutexes with priority inheritance, queue sets, notifications, event groups, software timers, stream and message buffers, critical sections. pthreads, `std::thread`, `std::mutex`, `std::condition_variable` and sleeps run as tasks. |
+| Time | `esp_timer` (task and ISR dispatch), `esp_timer_get_time`, `xTaskGetTickCount` follow real time. |
+| Memory | Internal RAM (about 300 KB free at `app_main`) and the 2 MB PSRAM as separate heaps with the device's room; `malloc`, `new`, task stacks and DMA buffers come out of them as on the board; `heap_caps_*`, `CONFIG_SPIRAM_USE_MALLOC / CAPS_ALLOC / MEMMAP`, `esp_ptr_external_ram`. A firmware that runs out of internal RAM on the board runs out here at about the same point. |
+| Display | `Display::*` is the HAL's own code; the panel and panel IO handles drive a model of the ST7789 (window, MADCTL, inversion, sleep, byte order) with the SPI bus's timing (17 ms for a whole frame) and `on_color_trans_done`. LEDC on GPIO38 is the backlight. |
+| Keys, LEDs, HOME | `Keyboard::*` takes the page's keys through the HAL's debouncer and four-key guard; the LEDs show the levels the scan would drive and the global brightness. `System::GetFuncButton()` and GPIO0 are HOME. |
+| Audio | `Audio::*` and the ES8156 codec's registers over I2C (startup time, volume); the TX channel's DMA (descriptors × frames) is drained at 44.1 kHz by the page's audio clock, so `i2s_channel_write` blocks like on the board; `on_sent` / `on_send_q_ovf`. The microphone (`Mic::*`, PDM RX) hears the computer's microphone where the page may use it, and GPIO43 belongs to whichever side configured it last. |
+| Storage | `Storage::*` mounts `/sdcard` (none when the page says so, `?sd=0`); C and C++ files work; `esp_vfs_fat_info`; NVS kept with the page. |
+| USB | `USB::*` MIDI to and from the computer's MIDI ports (Web MIDI, when allowed), the system SysEx commands, the app channel (also to the page around it); USB audio and HID have no host. |
+| Also | GPIO, GPTimer, RMT for `IR::Send` (decoded and shown), ESP-IDF's log, `esp_restart` (the simulator restarts the firmware), `esp_reset_reason`, `esp_random`, `esp_app_get_description`, the task watchdog's calls. |
+
+Anything else is not provided, and using it fails the build with a message saying so: other ESP-IDF drivers and components (Wi-Fi, Bluetooth, UART, ADC, SPI devices…), register access (`soc/*_reg.h`), the display's or codec's own setup (it belongs to the HAL), Xtensa and ROM internals, `esp_private/*`. So a firmware that builds for the web follows the HAL, and one that does not gets the list of what it reaches past it.
+
+Differences that remain: one browser thread runs the tasks, switching at every call into FreeRTOS, ESP-IDF or the HAL (and between the two cores' tasks), so a task that loops without ever calling any of them holds everything up (the log names it after half a second); `thread_local` is shared by all tasks; file names are case-sensitive and an open file can be renamed; the browser's clock is coarser than the board's (0.1 to 1 ms); sound reaches the speakers about 60 ms after the DMA reads it.
+
+The HAL's own tests of the web target: `tests/web` (the kernel and the models, on the computer), `tests/web/browser` (the page in headless Chrome), `tests/web_tool_test.py` (the build tool).
 
 ## Host tests
 
-[`tests/`](tests) checks the HAL on a computer, without a board or ESP-IDF: the pure calculations (key debounce and the key-count guard, LED frames, the backlight curve) and the driver sources against fake ESP-IDF drivers that fail on purpose, so every error path runs. CI runs them on every push and pull request.
+[`tests/`](tests) checks the HAL on a computer, without a board or ESP-IDF: the pure calculations (key debounce and the key-count guard, LED frames, the backlight curve), the driver sources against fake ESP-IDF drivers that fail on purpose, so every error path runs, and the web target's kernel and models (`tests/web`). CI runs them on every push and pull request.
 
 ```sh
 cmake -S tests -B build-tests
