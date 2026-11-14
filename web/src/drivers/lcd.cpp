@@ -37,7 +37,6 @@ namespace {
 constexpr int kDisplayHost = SPI3_HOST;
 constexpr int kDisplayCs = 37;
 constexpr int kDisplayDc = 34;
-constexpr int kDisplayReset = 33;
 // 64,800 bytes took 17 ms on the board at 40 MHz: the bus runs at about 76% of its clock.
 constexpr double kBusEfficiency = 12.96 / 17.0;
 constexpr uint64_t kTransactionOverheadUs = 12;

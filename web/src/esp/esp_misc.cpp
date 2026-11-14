@@ -355,11 +355,7 @@ int esp_cpu_get_core_id(void) { return k::CurrentCore(); }
 esp_cpu_cycle_count_t esp_cpu_get_cycle_count(void) { return static_cast<esp_cpu_cycle_count_t>(k::NowUs() * 240); }
 void esp_cpu_set_cycle_count(esp_cpu_cycle_count_t) {}
 
-void* esp_cpu_get_sp(void)
-{
-    int marker = 0;
-    return &marker;
-}
+void* esp_cpu_get_sp(void) { return __builtin_frame_address(0); }
 
 void esp_cpu_wait_for_intr(void) { k::Yield(); }
 bool esp_cpu_dbgr_is_attached(void) { return false; }

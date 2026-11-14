@@ -23,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 
 #include "audio_state.h"
+#include "../esp/heap_internal.h"
 #include "../kernel/kernel.h"
 #include "../kernel/raw_alloc.h"
 
@@ -57,6 +58,8 @@ struct i2s_channel_obj_t {
     i2s_event_callbacks_t callbacks;
     void* context;
     uint8_t* scratch;  // one DMA buffer, for the callbacks' event data
+    void* dmaCharge;   // the DMA buffers the device takes from internal RAM (heap_internal.h)
+    uint32_t slotBits;
     k::WaitQueue waiters;
     i2s_channel_obj_t* pair;
 };
@@ -256,9 +259,20 @@ i2s_channel_obj_t* NewChannel(const i2s_chan_config_t* config, i2s_port_t port, 
 
 bool Valid(const i2s_channel_obj_t* channel) { return channel != nullptr; }
 
+// The DMA buffers: dma_desc_num of dma_frame_num frames as they go on the wire (both slots of a
+// standard channel, at the slot width), as ESP-IDF allocates them.
+void ChargeDma(i2s_channel_obj_t* channel)
+{
+    cardenza_web::heap::Refund(channel->dmaCharge);
+    const uint32_t slotBytes = (channel->slotBits != 0 ? channel->slotBits : channel->bits) / 8;
+    const uint32_t wireSlots = channel->mode == I2S_COMM_MODE_STD ? 2 : channel->channels;
+    channel->dmaCharge = cardenza_web::heap::Charge(static_cast<std::size_t>(Capacity(channel)) * slotBytes * wireSlots);
+}
+
 void ApplyStdSlot(i2s_channel_obj_t* channel, const i2s_std_slot_config_t* slot)
 {
     channel->bits = slot->data_bit_width;
+    channel->slotBits = slot->slot_bit_width;
     // MONO takes one sample a frame (ESP32-S3 copies it to both wire slots); STEREO two.
     channel->channels = slot->slot_mode == I2S_SLOT_MODE_MONO ? 1 : 2;
 }
@@ -332,6 +346,7 @@ esp_err_t i2s_del_channel(i2s_chan_handle_t handle)
     (handle->tx ? g_tx : g_rx)[handle->port] = nullptr;
     if (handle->pair != nullptr) handle->pair->pair = nullptr;
     delete handle->preload;
+    cardenza_web::heap::Refund(handle->dmaCharge);
     cardenza_web::RawFree(handle->scratch);
     handle->~i2s_channel_obj_t();
     std::free(handle);
@@ -501,7 +516,8 @@ esp_err_t i2s_channel_init_std_mode(i2s_chan_handle_t handle, const i2s_std_conf
     handle->rate = std_cfg->clk_cfg.sample_rate_hz != 0 ? std_cfg->clk_cfg.sample_rate_hz : a::kRate;
     ApplyStdSlot(handle, &std_cfg->slot_cfg);
     ApplyStdGpio(handle, &std_cfg->gpio_cfg);
-    return ESP_OK;
+    ChargeDma(handle);
+    return handle->dmaCharge != nullptr ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 esp_err_t i2s_channel_reconfig_std_clock(i2s_chan_handle_t handle, const i2s_std_clk_config_t* clk_cfg)
@@ -537,7 +553,8 @@ esp_err_t i2s_channel_init_pdm_rx_mode(i2s_chan_handle_t handle, const i2s_pdm_r
     handle->bits = cfg->slot_cfg.data_bit_width;
     handle->channels = cfg->slot_cfg.slot_mode == I2S_SLOT_MODE_MONO ? 1 : 2;
     ApplyPdmGpio(handle, &cfg->gpio_cfg);
-    return ESP_OK;
+    ChargeDma(handle);
+    return handle->dmaCharge != nullptr ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 esp_err_t i2s_channel_reconfig_pdm_rx_clock(i2s_chan_handle_t handle, const i2s_pdm_rx_clk_config_t* clk_cfg)
