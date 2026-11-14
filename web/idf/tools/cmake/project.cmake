@@ -35,6 +35,9 @@ get_filename_component(CARDENZA_WEB_IDF_PATH "${CMAKE_CURRENT_LIST_DIR}/../.." A
 set(IDF_PATH "${CARDENZA_WEB_IDF_PATH}")
 set(IDF_TARGET esp32s3)
 set(IDF_VER "v5.3.5-cardenza-web")
+# A firmware's CMake can tell the web target by this (and its code by the CARDENZA_HAL_WEB definition),
+# where it has to: a vendored library with a web build of its own that keys on __EMSCRIPTEN__, say.
+set(CARDENZA_HAL_WEB TRUE)
 include("${CARDENZA_WEB_IDF_PATH}/../cmake/runtime.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/component.cmake")
 

@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 
 #include "driver/sdmmc_host.h"
+#include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -87,7 +88,7 @@ esp_err_t esp_vfs_fat_sdmmc_mount(const char* base_path, const sdmmc_host_t* hos
     if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) vTaskDelay(pdMS_TO_TICKS(20));
     if (!p::CardPresent())
     {
-        std::printf("E (%u) sdmmc_common: sdmmc_init_ocr: send_op_cond (1) returned 0x107\n", static_cast<unsigned>(xTaskGetTickCount()));
+        ESP_LOGE("sdmmc_common", "sdmmc_init_ocr: send_op_cond (1) returned 0x107");
         return ESP_ERR_TIMEOUT;
     }
     Mount* slot = nullptr;
