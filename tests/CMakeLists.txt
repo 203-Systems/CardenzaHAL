@@ -3,6 +3,7 @@
 # - logic_test, key_count_guard_test: the pure calculations the HAL runs on the device (key debounce and
 #   the key-count guard, LED frames, the backlight curve).
 # - net_test: the pure parts of net/ (the Launcher's settings format, request checks, connect order).
+# - presence_test: the presence service's decisions (net/presence_logic.h) and the Launcher's restart ticket.
 # - hal_faults: the HAL's driver sources against fake ESP-IDF drivers (fakes/esp_stub.h) that fail on
 #   purpose, so every error path is taken and leaves the hardware in a known state.
 cmake_minimum_required(VERSION 3.20)
@@ -44,6 +45,14 @@ add_executable(CardenzaNetTests net_test.cpp
   ${cardenza_test_guard})
 target_include_directories(CardenzaNetTests PRIVATE ${hal_root})
 add_test(NAME CardenzaNetTests COMMAND CardenzaNetTests)
+
+# net/presence_logic.h (the presence service's decisions: allowed hosts, the inbox answer, the handover
+# plan, backoff, giving way to audio and RAM) and system/launcher.h (the Launcher's restart ticket).
+add_executable(CardenzaPresenceTests presence_test.cpp
+  ${hal_root}/net/presence_logic.cpp ${hal_root}/net/http_request.cpp ${hal_root}/net/launcher_settings.cpp
+  ${cardenza_test_guard})
+target_include_directories(CardenzaPresenceTests PRIVATE ${hal_root})
+add_test(NAME CardenzaPresenceTests COMMAND CardenzaPresenceTests)
 
 add_subdirectory(hal_faults)
 

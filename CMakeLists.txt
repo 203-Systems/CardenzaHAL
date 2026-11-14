@@ -20,6 +20,7 @@ if(COMMAND idf_component_register)
             net/http_request.cpp
             net/launcher_settings.cpp
             net/net.cpp
+            net/presence_logic.cpp
             storage/storage.cpp
             system/launcher.cpp
             system/system.cpp
@@ -81,6 +82,7 @@ set(cardenza_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/net/http_request.cpp
     ${CMAKE_CURRENT_LIST_DIR}/net/launcher_settings.cpp
     ${CMAKE_CURRENT_LIST_DIR}/net/net.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/net/presence_logic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/launcher.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/system.cpp
     ${CMAKE_CURRENT_LIST_DIR}/usb/usb.cpp
