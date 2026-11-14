@@ -4,3 +4,9 @@ __pycache__/
 *.py[cod]
 build-web/
 web-sites/
+# The examples built in place (idf.py -C examples/<name> build)
+examples/*/build/
+examples/*/sdkconfig
+examples/*/sdkconfig.old
+examples/*/managed_components/
+examples/*/dependencies.lock

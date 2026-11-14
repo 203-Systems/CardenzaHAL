@@ -53,6 +53,6 @@ A Cardenza normally runs the 203 Launcher, which installs and starts firmwares. 
 - runs with the Launcher's bootloader, which sets the flash to QIO: build it so;
 - carries its version in its app description: `PROJECT_VER` (`cardenza_read_version`) is the version the Launcher shows under it. Its name in the list is not the project name: it is the name it was registered or installed under, and a directly flashed firmware shows its partition label;
 - goes back to the Launcher with a plain restart (`esp_restart()`; `command launcher` over USB does it from a computer);
-- is published to the Launcher hub with [`.github/actions/launcher-publish`](../.github/actions/launcher-publish/action.yml): a Nightly for a push to main, a release for a tag `vX.Y.Z` equal to its version.
+- is published on the 203 community with `203c` ([FIRMWARE-PROJECT.md](FIRMWARE-PROJECT.md): the files a project needs, what the community checks, versions and channels); 203 Systems' official firmware go to the Launcher hub with [`.github/actions/launcher-publish`](../.github/actions/launcher-publish/action.yml) instead (a Nightly for a push to main, a release for a tag `vX.Y.Z` equal to its version).
 
 The Launcher's own documentation has the full rules (registration, metadata, installation).

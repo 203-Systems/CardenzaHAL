@@ -53,6 +53,6 @@ Cardenza 平时运行 203 Launcher，由它安装和启动各个固件。被它�
 - 运行在 Launcher 的 bootloader 下，闪存是 QIO：按 QIO 构建；
 - 在 app 描述里带上版本号：`PROJECT_VER`（`cardenza_read_version`）就是 Launcher 在它下面显示的版本。列表里的名字不是项目名，而是登记或安装时用的名字；直接刷进去的固件显示分区名；
 - 用一次普通重启回到 Launcher（`esp_restart()`；从电脑上用 USB 的 `command launcher` 也行）；
-- 用 [`.github/actions/launcher-publish`](../.github/actions/launcher-publish/action.yml) 发布到 Launcher hub：推送到 main 是 Nightly，`vX.Y.Z` 标签（等于它的版本号）是正式版。
+- 用 `203c` 发布到 203 社区（[FIRMWARE-PROJECT.md](FIRMWARE-PROJECT.md)：工程需要哪些文件、社区检查什么、版本与渠道）；203 Systems 的官方固件则用 [`.github/actions/launcher-publish`](../.github/actions/launcher-publish/action.yml) 发布到 Launcher hub（推送到 main 是 Nightly，`vX.Y.Z` 标签（等于它的版本号）是正式版）。
 
 完整规则（登记、元数据、安装）见 Launcher 自己的文档。

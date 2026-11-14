@@ -6,6 +6,16 @@ CardenzaHAL is the ESP-IDF hardware layer for Cardenza, an ESP32-S3 device. Use 
 
 The HAL provides hardware initialization and native ESP-IDF handles. Your application owns rendering, key mappings, audio processing, file formats, and the main loop. This repository is a component, not a standalone firmware; its web target builds your firmware into a browser simulator as well ([Web simulator](#web-simulator)).
 
+## Making a firmware on CardenzaHAL
+
+Read [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md) first: the rules every firmware on the HAL follows, for people and coding agents alike (setup, the project's files and `203.json`, the HAL rules, building for the board and the browser, what the 203 community checks, versions, forks, what never to commit). Start from [`examples/template`](examples/template), and publish to the community with `203c`:
+
+```sh
+curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
+203c login
+203c publish --dry-run && 203c publish
+```
+
 ## Requirements
 
 - The current Cardenza board; pin assignments are in [`board/pins.h`](board/pins.h).
@@ -365,9 +375,11 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 ## Developer notes, examples and publishing
 
 - [`docs/developing.md`](docs/developing.md): what the chip and its toolchain do that is easy to miss (two RAMs, atomics with PSRAM, `memcpy` and division in hot code, what a flash write stops, reading files, USB and the serial port, debugging a hang), and how a firmware behaves under the 203 Launcher.
+- [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md): the rules for a firmware project on the HAL and for publishing it on the 203 community with `203c` (the community serves this file at `/develop.md`).
+- [`examples/template`](examples/template): a firmware project to start from: the HAL as a submodule, the board's defaults, a partition table that keeps the Launcher, `version.txt`, `CHANGELOG.md` and `203.json`. It builds for the board and the browser.
 - [`examples/psram_heap`](examples/psram_heap): a small firmware that adds the PSRAM to the heap only for code that asks for it, and replaces `new` so a failed allocation is a null pointer instead of a reboot. `idf.py -C examples/psram_heap build`.
 - [`examples/hal_check`](examples/hal_check): the board through the HAL, key by key: every key's cell and LED, a tone per held key from an audio task, HOME. It builds for the board and for the browser alike.
-- [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml): a GitHub Action that publishes a firmware image to the 203 Launcher hub (a Nightly for a push, a release for a `vX.Y.Z` tag) with the App's scoped token.
+- [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml): for 203 Systems' official firmware, a GitHub Action that publishes a firmware image to the 203 Launcher hub (a Nightly for a push, a release for a `vX.Y.Z` tag) with the App's scoped token.
 
 ## Web simulator
 

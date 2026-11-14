@@ -6,6 +6,16 @@ CardenzaHAL 是 Cardenza（ESP32-S3）的 ESP-IDF 硬件层。你可以用它读
 
 HAL 负责硬件初始化，并提供原生 ESP-IDF 句柄；应用负责界面绘制、键位映射、音频处理、文件格式和主循环。本仓库是组件，需要接入固件工程使用；它的网页目标还能把你的固件编译成浏览器里的模拟器（见[网页模拟器](#网页模拟器)）。
 
+## 在 CardenzaHAL 上做固件
+
+先读 [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md)（英文，唯一的规范；[中文摘要](docs/FIRMWARE-PROJECT.zh-CN.md)）：每个基于 HAL 的固件都要遵守的规则，人和编程智能体都按它做（环境、工程文件和 `203.json`、HAL 的规则、编译板子版和网页版、203 社区发布前检查什么、版本、Fork、什么绝不能提交）。从 [`examples/template`](examples/template) 开始，用 `203c` 发布到社区：
+
+```sh
+curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
+203c login
+203c publish --dry-run && 203c publish
+```
+
 ## 使用前提
 
 - 当前版本的 Cardenza 硬件，引脚定义见 [`board/pins.h`](board/pins.h)。
@@ -367,9 +377,11 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 ## 开发须知、示例与发布
 
 - [`docs/developing.zh-CN.md`](docs/developing.zh-CN.md)：芯片和工具链容易忽略的地方（两种内存、开 PSRAM 后的原子操作、热路径里的 `memcpy` 和除法、写闪存会停掉什么、读文件、USB 与串口、排查卡死），以及固件在 203 Launcher 下应该怎样运行。
+- [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md)：基于 HAL 的固件工程规则，以及怎样用 `203c` 发布到 203 社区（社区在 `/develop.md` 提供同一个文件）。
+- [`examples/template`](examples/template)：做新固件的起点：HAL 作为子模块、板子默认配置、保留 Launcher 的分区表、`version.txt`、`CHANGELOG.md` 和 `203.json`；同时能编译到板子和网页。
 - [`examples/psram_heap`](examples/psram_heap)：一个小固件，把 PSRAM 加进堆、只给明确申请的代码用，并替换 `new`，让申请失败变成空指针而不是重启。`idf.py -C examples/psram_heap build`。
 - [`examples/hal_check`](examples/hal_check)：通过 HAL 逐个检查板子：每个键的格子和按键灯、音频任务为每个按住的键发一个音、HOME。同一份源码既能编译到板子上，也能编译成网页版。
-- [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：用 App 的专用令牌把固件发布到 203 Launcher hub 的 GitHub Action（推送是 Nightly，`vX.Y.Z` 标签是正式版）。
+- [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：给 203 Systems 官方固件用的，用 App 的专用令牌把固件发布到 203 Launcher hub 的 GitHub Action（推送是 Nightly，`vX.Y.Z` 标签是正式版）。
 
 ## 网页模拟器
 

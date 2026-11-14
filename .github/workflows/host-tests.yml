@@ -18,6 +18,9 @@ jobs:
           cmake --build build-tests -j
       - name: Test
         run: ctest --test-dir build-tests --output-on-failure
+      # The firmware template (examples/template) keeps a copy of the board's partition table.
+      - name: Template partition table
+        run: diff <(grep -v '^#' board/partitions.csv) <(grep -v '^#' examples/template/partitions.csv)
 
   # The web target (web/): the HAL's examples build for the browser and boot (tests/web/boot_test.mjs).
   web-target:
@@ -33,7 +36,9 @@ jobs:
         run: |
           python3 tools/cardenza_web.py build examples/hal_check --out web-sites/hal_check
           python3 tools/cardenza_web.py build examples/psram_heap --out web-sites/psram_heap
+          python3 tools/cardenza_web.py build examples/template --out web-sites/template
       - name: Boot them
         run: |
           node tests/web/boot_test.mjs web-sites/hal_check --expect "hal_check: ready" --expect "ES8156 setup success"
           node tests/web/boot_test.mjs web-sites/psram_heap --expect "512 KB nothrow: yes (PSRAM)"
+          node tests/web/boot_test.mjs web-sites/template --expect "my_firmware 0.1.0 ready"
