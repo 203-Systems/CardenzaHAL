@@ -21,7 +21,7 @@ Do these in order; stop and ask the user only where a step says so.
 
 1. Read this file to the end once. Then read the HAL's [README](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md) for the API you need.
 2. Check the tools ([Setup](#1-dependencies-and-setup)): `idf.py --version` says v5.3.5, `node --version` is 18 or later, `203c doctor` runs. Install what is missing with the commands below.
-3. Sign in: `203c doctor --json`; when it is not signed in, run `203c login`, give the user the link and the code it prints, and wait until they approved it. Never ask for passwords or tokens.
+3. Sign in: `203c doctor --json`; when it is not signed in, run `203c login`: it opens the user's browser on the community, they approve, and it comes back signed in (tell the user to approve 203c in the browser). Not on the user's computer (SSH, CI, a remote agent): `203c login --no-browser`, give the user the link and the code it prints, then `203c login --wait`. Never ask for passwords or tokens.
 4. Set up the project: a new one from [examples/template](https://github.com/203-Systems/CardenzaHAL/tree/main/examples/template) ([Start a project](#start-a-project)), or someone else's firmware with `203c fork <CODE> [DIR]` ([Forks](#7-forks-and-provenance)). Make sure the [required files](#2-the-project-files-and-layout) are there; `203c init` writes `203.json`.
 5. Write the firmware following [the HAL rules](#3-using-the-hal): public headers only, nothing the HAL already does, no copyleft code.
 6. Build for the board (`idf.py build`) and for the browser (`python3 components/CardenzaHAL/tools/cardenza_web.py build .`); fix every error and warning of yours. Both must build ([Build](#4-build)).
@@ -115,7 +115,8 @@ curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
 ```
 
 - The installer puts the skill in `~/.claude/skills/203-community` and a `203c` command in `~/.local/bin` (put that on `PATH`). Without the command: `node ~/.claude/skills/203-community/scripts/203c.mjs`.
-- `203c login` prints a link and a code: open the link signed in on the community (GitHub sign-in) and approve. The approval is a named `cli` credential, listed and revocable on your profile page (`/me`).
+- `203c login` opens the browser on the community's sign-in page: sign in there (GitHub) if it asks, approve "203c on <your computer>", and the browser goes back to 203c (OAuth's authorization code with PKCE and a redirect to 203c on `127.0.0.1`). Where no browser can be opened (SSH, CI, `--no-browser`) it prints a link and a code to approve instead. Either way the approval is a named `cli` credential, listed and revocable on your profile page (`/me`, Signed-in devices and tools).
+- Everything the community's API does for you, 203c does (`203c --help`; `203c api` for anything else): use 203c, not raw HTTP.
 - Every command except `login`, `logout`, `help`, `version`, `doctor` and `rules` needs that sign-in.
 - 203c keeps its token in your home folder, never in the project. CI uses a `ci` token instead ([Publish from CI](#publish-from-ci)).
 

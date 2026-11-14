@@ -10,7 +10,7 @@
    ```sh
    curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
    203c doctor
-   203c login      # 打印链接和验证码：登录社区后打开链接批准
+   203c login      # 打开浏览器：在社区网站上批准（远程时加 --no-browser，用链接和验证码）
    ```
 2. 建工程：从 [`examples/template`](https://github.com/203-Systems/CardenzaHAL/tree/main/examples/template) 复制一份，把 HAL 加成子模块：
    ```sh
