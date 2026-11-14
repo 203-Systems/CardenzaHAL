@@ -2,3 +2,5 @@ build-tests/
 .venv/
 __pycache__/
 *.py[cod]
+build-web/
+web-sites/
