@@ -134,7 +134,7 @@ idf.py -p <PORT> flash monitor
 | Storage | 否 | 尝试挂载 `/sdcard` |
 | IR | 否 | 准备红外发射器 |
 
-`LastInitReport()` 提供上述六个模块的结果和 `overall`。整体初始化成功后会缓存结果，再调用一次不会重新挂载缺失的 SD 卡；需要单独调用 `Storage::Init()` 重试。麦克风、USB 和网络（[Net](#网络wi-fi-与-https)）**不在整体初始化范围内**；`cardenzaHAL.h` 也不包含 `usb/usb.h` 和 `net/net.h`。
+`LastInitReport()` 提供上述六个模块的结果和 `overall`。整体初始化成功后会缓存结果，再调用一次不会重新挂载缺失的 SD 卡；需要单独调用 `Storage::Init()` 重试。麦克风、USB 和网络（[Net](#网络wi-fi-与-https)）**不在整体初始化范围内**；`cardenzaHAL.h` 也不包含 `usb/usb.h` 和 `net/net.h`。打开 `CONFIG_CARDENZA_HAL_PRESENCE`（默认打开）时，`Init()` 还会启动一次[社区在线服务](#社区在线服务任何固件运行时都能收到)，不论各模块的结果如何。
 
 只需要部分功能时，可以分别初始化各模块。使用共享 I2C 或 Func 前，先调用 `System::Init()`，并检查各模块的返回值。音频编解码器初始化失败后可以再次调用 `Audio::Init()`，重试频率限制约为每秒一次。
 
@@ -316,7 +316,7 @@ USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包�
 
 公开接口：[`net/net.h`](net/net.h)；纯头文件（不依赖 ESP-IDF，电脑上也能用）[`net/launcher_settings.h`](net/launcher_settings.h)、[`net/http_request.h`](net/http_request.h) 和 [`net/connect_order.h`](net/connect_order.h)。
 
-给偶尔需要上网的固件用（分享一段录音、查点东西），用的是 203 Launcher 设置好的 Wi-Fi 网络和社区账号。不调用就什么都不运行，`Init()` 也不会启动它：`ReadLauncherSettings` 读出 Launcher 保存的内容，`Connect` 打开 Wi-Fi，`Send` 发 HTTP(S) 请求，`Disconnect` 把一切关掉、把内存还回去。
+给偶尔需要上网的固件用（分享一段录音、查点东西），用的是 203 Launcher 设置好的 Wi-Fi 网络和社区账号。不调用就什么都不运行（[在线服务](#社区在线服务任何固件运行时都能收到)打开时会自己使用 Net）：`ReadLauncherSettings` 读出 Launcher 保存的内容，`Connect` 打开 Wi-Fi，`Send` 发 HTTP(S) 请求，`Disconnect` 把一切关掉、把内存还回去。
 
 ```cpp
 #include "net/net.h"
@@ -384,7 +384,7 @@ close(fd);
 | `ReadLauncherSettings(settings)` | 读出 Launcher 的账号、保存的网络（密码已解密）和上次连接的网络。返回 `Ok`、`NoPartition`（不是 Launcher 的分区表）或 `Unreadable`（见下文）。不需要 Wi-Fi。 |
 | `Connect(settings, report, timeoutMs = 20000, cancelled, context)` | 先连 Launcher 上次连过的网络，在它的信道上直接连、不扫描；不行就扫描（约 1.5 秒），按信号从强到弱试范围内保存过的网络（每个最多 15 秒，期间重连两次）。返回 `Connected`、`NoNetworks`、`NotFound`、`AuthFailed`（密码被拒，或握手超时）、`Failed`、`NoMemory`、`Cancelled`；`report` 里有网络名、信号、耗时和错误码。失败时把打开的东西全部关掉。 |
 | `Connected()` | 拿到了 IP 地址。连接断了不会自动重连：再调用 `Connect`。 |
-| `Disconnect()` | 停止并反初始化 Wi-Fi，删掉它的 netif，以及（如果是 Net 建的）默认事件循环。 |
+| `Disconnect()` | 停止并反初始化 Wi-Fi，删掉它的 netif，以及（如果是 Net 建的）默认事件循环。在线服务占用着连接时，连接为它保留（固件只是放手，省电模式回到调制解调器睡眠）。 |
 | `Send(request, response, progress, cancelled, context)` | 一个请求，每次新建连接。`https` 用 ESP-IDF 的证书包校验；不跟随重定向。回复正文写进调用者的缓冲区（以零结尾，更长时 `truncated`）。`Ok` 表示收到了回复，不论 HTTP 状态码是多少。 |
 | `RunningImageDigest(hex)` | 正在运行的镜像的 SHA-256，社区用它认出一个构建（64 位十六进制）。第一次调用会读取并校验整个镜像，结果会保存下来。 |
 
@@ -392,13 +392,15 @@ close(fd);
 
 **线程。** 在固件自己的一个任务里调用 Net，一次一个调用，绝不在界面或音频任务里调用。给它 6-8 KB 的栈（TLS 握手在上面运行；[`examples/launcher_net`](examples/launcher_net) 会打印实际用了多少），优先级低于界面。连接时大约每 100 ms 检查一次 `cancelled`，上传时每块之间检查一次；单个网络操作（建立连接、一次读或写）仍可能阻塞到 `Request::timeoutMs`。按下面的配置，Wi-Fi 任务（优先级 23）、lwIP 任务（18）和事件循环任务（20，总在核 0）都在核 0 上运行。固件自己已经在用 Wi-Fi 时，Net 拒绝启动 Wi-Fi。
 
-**Launcher 的设置**保存在设备上所有固件共用的 NVS 分区里（`nvs`，0x9000）。Net 读 Launcher 的三个命名空间，**从不写入任何东西**：
+**Launcher 的设置**保存在设备上所有固件共用的 NVS 分区里（`nvs`，0x9000）。Net 读 Launcher 的三个命名空间，**从不往里写任何东西**（Net 唯一一次写共享 NVS 是在线服务交接时写 `l_pending`，见下文）：
 
 | 命名空间 | 键 | Net 中的对应 |
 | --- | --- | --- |
 | `l_account` | `token`（`ccd_` + 64 位十六进制）、`api`（社区 API 地址，`https://community.203.io/api`）、`user_id`、`user_name`、`device_id`（芯片的 12 位十六进制 MAC） | `LauncherAccount`；和 Launcher 一样，token 不合法或没有 api 的记录不算绑定（`Bound()` 为假）；超过 63 字节的名字在字符边界截断 |
-| `l_wifi` | 每个保存的网络，用 SSID 的 CRC-32 作键：`s_<CRC>` 是 SSID，`p_<CRC>` 是密码（用 Launcher 的密钥和 IV 做 AES-128-CBC 加 PKCS#7 填充，再 base64；开放网络为空），`b_<CRC>` = 1 | `networks[]`，最多 16 个；缺了某一项或解不开的条目和 Launcher 一样跳过 |
-| `launcher` | `wifi_last`（上次连接的 SSID）、`wifi_ch`（它的信道） | `lastSsid`、`lastChannel` |
+| `l_wifi` | 每个保存的网络，用 SSID 的 CRC-32 作键：`s_<CRC>` 是 SSID，`p_<CRC>` 是密码（用所有 Launcher 共用的密钥和 IV 做 AES-128-CBC 加 PKCS#7 填充，再 base64：只是混淆，不是加密；开放网络为空），`b_<CRC>` = 1 | `networks[]`，最多 16 个；缺了某一项或解不开的条目和 Launcher 一样跳过 |
+| `launcher` | `wifi_last`（上次连接的 SSID）、`wifi_ch`（它的信道）、`remote_install`（设置 › 账号 › 接收固件；0 为关，没有这一项为开） | `lastSsid`、`lastChannel`、`receiveFirmware` |
+
+**这些对板子上的固件都不是秘密。** 设备运行的任何固件都能读到设备令牌，Wi-Fi 密码也只是混淆过：每个 Launcher 的密钥和 IV 都相同（`net/launcher_settings.h` 里也有），所以能在板子上运行固件、或者读出闪存的人都能拿到密码。正因为如此，社区把设备令牌设计成最小权限（只能访问这台设备自己的接口和公开页面，碰不到账号设置、其他凭据或个人数据）。真正的保护需要每台设备不同的密钥（eFuse HMAC 密钥，或闪存加密加 NVS 加密），Launcher 目前没有使用。
 
 分区通过一份标成只读的分区表项副本打开：NVS 可能做的每次写入或擦除都经过 `esp_partition_write` / `write_raw` / `erase_range`，它们在碰到闪存之前就拒绝只读表项（`ESP_ERR_NOT_ALLOWED`），NVS 也不允许在上面打开读写句柄。ESP-IDF 的 NVS 在打开分区时，遇到几种状态会写入：空白分区（新建一页）、被断电打断的换页（把它做完）、写了一半的条目或被打断的写入留下的重复值、对不上的 blob 片段。在只读副本上，这时打开会失败，或者（其中几种）只在内存里丢掉受影响的条目；Net 把 NVS 统计的已写条目数和闪存上各页的实际数目对比，有出入就报告 `Unreadable`。它从不修复：Launcher 下次启动时会修好自己的分区。用更新的 NVS 格式写的分区、没有空闲页的分区也是 `Unreadable`。固件自己已经打开 `nvs` 时，Net 直接通过它读，并保持打开。Net 的其他部分不碰 NVS：Wi-Fi 以 `nvs_enable = 0` 和 `WIFI_STORAGE_RAM` 启动，固件关掉 PHY 的校准数据存储（见下文）。
 
@@ -430,6 +432,36 @@ close(fd);
 
 **限制。** 2.4 GHz 网络，有密码（WPA、WPA2、WPA3 个人版）或开放；不支持企业网络；隐藏网络只能作为上次连接的网络连上（扫描看不到它的名字）。不跟随重定向，不保持连接（每个请求一个连接），不支持代理和 HTTP/2。只信任 ESP-IDF 5.3 证书包里的根证书：Let's Encrypt 较新的根证书（YR、YE）不在里面，用它们的网站只要还发送由 ISRG Root X1 交叉签名的证书链（2026 年仍然如此）就能连上。回复正文只保留调用者缓冲区放得下的部分。
 
+## 社区在线服务（任何固件运行时都能收到）
+
+公开接口：[`net/presence.h`](net/presence.h)；它的判断逻辑写成纯函数、在电脑上测试：[`net/presence_logic.h`](net/presence_logic.h)。
+
+在 203 社区网站上，固件页面可以把这个固件发到登录用户已绑定的设备上，只安装，或安装后启动。203 Launcher 在它的菜单里接收这些命令；在线服务让设备在**任何基于 HAL 的固件**运行时也能收到，不论设备正在做什么。打开 `CONFIG_CARDENZA_HAL_PRESENCE`（menuconfig › CardenzaHAL；**默认打开**）时由 `CardenzaHAL::Init()` 启动，固件不需要再做别的：
+
+1. `Init()` 之后 `CONFIG_CARDENZA_HAL_PRESENCE_START_DELAY` 秒（10 秒），一个任务（优先级 1，核 0，8 KB 栈）读取 Launcher 的设置。只有 Launcher 把设备绑定到了社区（`l_account`，并且是社区自己的域名）、保存了 Wi-Fi 网络、并且 **设置 › 账号 › 接收固件** 是打开的，它才继续；否则任务结束（`State::Idle`），这次运行中不再占用任何资源。
+2. 它通过 [Net](#网络wi-fi-与-https) 连上 Wi-Fi（固件可以共用这个连接：`Net::Connect` 直接加入（服务正在连接时会等它连完），`Net::Disconnect` 只是自己放手，不会把连接从服务手里拿走），之后保持连接，两次信标之间进入调制解调器睡眠。
+3. 每 15 秒（以回复里的 `poll` 为准）用设备令牌请求一次 `GET <api>/launcher/inbox?from=firmware`。这个请求就是设备的在线状态：网站只允许发给 40 秒内请求过的设备，否则显示“设备没开机或没联网”。
+4. 收到的命令会**交给 Launcher**：先调用固件的钩子（`SetHandoverHook`：保存不能丢的东西，或者拒绝）；把命令（编号、`install` 或 `install_start`、社区为私有固件发来的解锁令牌、社区地址）写进共享 NVS 的 `l_pending` 命名空间；告诉社区（`POST <api>/launcher/commands/<id>` `{"status":"handover"}`）；然后重启进入 Launcher（`System::RestartIntoLauncher`，见下）。Launcher 先清掉 `l_pending`，再向社区要这条命令，像处理自己收件箱里的命令一样下载、校验、安装并逐步汇报，`install_start` 装好后启动。格式由 Launcher 定义：203-launcher `docs/SHARED_SETTINGS.md`。同一个回复里的其他命令立即拒绝（`failed`，“Unsupported command” 或 “Device busy”），网站不用一直等。
+
+| 调用 | 作用 |
+| --- | --- |
+| `Start()` | 启动服务，只启动一次（打开选项时由 `Init()` 调用）。 |
+| `Enable(bool)` | 默认打开。关闭后不再请求，并放开 Wi-Fi（固件没有通过 Net 占用时 Wi-Fi 会关掉）；服务停下后才返回。在 `Init()` 之前调用可以让服务根本不启动。固件要自己运行 Wi-Fi 之前先关掉它（Wi-Fi 只能有一个主人：服务开着时，固件自己的 `esp_wifi_init` 会失败），或者在需要每一个 CPU 周期的时段关掉。 |
+| `GetState()` | `Off`、`Idle`（这次运行中无事可做）、`Connecting`、`Online`、`Waiting`（失败后或正在让路）、`SignedOut`（社区拒绝了令牌）、`HandingOver`。 |
+| `SetHandoverHook(hook, context)` | `bool hook(const Handover&, void*)` 在重启前、在服务的任务里运行：命令编号、是否启动、固件名称和版本（用来显示提示）。返回 `false` 表示拒绝（网站显示 “Refused by the running firmware”）。 |
+
+**它会让路。** 失败后等 5 秒，每次翻倍，最多 5 分钟。每次请求前检查：固件的音频跟得上，内部内存有富余（TLS 能用 PSRAM 时空闲 40 KB、最大块 12 KB，否则 80 KB 和 24 KB），固件自己的 Net 请求不在进行中；不满足就等 5 秒。音频看的是扬声器 DMA 的计数（`Audio::GetTxCounters()`：发出的块数，以及发出时没有新数据写入的块数）：音频流出现欠载，说明设备没有余力，不发起请求；如果某次请求期间音频断了流，只要音频还在播放，服务就暂停 60 秒，每次翻倍、最多 5 分钟，直到有一次请求期间没有欠载。它**不会**在扬声器一播放就停：一直在写音频的固件（合成器连静音也在渲染）那样就永远收不到命令了。任务优先级是 1、在核 0 上运行，只用别的任务不用的时间；按 Net 的配置，Wi-Fi 和 lwIP 的任务也在核 0。TLS 握手是这个任务里的计算（会被固件的任务抢占）和走闪存缓存的代码，不写闪存，也没有长时间的临界区。如果固件的音频还是受影响，可以在关键的时候用 `Enable(false)` 关掉，或者在 Kconfig 里关掉。
+
+**令牌发到哪里。** 设备上的每个固件都能读到设备令牌（见 Net），所以把它当作半公开的：服务只通过 https 把它发给 `presence_logic.h` 里的域名（`community.203.io`、`cardenza.203.io`，端口 443），绑定里写的是别的地址时根本不发请求（SD 卡或测试设置都不能把它引到别处）。`CONFIG_CARDENZA_HAL_PRESENCE_LOCAL_HTTP`（仅调试版本，默认关闭）额外允许用 http:// 连环回或私有 IPv4 地址上的测试社区。日志里从不出现令牌、解锁令牌或 URL 的路径。收到 401 `signin_required`（或 403 `banned`）时，先再读一次 `l_account`（也许 Launcher 换了令牌），仍然不行就停到下次启动；`l_account` 本身从不改动。绑定在启动时以及每次重新连上 Wi-Fi 时读取：只有 Launcher 会写它，而 Launcher 从不和固件同时运行（每次请求都重新打开 NVS 分区，在 ESP-IDF 5.3 下每次会漏掉几个字节，每 15 秒一次）。
+
+**回到 Launcher。** [`system/launcher.h`](system/launcher.h) 的 `System::RestartIntoLauncher()` 写入 Launcher 的重启票据（RTC 快速内存里的两个字，Launcher 的 bootloader 读取后清除：进入 Launcher 首页，即使打开了“Resume after reset”，也不显示“Boot last app”倒计时），把 USB PHY 交还给 USB-Serial-JTAG，然后重启。`USB::RestartIntoLauncher()`（0x40 命令）现在通知 USB 主机后也这样做。没有 Launcher 时就是重启固件。
+
+**唯一一次写 NVS。** 交接时只往共享 NVS 分区写 `l_pending`（不写别的），在重启前写一次：固件自己打开了分区就用它，否则像 Launcher 启动时那样以读写方式打开 NVS（它会修复断电留下的半截写入，Launcher 片刻之后本来也会这样做）。只有擦除才能打开的分区不去动它，交接失败（“Could not hand over to the Launcher”）。写闪存会让缓存停几毫秒：重启前按键灯可能闪一下。
+
+**开销。** 打开选项后会链接 Net：在 `examples/community_presence` 上与关闭选项的同一构建相比，静态内部内存多约 23 KB（13 KB 必须留在 IRAM 的 Wi-Fi、PHY 和系统代码，9 KB 数据，1 KB .bss），闪存多 643 KB（镜像从 400 KB 增加到 1044 KB）；这是用 Net 的参考 sdkconfig 测的（Wi-Fi 和 lwIP 从闪存运行，它们 13.7 KB 的 .bss 放在 PSRAM：`CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY`），不用这些选项时静态内部内存约多 36 KB（Net 的数字）。ESP-IDF 5.3.5，2026-11-14。在已绑定的板子上运行时：8 KB 任务栈，以及保持 Wi-Fi 连接（Wi-Fi 的缓冲区、lwIP 和事件任务：40-60 KB 内部内存，Net 的实测）。每次请求：一个 TLS 连接（完整握手，连同服务器证书约 5-6 KB 流量，另有约 1 KB 的请求和回复；TLS 内存 30-50 KB，只占用片刻，打开 `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC` 时在 PSRAM 里）和 16 KB 的回复缓冲区（有 PSRAM 时在 PSRAM 里），请求结束后都还回去：每分钟约 25 KB 流量，每 15 秒几百毫秒优先级 1 的 CPU 时间（估计值；[`examples/community_presence`](examples/community_presence) 会打印用过的栈）。成功的请求只在调试级别记录，一切正常时服务不会往固件的日志里加任何一行。
+
+**关闭。** `CONFIG_CARDENZA_HAL_PRESENCE=n`：服务和 Net 都不会被链接，接口什么也不做（`GetState()` 是 `Off`）。网页目标没有网络：接口存在，服务不存在。
+
 ## 硬件资源归属
 
 GPIO 以 [`board/pins.h`](board/pins.h) 为准。应用应避免重新配置 HAL 占用的资源：
@@ -444,7 +476,7 @@ GPIO 以 [`board/pins.h`](board/pins.h) 为准。应用应避免重新配置 HAL
 | GPIO47/48/21 | 按键灯使能、时钟、数据 |
 | GPIO0 | Func 按键与 ROM 启动选择 |
 | 内部 USB PHY | USB 设备或 USB-Serial-JTAG |
-| Wi-Fi 射频 | Net，在 `Connect` 和 `Disconnect` 之间 |
+| Wi-Fi 射频 | Net：固件在 `Connect` 和 `Disconnect` 之间，以及在线服务运行期间（固件自己运行 Wi-Fi 之前先 `Presence::Enable(false)`） |
 
 ## 板子默认配置、分区表与刷机
 
@@ -488,6 +520,7 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`docs/developing.zh-CN.md`](docs/developing.zh-CN.md)：芯片和工具链容易忽略的地方（两种内存、开 PSRAM 后的原子操作、热路径里的 `memcpy` 和除法、写闪存会停掉什么、读文件、USB 与串口、排查卡死），以及固件在 203 Launcher 下应该怎样运行。
 - [`examples/psram_heap`](examples/psram_heap)：一个小固件，把 PSRAM 加进堆、只给明确申请的代码用，并替换 `new`，让申请失败变成空指针而不是重启。`idf.py -C examples/psram_heap build`。
 - [`examples/launcher_net`](examples/launcher_net)：读出 Launcher 的设置，连上它的 Wi-Fi，发一个 HTTPS 请求再把一切关掉，每一步都打印耗时和内存；它的 `sdkconfig.defaults` 是使用 Net 的固件的参考配置。`idf.py -C examples/launcher_net build`。
+- [`examples/community_presence`](examples/community_presence)：带在线服务的 `CardenzaHAL::Init()`、交接钩子、在日志里打印服务的状态。`idf.py -C examples/community_presence build`。
 - [`examples/hal_check`](examples/hal_check)：通过 HAL 逐个检查板子：每个键的格子和按键灯、音频任务为每个按住的键发一个音、HOME。同一份源码既能编译到板子上，也能编译成网页版。
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：用 App 的专用令牌把固件发布到 203 Launcher hub 的 GitHub Action（推送是 Nightly，`vX.Y.Z` 标签是正式版）。
 - **AI 代理与 203 社区**：要发布固件版本、读取用户需求、查看检查报告或把固件发到设备，先装一次 203 社区 skill：`curl -fsSL https://community.203.io/skill/install.sh | sh`（装到 `~/.claude/skills/203-community`；说明见 https://community.203.io/agents）。
@@ -537,7 +570,7 @@ HAL 对网页目标的测试：`tests/web`（内核和各个模型，在电脑�
 
 ## 主机测试
 
-[`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线，以及 Net 的：Launcher 保存网络的格式（用 Launcher 自己的代码生成的数据检验）、请求检查、尝试网络的顺序）、驱动源码在故意出错的假 ESP-IDF 驱动下运行（让每条出错路径都走一遍），以及网页目标的内核和各个模型（`tests/web`）。CI 在每次推送和每个 PR 上运行它们。
+[`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线，以及 Net 的：Launcher 保存网络的格式（用 Launcher 自己的代码生成的数据检验）、请求检查、尝试网络的顺序；在线服务的判断逻辑和 Launcher 的重启票据）、驱动源码在故意出错的假 ESP-IDF 驱动下运行（让每条出错路径都走一遍），以及网页目标的内核和各个模型（`tests/web`）。CI 在每次推送和每个 PR 上运行它们。
 
 ```sh
 cmake -S tests -B build-tests

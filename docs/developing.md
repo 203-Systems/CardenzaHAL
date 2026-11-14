@@ -54,7 +54,8 @@ A Cardenza normally runs the 203 Launcher, which installs and starts firmwares. 
 - keeps its data on the SD card, in its own folder, and leaves the Launcher's NVS records alone (above); it may read the Wi-Fi networks and community account the Launcher saved, through `net/net.h`;
 - runs with the Launcher's bootloader, which sets the flash to QIO: build it so;
 - carries its version in its app description: `PROJECT_VER` (`cardenza_read_version`) is the version the Launcher shows under it. Its name in the list is not the project name: it is the name it was registered or installed under, and a directly flashed firmware shows its partition label;
-- goes back to the Launcher with a plain restart (`esp_restart()`; `command launcher` over USB does it from a computer);
+- goes back to the Launcher with [`System::RestartIntoLauncher()`](../system/launcher.h) (the Launcher's restart ticket: its home screen even when "Resume after reset" is on, where a plain `esp_restart()` starts the firmware again; `command launcher` over USB does the same from a computer);
+- stays reachable from the 203 community while it runs: the presence service ([`net/presence.h`](../net/presence.h), on by default) hands firmware sent from the website over to the Launcher. Give it a hook to save your work first (or refuse), and switch it off (`Presence::Enable(false)`, or Kconfig) before running Wi-Fi yourself;
 - is published to the Launcher hub with [`.github/actions/launcher-publish`](../.github/actions/launcher-publish/action.yml): a Nightly for a push to main, a release for a tag `vX.Y.Z` equal to its version.
 
 The Launcher's own documentation has the full rules (registration, metadata, installation).
