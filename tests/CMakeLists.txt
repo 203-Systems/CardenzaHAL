@@ -48,4 +48,10 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME CardenzaFlashToolTests COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/flash_tool_test.py)
   # tools/cardenza_usb.py (SysEx framing, limits) and tools/check_submodule.py (a scratch git repository).
   add_test(NAME CardenzaHostToolsTests COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/host_tools_test.py)
+  # tools/cardenza_web.py (the web target's build tool): sdkconfig, build failures, the HAL, sim.json; with
+  # Emscripten installed it also builds examples/psram_heap for the web.
+  add_test(NAME CardenzaWebToolTests COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/web_tool_test.py)
 endif()
+
+# The web target's pure parts (web/): the kernel, the allocator, the display model, the audio rings.
+add_subdirectory(web)
