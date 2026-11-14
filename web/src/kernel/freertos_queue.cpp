@@ -42,6 +42,17 @@ static_assert(sizeof(QueueDefinition) <= sizeof(StaticQueue_t), "StaticQueue_t m
 namespace {
 
 constexpr uint32_t kQueueMagic = 0x51554555;
+// The holder of a mutex taken outside any task (before the scheduler runs, or from the page's side):
+// FreeRTOS lets that context give it back.
+k::Task* const kNoTask = reinterpret_cast<k::Task*>(static_cast<uintptr_t>(1));
+
+k::Task* Me()
+{
+    k::Task* task = k::Current();
+    return task != nullptr ? task : kNoTask;
+}
+
+bool RealTask(const k::Task* task) { return task != nullptr && task != kNoTask; }
 
 bool Valid(const QueueDefinition* queue) { return queue != nullptr && queue->magic == kQueueMagic; }
 
@@ -144,12 +155,12 @@ void Disinherit(k::Task* holder, const QueueDefinition* mutex)
 
 BaseType_t GiveMutex(QueueDefinition* queue)
 {
-    k::Task* current = k::Current();
+    k::Task* current = Me();
     if (queue->holder == nullptr || queue->holder != current) return pdFAIL;
     queue->holder = nullptr;
     queue->recursion = 0;
     queue->count = 1;
-    Disinherit(current, nullptr);
+    if (RealTask(current)) Disinherit(current, nullptr);
     NotifySet(queue, nullptr);
     k::WakeOne(&queue->receivers);
     k::PreemptionPoint();
@@ -161,7 +172,7 @@ void TakeMutex(QueueDefinition* queue, k::Task* task)
     queue->count = 0;
     queue->holder = task;
     queue->recursion = 1;
-    if (task != nullptr) ++task->mutexesHeld;
+    if (RealTask(task)) ++task->mutexesHeld;
 }
 
 BaseType_t Receive(QueueDefinition* queue, void* buffer, TickType_t ticks, bool remove)
@@ -173,7 +184,7 @@ BaseType_t Receive(QueueDefinition* queue, void* buffer, TickType_t ticks, bool 
     {
         if (queue->count > 0)
         {
-            if (IsMutex(queue)) TakeMutex(queue, k::Current());
+            if (IsMutex(queue)) TakeMutex(queue, Me());
             else CopyOut(queue, buffer, remove);
             if (remove) k::WakeOne(&queue->senders);
             else k::WakeOne(&queue->receivers);  // a peek leaves it for the next reader
@@ -191,12 +202,12 @@ BaseType_t Receive(QueueDefinition* queue, void* buffer, TickType_t ticks, bool 
             deadlineSet = true;
         }
         k::Task* current = k::Current();
-        if (IsMutex(queue) && queue->holder != nullptr && queue->holder->priority < current->priority)
+        if (IsMutex(queue) && RealTask(queue->holder) && queue->holder->priority < current->priority)
             k::SetPriority(queue->holder, current->priority);  // priority inheritance
         const bool woken = k::Block(&queue->receivers, deadline);
         if (!woken && queue->count == 0)
         {
-            if (IsMutex(queue) && queue->holder != nullptr && queue->holder->priority > queue->holder->basePriority)
+            if (IsMutex(queue) && RealTask(queue->holder) && queue->holder->priority > queue->holder->basePriority)
             {
                 const unsigned rest = std::max(queue->holder->basePriority, HighestWaiter(queue));
                 if (rest < queue->holder->priority) k::SetPriority(queue->holder, rest);
@@ -388,7 +399,7 @@ QueueHandle_t xQueueCreateCountingSemaphoreStatic(const UBaseType_t uxMaxCount, 
 
 TaskHandle_t xQueueGetMutexHolder(QueueHandle_t xSemaphore)
 {
-    if (!Valid(xSemaphore) || !IsMutex(xSemaphore)) return nullptr;
+    if (!Valid(xSemaphore) || !IsMutex(xSemaphore) || !RealTask(xSemaphore->holder)) return nullptr;
     return reinterpret_cast<TaskHandle_t>(xSemaphore->holder);
 }
 
@@ -397,7 +408,7 @@ TaskHandle_t xQueueGetMutexHolderFromISR(QueueHandle_t xSemaphore) { return xQue
 BaseType_t xQueueTakeMutexRecursive(QueueHandle_t xMutex, TickType_t xTicksToWait)
 {
     if (!Valid(xMutex)) return pdFAIL;
-    if (xMutex->holder != nullptr && xMutex->holder == k::Current())
+    if (xMutex->holder != nullptr && xMutex->holder == Me())
     {
         ++xMutex->recursion;
         return pdPASS;
@@ -407,7 +418,7 @@ BaseType_t xQueueTakeMutexRecursive(QueueHandle_t xMutex, TickType_t xTicksToWai
 
 BaseType_t xQueueGiveMutexRecursive(QueueHandle_t xMutex)
 {
-    if (!Valid(xMutex) || xMutex->holder == nullptr || xMutex->holder != k::Current()) return pdFAIL;
+    if (!Valid(xMutex) || xMutex->holder == nullptr || xMutex->holder != Me()) return pdFAIL;
     if (--xMutex->recursion > 0) return pdPASS;
     xMutex->recursion = 1;
     return GiveMutex(xMutex);

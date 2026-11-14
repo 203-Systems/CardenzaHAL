@@ -2,6 +2,7 @@
 // target's kernel.
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "freertos/FreeRTOS.h"
