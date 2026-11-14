@@ -6,3 +6,5 @@ examples/*/managed_components/
 examples/*/dependencies.lock
 examples/*/sdkconfig
 examples/*/sdkconfig.old
+build-web/
+web-sites/

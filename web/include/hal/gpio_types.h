@@ -1,0 +1,24 @@
+#pragma once
+#include <stdint.h>
+#include "esp_bit_defs.h"
+#include "soc/gpio_num.h"
+typedef enum { GPIO_PORT_0 = 0, GPIO_PORT_MAX } gpio_port_t;
+typedef enum { GPIO_INTR_DISABLE = 0, GPIO_INTR_POSEDGE = 1, GPIO_INTR_NEGEDGE = 2, GPIO_INTR_ANYEDGE = 3, GPIO_INTR_LOW_LEVEL = 4,
+               GPIO_INTR_HIGH_LEVEL = 5, GPIO_INTR_MAX } gpio_int_type_t;
+#define GPIO_MODE_DEF_DISABLE (0)
+#define GPIO_MODE_DEF_INPUT (BIT0)
+#define GPIO_MODE_DEF_OUTPUT (BIT1)
+#define GPIO_MODE_DEF_OD (BIT2)
+typedef enum {
+    GPIO_MODE_DISABLE = GPIO_MODE_DEF_DISABLE,
+    GPIO_MODE_INPUT = GPIO_MODE_DEF_INPUT,
+    GPIO_MODE_OUTPUT = GPIO_MODE_DEF_OUTPUT,
+    GPIO_MODE_OUTPUT_OD = ((GPIO_MODE_DEF_OUTPUT) | (GPIO_MODE_DEF_OD)),
+    GPIO_MODE_INPUT_OUTPUT_OD = ((GPIO_MODE_DEF_INPUT) | (GPIO_MODE_DEF_OUTPUT) | (GPIO_MODE_DEF_OD)),
+    GPIO_MODE_INPUT_OUTPUT = ((GPIO_MODE_DEF_INPUT) | (GPIO_MODE_DEF_OUTPUT)),
+} gpio_mode_t;
+typedef enum { GPIO_PULLUP_DISABLE = 0x0, GPIO_PULLUP_ENABLE = 0x1 } gpio_pullup_t;
+typedef enum { GPIO_PULLDOWN_DISABLE = 0x0, GPIO_PULLDOWN_ENABLE = 0x1 } gpio_pulldown_t;
+typedef enum { GPIO_PULLUP_ONLY, GPIO_PULLDOWN_ONLY, GPIO_PULLUP_PULLDOWN, GPIO_FLOATING } gpio_pull_mode_t;
+typedef enum { GPIO_DRIVE_CAP_0 = 0, GPIO_DRIVE_CAP_1 = 1, GPIO_DRIVE_CAP_2 = 2, GPIO_DRIVE_CAP_DEFAULT = 2, GPIO_DRIVE_CAP_3 = 3,
+               GPIO_DRIVE_CAP_MAX } gpio_drive_cap_t;

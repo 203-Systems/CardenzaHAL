@@ -4,7 +4,7 @@
 
 CardenzaHAL 是 Cardenza（ESP32-S3）的 ESP-IDF 硬件层。你可以用它读取 56 键键盘、控制每颗按键灯、向 240 × 135 屏幕绘图、播放 PCM 音频、访问 SD 卡，给固件加入 USB MIDI、音频和 HID 功能，以及通过 203 Launcher 设置好的 Wi-Fi 上网。
 
-HAL 负责硬件初始化，并提供原生 ESP-IDF 句柄；应用负责界面绘制、键位映射、音频处理、文件格式和主循环。本仓库是组件，需要接入固件工程使用。
+HAL 负责硬件初始化，并提供原生 ESP-IDF 句柄；应用负责界面绘制、键位映射、音频处理、文件格式和主循环。本仓库是组件，需要接入固件工程使用；它的网页目标还能把你的固件编译成浏览器里的模拟器（见[网页模拟器](#网页模拟器)）。
 
 ## 使用前提
 
@@ -488,12 +488,56 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`docs/developing.zh-CN.md`](docs/developing.zh-CN.md)：芯片和工具链容易忽略的地方（两种内存、开 PSRAM 后的原子操作、热路径里的 `memcpy` 和除法、写闪存会停掉什么、读文件、USB 与串口、排查卡死），以及固件在 203 Launcher 下应该怎样运行。
 - [`examples/psram_heap`](examples/psram_heap)：一个小固件，把 PSRAM 加进堆、只给明确申请的代码用，并替换 `new`，让申请失败变成空指针而不是重启。`idf.py -C examples/psram_heap build`。
 - [`examples/launcher_net`](examples/launcher_net)：读出 Launcher 的设置，连上它的 Wi-Fi，发一个 HTTPS 请求再把一切关掉，每一步都打印耗时和内存；它的 `sdkconfig.defaults` 是使用 Net 的固件的参考配置。`idf.py -C examples/launcher_net build`。
+- [`examples/hal_check`](examples/hal_check)：通过 HAL 逐个检查板子：每个键的格子和按键灯、音频任务为每个按住的键发一个音、HOME。同一份源码既能编译到板子上，也能编译成网页版。
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：用 App 的专用令牌把固件发布到 203 Launcher hub 的 GitHub Action（推送是 Nightly，`vX.Y.Z` 标签是正式版）。
 - **AI 代理与 203 社区**：要发布固件版本、读取用户需求、查看检查报告或把固件发到设备，先装一次 203 社区 skill：`curl -fsSL https://community.203.io/skill/install.sh | sh`（装到 `~/.claude/skills/203-community`；说明见 https://community.203.io/agents）。
 
+## 网页模拟器
+
+HAL 的网页目标（[`web/`](web)）把基于 CardenzaHAL 写的固件，用同一份源码编译成在浏览器里全速运行的 WebAssembly 模拟器：屏幕、4 × 14 个按键和按键灯、HOME、扬声器、SD 卡和 USB MIDI 都在。社区的试玩页放的就是它，没有板子时也可以先用它试改动。
+
+### 编译模拟器版本
+
+需要 [Emscripten](https://emscripten.org/docs/getting_started/downloads.html)（`emsdk install latest`、`emsdk activate latest`）和 CMake 3.20 以上；不需要 ESP-IDF。在固件工程目录（`idf.py` 用的顶层 `CMakeLists.txt` 所在的目录）运行：
+
+```sh
+python3 components/CardenzaHAL/tools/cardenza_web.py build .
+python3 components/CardenzaHAL/tools/cardenza_web.py serve build-web/site   # http://localhost:8000/
+```
+
+`build` 用 HAL 自带的 ESP-IDF 构建适配层（`web/idf`）代替 ESP-IDF 来配置工程：你的各个 `CMakeLists.txt`、`main/`、`components/`、`EXTRA_COMPONENT_DIRS`、`managed_components/` 以及 `sdkconfig`（或 `SDKCONFIG_DEFAULTS`）都原样使用。输出目录（默认 `build-web/site`，可用 `--out` 指定）里有 `index.html`、`<工程名>.js`、`<工程名>.wasm`、`cardenza-sim.js` 和 `sim.json`（目标、固件名称和版本、HAL 的版本和提交、键位表、每个文件的大小和 SHA-256）。任何静态网页服务器都能托管。它不需要跨源隔离（不需要 COOP / COEP：没有用 SharedArrayBuffer），只是从另一个源显示时要发 `Access-Control-Allow-Origin: *`（在 `<iframe sandbox="allow-scripts">` 里总是如此，那里的源是不透明的），`.wasm` 最好以 `application/wasm` 发送（不是的话就从下载的字节编译）。在这样的框架里浏览器不给它存储（SD 卡只在内存里），也不给 MIDI 和麦克风；单独打开时，SD 卡和 NVS 保存在 IndexedDB 里。`serve` 会发这些响应头，并在第二个端口的 `/__sandbox.html` 以同样的框架显示网站。`--hal <目录>` 指定另一份 CardenzaHAL；默认用固件自带的那份（有 `web/` 时），否则用工具所在的那份（会给出警告）；`--debug` 带断言编译。
+
+退出码：`0` 编译成功；`1` 你的代码编译不过（后面跟着编译器输出）；`2` 用法错误，或不是 ESP-IDF 工程；`3` 固件没有遵循 HAL（stderr 每行一项：`unsupported: <函数>`、`unsupported-header: <头文件>`，或汇编和预编译库的 `unsupported-source: <文件>`）；`4` 缺少 Emscripten 或 CMake（附安装方法）。
+
+页面铺满窗口（板子 7:4，黑底），电脑键盘按按键位置对应（键位表在 `sim.json` 里，试玩页会显示），也可以用触摸或鼠标按页面上的键（右键锁住一个键）；第一次点击或按键后开始出声；`app_main` 运行后向外层页面发送 `{"cardenza_sim":"ready"}`，接着是 `{"cardenza_sim":"keys","keys":[…]}`；另外还有 `restarted`、`crashed`、`stopped`（10 秒内崩溃三次）、`ir` 和 `app_report`。外层页面可以用 `{"cardenza_sim":"app","data":[…]}` 向固件的应用通道发送数据。URL 参数：`?sd=0`（没有卡）、`?sdmb=<MB>`（卡的大小，默认 8192）、`?log=1`（在板子下面显示控制台）。`esp_restart` 和崩溃会在同一页面里启动一个新实例（声音、屏幕和 MIDI 保持）。
+
+固件的 CMake 可以用变量 `CARDENZA_HAL_WEB`（代码里用同名的宏定义）判断是否在编译网页版，只在少数必须的地方用：比如自带网页版、靠 `__EMSCRIPTEN__` 切换的第三方库（`__EMSCRIPTEN__` 仍然定义着：C 库需要它）。
+
+### 什么叫"遵循 HAL"
+
+固件只通过 HAL 的接口和它给出的原生句柄（屏幕的 panel 和 panel IO、I2S 通道、I2C 总线、SD 卡上的文件），以及 FreeRTOS 和 ESP-IDF 的系统服务访问硬件，就是遵循 HAL。网页目标提供的正是这些，行为与设备一致：
+
+| 范围 | 网页目标上 |
+| --- | --- |
+| FreeRTOS | 任务、优先级、两个核（`xTaskCreatePinnedToCore`）、按 tick 的延时、队列、信号量、带优先级继承的互斥量、队列集、任务通知、事件组、软件定时器、流缓冲和消息缓冲、临界区。pthread、`std::thread`、`std::mutex`、`std::condition_variable` 和 sleep 都以任务运行。 |
+| 时间 | `esp_timer`（任务和 ISR 两种派发）、`esp_timer_get_time`、`xTaskGetTickCount` 跟随真实时间。 |
+| 内存 | 内部 RAM（`app_main` 开始时约 300 KB 可用）和 2 MB PSRAM 是两个独立的堆，容量与设备相同；`malloc`、`new`、任务栈和 DMA 缓冲都像在板子上一样从中分配；`heap_caps_*`、`CONFIG_SPIRAM_USE_MALLOC / CAPS_ALLOC / MEMMAP`、`esp_ptr_external_ram` 都可用。在板子上内部 RAM 不够的固件，在这里也会在差不多的地方不够。 |
+| 屏幕 | `Display::*` 就是 HAL 自己的代码；panel 和 panel IO 句柄驱动一个 ST7789 模型（窗口、MADCTL、反色、睡眠、字节序），带 SPI 总线的耗时（整屏 17 ms）和 `on_color_trans_done`。GPIO38 上的 LEDC 就是背光。 |
+| 按键、按键灯、HOME | `Keyboard::*` 把页面的按键交给 HAL 自己的去抖和四键上限；按键灯显示扫描会输出的亮度和总亮度。`System::GetFuncButton()` 和 GPIO0 就是 HOME。 |
+| 音频 | `Audio::*`，以及经 I2C 访问的 ES8156 编解码器寄存器（启动耗时、音量）；TX 通道的 DMA（描述符 × 帧数）由页面的音频时钟按 44.1 kHz 取走，所以 `i2s_channel_write` 会像在板子上一样阻塞；有 `on_sent` / `on_send_q_ovf`。麦克风（`Mic::*`，PDM RX）在页面被允许时使用电脑的麦克风；GPIO43 归最后配置它的一方。 |
+| 存储 | `Storage::*` 挂载 `/sdcard`（页面说没有卡时 `?sd=0` 就没有）；C 和 C++ 的文件操作都可用；`esp_vfs_fat_info`；NVS 随页面保存。 |
+| USB | `USB::*`：MIDI 与电脑的 MIDI 端口互通（Web MIDI，在被允许时），系统 SysEx 命令，应用通道（也通向外层页面）；USB 音频和 HID 没有主机。 |
+| 其他 | GPIO、GPTimer、`IR::Send` 用的 RMT（会解码显示）、ESP-IDF 日志、`esp_restart`（模拟器重新启动固件）、`esp_reset_reason`、`esp_random`、`esp_app_get_description`、任务看门狗的调用。 |
+
+其他的都不提供，用到时编译失败并说明原因：其他 ESP-IDF 驱动和组件（Wi-Fi、蓝牙、UART、ADC、SPI 设备……）、寄存器访问（`soc/*_reg.h`）、屏幕或编解码器自己的初始化（归 HAL 负责）、Xtensa 和 ROM 内部、`esp_private/*`。所以能编译成网页版的固件就是遵循 HAL 的；编译不过的，会得到它越过 HAL 的那些调用的清单。
+
+仍然存在的差别：浏览器的一个线程运行所有任务，在每次调用 FreeRTOS、ESP-IDF 或 HAL 时（以及两个核的任务之间）切换，所以一直循环、从不调用它们的任务会让其他一切停下（半秒后日志会点名）；`thread_local` 被所有任务共用；文件名区分大小写，打开着的文件也能改名；浏览器的时钟比板子粗（0.1 到 1 ms）；声音在 DMA 取走后约 60 ms 才到扬声器。
+
+HAL 对网页目标的测试：`tests/web`（内核和各个模型，在电脑上运行）、`tests/web/browser`（无头 Chrome 里的页面）、`tests/web_tool_test.py`（构建工具）。
+
 ## 主机测试
 
-[`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线，以及 Net 的：Launcher 保存网络的格式（用 Launcher 自己的代码生成的数据检验）、请求检查、尝试网络的顺序），以及驱动源码在故意出错的假 ESP-IDF 驱动下运行，让每条出错路径都走一遍。CI 在每次推送和每个 PR 上运行它们。
+[`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线，以及 Net 的：Launcher 保存网络的格式（用 Launcher 自己的代码生成的数据检验）、请求检查、尝试网络的顺序）、驱动源码在故意出错的假 ESP-IDF 驱动下运行（让每条出错路径都走一遍），以及网页目标的内核和各个模型（`tests/web`）。CI 在每次推送和每个 PR 上运行它们。
 
 ```sh
 cmake -S tests -B build-tests

@@ -18,3 +18,22 @@ jobs:
           cmake --build build-tests -j
       - name: Test
         run: ctest --test-dir build-tests --output-on-failure
+
+  # The web target (web/): the HAL's examples build for the browser and boot (tests/web/boot_test.mjs).
+  web-target:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
+          ~/emsdk/emsdk install latest
+          ~/emsdk/emsdk activate latest
+      - name: Build the examples for the web
+        run: |
+          python3 tools/cardenza_web.py build examples/hal_check --out web-sites/hal_check
+          python3 tools/cardenza_web.py build examples/psram_heap --out web-sites/psram_heap
+      - name: Boot them
+        run: |
+          node tests/web/boot_test.mjs web-sites/hal_check --expect "hal_check: ready" --expect "ES8156 setup success"
+          node tests/web/boot_test.mjs web-sites/psram_heap --expect "512 KB nothrow: yes (PSRAM)"
