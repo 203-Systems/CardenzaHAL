@@ -115,10 +115,10 @@ curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
 ```
 
 - The installer puts the skill in `~/.claude/skills/203-community` and a `203c` command in `~/.local/bin` (put that on `PATH`). Without the command: `node ~/.claude/skills/203-community/scripts/203c.mjs`.
-- `203c login` opens the browser on the community's sign-in page: sign in there (GitHub) if it asks, approve "203c on <your computer>", and the browser goes back to 203c (OAuth's authorization code with PKCE and a redirect to 203c on `127.0.0.1`). Where no browser can be opened (SSH, CI, `--no-browser`) it prints a link and a code to approve instead. Either way the approval is a named `cli` credential, listed and revocable on your profile page (`/me`, Signed-in devices and tools).
+- `203c login` opens the browser on the community's sign-in page: sign in there (GitHub) if it asks, approve "203c on <your computer>", and the browser goes back to 203c (OAuth's authorization code with PKCE and a redirect to 203c on `127.0.0.1`). Where no browser can be opened, make a personal token on the site (设置 › 个人令牌, `/me/tokens`) and run `203c login --with-token`: it asks for the token (not shown), checks it and saves it (a script pipes it in: `203c login --with-token < token.txt`). An agent running remotely signs in with `203c login --no-browser`: a link and a code to approve on the site. Every way saves a personal token, listed on the site under 设置 › 个人令牌, where you can delete it. You sign in once: it has no end.
 - Everything the community's API does for you, 203c does (`203c --help`; `203c api` for anything else): use 203c, not raw HTTP.
 - Every command except `login`, `logout`, `help`, `version`, `doctor` and `rules` needs that sign-in.
-- 203c keeps its token in your home folder, never in the project. CI uses a `ci` token instead ([Publish from CI](#publish-from-ci)).
+- 203c keeps its token in your home folder, never in the project. CI uses a personal token of its own ([Publish from CI](#publish-from-ci)).
 
 ## 2. The project: files and layout
 
@@ -506,7 +506,7 @@ git add 203.json && git commit -m "203.json: the firmware's code"   # after the 
 
 ### Publish from CI
 
-1. On the community, your profile page (`/me`), Signed-in devices and tools, New token: a `ci` token with `write`. Store it as the CI secret **`COMMUNITY_TOKEN`** (never in the repository).
+1. On the community, 设置 › 个人令牌 (Personal tokens, `/me/tokens`), a new token with `write`. Store it as the CI secret **`COMMUNITY_TOKEN`** (never in the repository).
 2. Turn the firmware's `dev` channel on (its page on the site).
 3. Publish every build of `main` to `dev`:
 
