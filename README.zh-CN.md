@@ -596,3 +596,9 @@ ctest --test-dir build-tests --output-on-failure
 ## Launcher 应用
 
 上传和登记工具及完整使用步骤见 [tools/uploader/README.zh-CN.md](tools/uploader/README.zh-CN.md)。
+
+## 致谢
+
+- **[M5Stack Cardputer](https://docs.m5stack.com/en/core/Cardputer)**：一个很棒的项目。它是鸣片（Cardenza）的灵感来源，也是我们动手做鸣片的初衷，谢谢 M5Stack 团队。鸣片和这个 HAL 不兼容 M5Stack 的设备。
+- **[ESP-IDF](https://github.com/espressif/esp-idf)**（Espressif）与 **[TinyUSB](https://github.com/hathach/tinyusb)**：这里每个模块所基于的框架，以及 `usb/usb.h` 背后的 USB 协议栈。
+- **[Emscripten](https://emscripten.org)**：网页目标靠它把同一份固件源码跑在浏览器里。

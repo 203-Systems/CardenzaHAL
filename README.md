@@ -594,3 +594,9 @@ ctest --test-dir build-tests --output-on-failure
 ## Launcher applications
 
 Upload and registration tools with setup instructions are included in [tools/uploader/README.md](tools/uploader/README.md).
+
+## Acknowledgements
+
+- **[M5Stack Cardputer](https://docs.m5stack.com/en/core/Cardputer)**: a wonderful project, and the inspiration and the reason we set out to make the Cardenza. Thank you, M5Stack. The Cardenza and this HAL are not compatible with M5Stack devices.
+- **[ESP-IDF](https://github.com/espressif/esp-idf)** (Espressif) and **[TinyUSB](https://github.com/hathach/tinyusb)**: the framework every module here is built on, and the USB stack behind `usb/usb.h`.
+- **[Emscripten](https://emscripten.org)**: the web target runs the same firmware source in a browser.
