@@ -102,8 +102,9 @@ namespace CardenzaHAL::Net {
 
     // The running firmware's image digest as the community knows a build by it: what
     // esp_partition_get_sha256 gives for the running app partition (the image's appended SHA-256), as
-    // 64 lower-case hex digits and a terminating zero. False when it cannot be read. The first call reads
-    // and verifies the whole image (some 100 ms per MB of flash); the result is kept.
+    // 64 lower-case hex digits and a terminating zero. False when it cannot be read (an image built
+    // without the appended digest). Read from the image's headers (a dozen small flash reads, the first
+    // call only; the result is kept): the bootloader checked the image when it started it.
     bool RunningImageDigest(char hex[65]);
 
 }  // namespace CardenzaHAL::Net

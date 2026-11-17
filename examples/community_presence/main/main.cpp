@@ -5,8 +5,10 @@
 // runs. Send a firmware to the device from its page: the hook below runs, then the device restarts into
 // the Launcher, which installs it (and starts it, for "install and start").
 //
-// The firmware's part: a hook to save its work before the restart (or refuse), and Enable(false) when it
-// runs Wi-Fi itself or wants every cycle for a while. The log shows the service's state.
+// The firmware's part: a hook to save its work before the restart (or refuse); its activity
+// (SetActivity: RealTime while it plays sound, Quiet when it wants Wi-Fi's RAM and time back) and the
+// internal RAM it keeps for itself (SetRamFloor); Enable(false) when it runs Wi-Fi itself. The log shows
+// the service's state and what it reports.
 #include <cstdio>
 
 #include <esp_heap_caps.h>
@@ -65,7 +67,7 @@ void AddPsramToHeap()
 bool BeforeHandover(const Presence::Handover& handover, void*)
 {
     ESP_LOGW(kTag, "the community sent \"%s\" %s (%s): saving, then restarting into the Launcher",
-             handover.firmwareName, handover.version, handover.start ? "install and start" : "install");
+             handover.firmwareName, handover.version, handover.action);
     return true;
 }
 
@@ -90,15 +92,21 @@ extern "C" void app_main(void)
 {
     AddPsramToHeap();
     Presence::SetHandoverHook(BeforeHandover, nullptr);
+    // What this firmware keeps of internal RAM for itself; Wi-Fi comes up beside it or not at all.
+    Presence::SetRamFloor(32 * 1024);
     CardenzaHAL::Init();  // starts the service
-    Presence::State shown = Presence::State::Off;
+    ESP_LOGI(kTag, "presence planned in this run: %s", Presence::Planned() ? "yes" : "no");
+    Presence::Report shown;
     for (;;)
     {
-        const Presence::State state = Presence::GetState();
-        if (state != shown)
+        const Presence::Report report = Presence::GetReport();
+        if (report.state != shown.state || report.asked != shown.asked || report.joins != shown.joins)
         {
-            shown = state;
-            ESP_LOGI(kTag, "presence: %s; internal RAM %u free", StateName(state),
+            shown = report;
+            ESP_LOGI(kTag, "presence: %s; asked %u (last %u ms), failed %u, joins %u (Wi-Fi took %u B), internal RAM %u free",
+                     StateName(report.state), static_cast<unsigned>(report.asked), static_cast<unsigned>(report.lastAskMs),
+                     static_cast<unsigned>(report.failed), static_cast<unsigned>(report.joins),
+                     static_cast<unsigned>(report.wifiBytes),
                      static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
         }
         vTaskDelay(pdMS_TO_TICKS(500));

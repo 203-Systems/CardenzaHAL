@@ -15,6 +15,25 @@ bool Enabled()
     return false;
 }
 
+bool Planned()
+{
+    return false;
+}
+
+void SetActivity(Activity) {}
+
+Activity GetActivity()
+{
+    return Activity::Idle;
+}
+
+void SetRamFloor(std::size_t) {}
+
+Report GetReport()
+{
+    return Report{};
+}
+
 State GetState()
 {
     return State::Off;

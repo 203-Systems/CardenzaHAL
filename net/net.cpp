@@ -96,9 +96,20 @@ uint32_t MillisSince(int64_t startUs)
     return static_cast<uint32_t>((esp_timer_get_time() - startUs) / 1000);
 }
 
-void LogHeap(const char* when)
+// The presence service connects again and again (after its firmware let it go, after Wi-Fi dropped): its
+// routine lines are debug, so that a firmware's log holds news only. Failures stay warnings.
+#define NET_LOG_ROUTINE(quiet, ...)                    \
+    do                                                 \
+    {                                                  \
+        if (quiet)                                     \
+            ESP_LOGD(kTag, __VA_ARGS__);               \
+        else                                           \
+            ESP_LOGI(kTag, __VA_ARGS__);               \
+    } while (0)
+
+void LogHeap(const char* when, bool quiet = false)
 {
-    ESP_LOGI(kTag, "heap %s: internal %u free (largest %u), PSRAM %u free", when,
+    NET_LOG_ROUTINE(quiet, "heap %s: internal %u free (largest %u), PSRAM %u free", when,
              static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
              static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
              static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
@@ -709,7 +720,7 @@ bool WriteAll(esp_http_client_handle_t client, const char* data, std::size_t len
 
 // ---------------------------------------------------------------------------------------------------
 
-SettingsResult ReadLauncherSettings(LauncherSettings& settings)
+static SettingsResult ReadSettingsNow(LauncherSettings& settings, bool quiet)
 {
     // Cleared in place: a whole LauncherSettings{} would be a 1.6 KB temporary on the caller's stack.
     settings.Forget();
@@ -733,7 +744,7 @@ SettingsResult ReadLauncherSettings(LauncherSettings& settings)
     CloseAfterReading(opened);
 
     ConnectOrder::Attempt last;
-    ESP_LOGI(kTag, "Launcher settings read in %u ms: account %s, %u saved network(s)%s, last network %s",
+    NET_LOG_ROUTINE(quiet, "Launcher settings read in %u ms: account %s, %u saved network(s)%s, last network %s",
              static_cast<unsigned>(MillisSince(startUs)), settings.account.Bound() ? "bound" : "not bound",
              static_cast<unsigned>(settings.networkCount), skipped != 0 ? " (some unreadable, skipped)" : "",
              ConnectOrder::LastNetwork(settings, last) ? "known" : "unknown");
@@ -742,9 +753,19 @@ SettingsResult ReadLauncherSettings(LauncherSettings& settings)
     return SettingsResult::Ok;
 }
 
+SettingsResult ReadLauncherSettings(LauncherSettings& settings)
+{
+    return ReadSettingsNow(settings, false);
+}
+
+SettingsResult Internal::ReadSettings(LauncherSettings& settings, bool quiet)
+{
+    return ReadSettingsNow(settings, quiet);
+}
+
 // Connect, one caller at a time (g_connectMutex).
 static ConnectStatus ConnectNow(const LauncherSettings& settings, ConnectReport& report, uint32_t timeoutMs,
-                                CancelCheck cancelled, void* context)
+                                CancelCheck cancelled, void* context, bool quiet)
 {
     report = ConnectReport{};
     const int64_t startUs = esp_timer_get_time();
@@ -766,7 +787,7 @@ static ConnectStatus ConnectNow(const LauncherSettings& settings, ConnectReport&
         return ConnectStatus::NoNetworks;
     }
 
-    LogHeap("before Connect");
+    LogHeap("before Connect", quiet);
     UseTlsAllocator();
     ConnectStatus status = BringUp(report.error);
     if (status != ConnectStatus::Connected)
@@ -787,7 +808,7 @@ static ConnectStatus ConnectNow(const LauncherSettings& settings, ConnectReport&
         const WifiNetwork& network = settings.networks[a.network];
         std::snprintf(report.ssid, sizeof(report.ssid), "%s", network.ssid);
         const int64_t tryStartUs = esp_timer_get_time();
-        ESP_LOGI(kTag, "Connect: trying \"%s\" (channel %u)", network.ssid, static_cast<unsigned>(a.channel));
+        NET_LOG_ROUTINE(quiet, "Connect: trying \"%s\" (channel %u)", network.ssid, static_cast<unsigned>(a.channel));
         anyTried = true;
         esp_err_t err = ESP_OK;
         const Outcome outcome = Try(network, a.channel, deadlineUs, cancelled, context, err);
@@ -840,7 +861,7 @@ static ConnectStatus ConnectNow(const LauncherSettings& settings, ConnectReport&
             status = ConnectStatus::NoMemory;
         else if (found < 0)
             otherFailure = true;
-        ESP_LOGI(kTag, "Connect: scan found %d network(s) in %u ms", found < 0 ? 0 : found,
+        NET_LOG_ROUTINE(quiet, "Connect: scan found %d network(s) in %u ms", found < 0 ? 0 : found,
                  static_cast<unsigned>(MillisSince(scanStartUs)));
         ConnectOrder::Attempt order[kMaxSavedNetworks];
         const std::size_t count = found > 0 ? ConnectOrder::AfterScan(settings, seen, static_cast<std::size_t>(found),
@@ -859,9 +880,9 @@ static ConnectStatus ConnectNow(const LauncherSettings& settings, ConnectReport&
         esp_netif_ip_info_t ip = {};
         esp_netif_get_ip_info(g_wifi.netif, &ip);
         report.error = ESP_OK;
-        ESP_LOGI(kTag, "Connect: joined \"%s\" (channel %u, %d dBm, " IPSTR ") in %u ms", report.ssid,
+        NET_LOG_ROUTINE(quiet, "Connect: joined \"%s\" (channel %u, %d dBm, " IPSTR ") in %u ms", report.ssid,
                  static_cast<unsigned>(ap.primary), ap.rssi, IP2STR(&ip.ip), static_cast<unsigned>(report.millis));
-        LogHeap("after Connect");
+        LogHeap("after Connect", quiet);
         return ConnectStatus::Connected;
     }
     if (status != ConnectStatus::Cancelled && status != ConnectStatus::NoMemory)
@@ -888,9 +909,30 @@ bool Connected()
     return g_wifi.events != nullptr && (xEventGroupGetBits(g_wifi.events) & kGotIp) != 0;
 }
 
+// A client kept from one request to the next (the presence service's): https to one host, its TLS session
+// saved after each handshake and offered at the next connection (CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS:
+// session ids and tickets), so a request after the first resumes it: no certificate chain on the air, no
+// key exchange or certificate check on the CPU. The connection itself is closed after each request (one
+// TCP connection per request, nothing held open between them). The handle keeps its two 1 KB buffers
+// (internal RAM) and the session (TLS memory) until ForgetKept.
+struct KeptClient {
+    esp_http_client_handle_t handle = nullptr;
+    char host[64] = {};
+    uint16_t port = 0;
+};
+
+void ForgetKept(KeptClient& kept)
+{
+    if (kept.handle != nullptr) esp_http_client_cleanup(kept.handle);
+    kept = KeptClient{};
+}
+
+constexpr int kKeptBufferBytes = 1024;
+
 // quiet: a success is logged at debug level only (the presence service's polls would fill a firmware's log).
+// kept: the caller's kept client (https only; nullptr: a client of its own for this request).
 static SendStatus SendNow(const Request& request, Response& response, Progress progress, CancelCheck cancelled,
-                         void* context, bool quiet)
+                         void* context, bool quiet, KeptClient* kept)
 {
     response.status = 0;
     response.length = 0;
@@ -941,11 +983,50 @@ static SendStatus SendNow(const Request& request, Response& response, Progress p
 #endif
     }
 
-    esp_http_client_handle_t client = esp_http_client_init(&config);
+#if CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS
+    // A kept client serves this request when it is https to the same host and the request line and the
+    // headers fit its buffer.
+    if (kept != nullptr && (!parts.https || config.buffer_size_tx > kKeptBufferBytes)) kept = nullptr;
+#else
+    kept = nullptr;
+#endif
+    bool reused = false;
+    if (kept != nullptr)
+    {
+        if (kept->handle != nullptr && (std::strcmp(kept->host, host) != 0 || kept->port != parts.port)) ForgetKept(*kept);
+        reused = kept->handle != nullptr;
+#if CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS
+        config.save_client_session = true;
+#endif
+        config.buffer_size = kKeptBufferBytes;
+        config.buffer_size_tx = kKeptBufferBytes;
+    }
+    esp_http_client_handle_t client = reused ? kept->handle : esp_http_client_init(&config);
     if (client == nullptr)
     {
         response.error = ESP_ERR_NO_MEM;
         return SendStatus::NoMemory;
+    }
+    if (kept != nullptr && !reused)
+    {
+        kept->handle = client;
+        std::snprintf(kept->host, sizeof(kept->host), "%s", host);
+        kept->port = parts.port;
+    }
+    if (reused)
+    {
+        // The request's own URL, method, timeout and context; the header that only some requests have goes.
+        esp_err_t err = esp_http_client_set_url(client, request.url);
+        if (err == ESP_OK) err = esp_http_client_set_method(client, config.method);
+        if (err == ESP_OK) err = esp_http_client_set_timeout_ms(client, config.timeout_ms);
+        if (err == ESP_OK) err = esp_http_client_set_user_data(client, &tls);
+        (void)esp_http_client_delete_header(client, "Content-Type");
+        if (err != ESP_OK)
+        {
+            ForgetKept(*kept);
+            response.error = err;
+            return SendStatus::NoMemory;
+        }
     }
     SendStatus status = SendStatus::Ok;
     uint8_t* block = nullptr;
@@ -1074,14 +1155,20 @@ static SendStatus SendNow(const Request& request, Response& response, Progress p
         status = SendStatus::ReadFailed;
     }
     if (response.body != nullptr && response.capacity > 0) response.body[response.length] = 0;
-    esp_http_client_cleanup(client);  // closes the connection too
+    if (kept == nullptr)
+        esp_http_client_cleanup(client);  // closes the connection too
+    else if (status == SendStatus::Ok)
+        esp_http_client_close(client);  // the next request opens a new connection, resuming the session
+    else
+        ForgetKept(*kept);  // nothing of a connection that failed is offered again
 
     static const char* const kNames[] = {"ok", "invalid", "not connected", "connect failed", "send failed",
                                          "read failed", "cancelled", "no memory"};
     if (status == SendStatus::Ok && quiet)
-        ESP_LOGD(kTag, "%s %s: %d, sent %llu B, received %u B%s, %u ms", request.method, host, response.status,
+        ESP_LOGD(kTag, "%s %s: %d, sent %llu B, received %u B%s, %u ms%s", request.method, host, response.status,
                  static_cast<unsigned long long>(sent), static_cast<unsigned>(response.length),
-                 response.truncated ? " (truncated)" : "", static_cast<unsigned>(MillisSince(startUs)));
+                 response.truncated ? " (truncated)" : "", static_cast<unsigned>(MillisSince(startUs)),
+                 reused ? ", session offered" : "");
     else if (status == SendStatus::Ok)
         ESP_LOGI(kTag, "%s %s: %d, sent %llu B, received %u B%s, %u ms", request.method, host, response.status,
                  static_cast<unsigned long long>(sent), static_cast<unsigned>(response.length),
@@ -1102,6 +1189,8 @@ namespace {
 std::mutex g_connectMutex;
 uint8_t g_holders = 0;  // Internal::User bits, under g_connectMutex
 std::atomic<int> g_sending[3] = {};
+// The presence service's kept client (its task's alone: one request at a time).
+KeptClient g_presenceClient;
 
 uint8_t Bit(Internal::User user)
 {
@@ -1119,10 +1208,10 @@ void ApplyPowerSave()
 }  // namespace
 
 ConnectStatus Internal::Connect(User user, const LauncherSettings& settings, ConnectReport& report,
-                                uint32_t timeoutMs, CancelCheck cancelled, void* context)
+                                uint32_t timeoutMs, CancelCheck cancelled, void* context, bool quiet)
 {
     std::lock_guard<std::mutex> lock(g_connectMutex);
-    const ConnectStatus status = ConnectNow(settings, report, timeoutMs, cancelled, context);
+    const ConnectStatus status = ConnectNow(settings, report, timeoutMs, cancelled, context, quiet);
     if (status == ConnectStatus::Connected)
         g_holders |= Bit(user);
     else
@@ -1133,6 +1222,9 @@ ConnectStatus Internal::Connect(User user, const LauncherSettings& settings, Con
 
 void Internal::Disconnect(User user)
 {
+    // The presence service lets go when its firmware wants the RAM back: its client goes too.
+    if (user == User::Presence) ForgetKept(g_presenceClient);
+    const bool quiet = user == User::Presence;
     std::lock_guard<std::mutex> lock(g_connectMutex);
     g_holders &= static_cast<uint8_t>(~Bit(user));
     if (g_holders != 0)
@@ -1142,8 +1234,8 @@ void Internal::Disconnect(User user)
     }
     if (g_wifi.events == nullptr) return;
     TearDown();
-    ESP_LOGI(kTag, "Disconnected");
-    LogHeap("after Disconnect");
+    NET_LOG_ROUTINE(quiet, "Disconnected");
+    LogHeap("after Disconnect", quiet);
 }
 
 bool Internal::Holds(User user)
@@ -1157,7 +1249,9 @@ SendStatus Internal::Send(User user, const Request& request, Response& response,
 {
     std::atomic<int>& count = g_sending[Bit(user)];
     count.fetch_add(1);
-    const SendStatus status = SendNow(request, response, progress, cancelled, context, user == User::Presence);
+    const bool presence = user == User::Presence;
+    const SendStatus status =
+        SendNow(request, response, progress, cancelled, context, presence, presence ? &g_presenceClient : nullptr);
     count.fetch_sub(1);
     return status;
 }
@@ -1170,7 +1264,7 @@ bool Internal::Sending(User user)
 ConnectStatus Connect(const LauncherSettings& settings, ConnectReport& report, uint32_t timeoutMs,
                       CancelCheck cancelled, void* context)
 {
-    return Internal::Connect(Internal::User::Firmware, settings, report, timeoutMs, cancelled, context);
+    return Internal::Connect(Internal::User::Firmware, settings, report, timeoutMs, cancelled, context, false);
 }
 
 void Disconnect()
@@ -1265,20 +1359,38 @@ bool Internal::ClearPending()
     return ok;
 }
 
+namespace {
+
+bool ReadPartitionAt(void* context, uint32_t offset, void* out, uint32_t length)
+{
+    return esp_partition_read(static_cast<const esp_partition_t*>(context), offset, out, length) == ESP_OK;
+}
+
+}  // namespace
+
 bool RunningImageDigest(char hex[65])
 {
-    // The running image does not change: it is hashed (and verified, the whole image is read) once.
+    // The running image does not change: its digest is read once. From its headers alone (a dozen reads
+    // of a few bytes, Presence::Logic::AppendedDigestOffset): the bootloader checked the image when it
+    // started it, and reading all of it (esp_partition_get_sha256) would pull a megabyte or two through
+    // the flash cache the firmware's code runs from.
     static char cached[65];
     if (cached[0] == 0)
     {
         const esp_partition_t* running = esp_ota_get_running_partition();
+        uint32_t offset = 0;
         uint8_t digest[32];
-        if (running == nullptr || esp_partition_get_sha256(running, digest) != ESP_OK)
+        if (running == nullptr ||
+            !Presence::Logic::AppendedDigestOffset(ReadPartitionAt, const_cast<esp_partition_t*>(running), running->size,
+                                                   offset) ||
+            esp_partition_read(running, offset, digest, sizeof(digest)) != ESP_OK)
         {
             hex[0] = 0;
             return false;
         }
-        for (std::size_t i = 0; i < sizeof(digest); ++i) std::snprintf(cached + 2 * i, 3, "%02x", digest[i]);
+        char text[65];
+        for (std::size_t i = 0; i < sizeof(digest); ++i) std::snprintf(text + 2 * i, 3, "%02x", digest[i]);
+        std::memcpy(cached, text, sizeof(cached));
     }
     std::memcpy(hex, cached, sizeof(cached));
     return true;

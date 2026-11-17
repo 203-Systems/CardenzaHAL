@@ -13,13 +13,18 @@ namespace CardenzaHAL::Net::Internal {
 
     // As Net::Connect, for `user`. Connected already (for the other user): joins in at once. Wi-Fi saves
     // power between beacons (modem sleep) while only the presence service holds it, and runs at full
-    // power while the firmware does.
+    // power while the firmware does. `quiet`: its routine lines (trying, joined, heap) at debug level.
     ConnectStatus Connect(User user, const LauncherSettings& settings, ConnectReport& report, uint32_t timeoutMs,
-                          CancelCheck cancelled, void* context);
-    // `user` lets go; Wi-Fi comes down when nobody holds it.
+                          CancelCheck cancelled, void* context, bool quiet);
+    // As ReadLauncherSettings; `quiet`: its routine line at debug level.
+    SettingsResult ReadSettings(LauncherSettings& settings, bool quiet);
+    // `user` lets go; Wi-Fi comes down when nobody holds it. The presence service's kept client (its TLS
+    // session, Send) goes with it.
     void Disconnect(User user);
     bool Holds(User user);
-    // As Net::Send, counted per user. The presence service's successes are logged at debug level only.
+    // As Net::Send, counted per user. The presence service's successes are logged at debug level only, and
+    // its requests go through one kept client whose TLS session is resumed from one request to the next
+    // (with CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS).
     SendStatus Send(User user, const Request& request, Response& response, Progress progress, CancelCheck cancelled,
                     void* context);
     // A request of `user` is under way.
