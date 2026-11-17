@@ -1,0 +1,9 @@
+# This firmware's own defaults, after the HAL's board defaults (CMakeLists.txt lists both; these win
+# where they differ). The HAL's board/sdkconfig.defaults already sets what the Cardenza is: 16 MB flash in
+# QIO at 120 MHz (as the 203 Launcher's bootloader runs it), 2 MB PSRAM, a 1000 Hz tick, FAT for the card.
+
+# The partition table: a copy of the HAL's board/partitions.csv (the 203 Launcher's regions kept, the
+# firmware in ota_0 from 0x170000). Under the Launcher it is never used: it only sizes the image and
+# protects the Launcher when a board is flashed directly.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"

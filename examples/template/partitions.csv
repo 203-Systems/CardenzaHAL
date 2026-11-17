@@ -1,0 +1,15 @@
+# A copy of CardenzaHAL's board/partitions.csv (inside CardenzaHAL, its CI keeps the two equal).
+#
+# The device's partition table belongs to the 203 Launcher. A firmware installed through the Launcher
+# goes into a slot the Launcher makes, and this table is never used; it only sizes the image (ota_0) and
+# matters when a board is flashed directly. Then it leaves the Launcher's regions as the Launcher has
+# them (nvs, otadata, the Launcher's own slot reserved as data, coredump) and puts the firmware after
+# them, in ota_0 from 0x170000. Never put anything else below 0x170000. An image larger than ota_0
+# (4 MB) may grow ota_0 up to 0x690000 (the room the Launcher has for one app on the Cardenza), no
+# further, and never move its offset.
+# Name,    Type, SubType,  Offset,   Size
+nvs,       data, nvs,      0x9000,   0x5000
+otadata,   data, ota,      0xe000,   0x2000
+launcher,  data, 0x40,     0x10000,  0x150000
+coredump,  data, coredump, 0x160000, 0x10000
+ota_0,     app,  ota_0,    0x170000, 0x400000
