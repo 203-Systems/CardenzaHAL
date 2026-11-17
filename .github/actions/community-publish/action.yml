@@ -1,0 +1,282 @@
+# Publishes a firmware version to the 203 community with 203c, on the channel the Git ref names. This is the
+# standard release of every firmware on the HAL, 203 Systems' own and everyone else's: the community is
+# where devices get firmware (the 203 Launcher installs and updates it by the firmware's code).
+#
+#   push to main (dev-branch)   -> dev,    label <version>-dev.<run number>   (unique, in order)
+#   tag vX.Y.Z                  -> stable, label X.Y.Z    (must equal the version: version.txt or 203.json)
+#   tag vX.Y.Z-beta.N           -> beta,   label X.Y.Z-beta.N (X.Y.Z must equal the version)
+#   anything else               -> nothing (status skipped)
+#
+# Trusted publishing, no stored secret: the job asks GitHub for its OIDC identity token and the community
+# trades it for a credential that lasts 15 minutes and only publishes versions of this one firmware
+# (`203c login --github-oidc`). The firmware's owner links the repository once: on the firmware's page
+# (自动发布 / Trusted publishing: owner/name, the workflow file, optionally an environment and the channels)
+# or `203c firmware publishers add <CODE> ...`. A tag vX.Y.Z may publish stable, beta and dev; a beta tag
+# beta and dev; any other ref dev only.
+#
+#   jobs:
+#     publish:
+#       permissions:
+#         contents: read
+#         id-token: write          # the OIDC token; nothing else is needed
+#       steps:
+#         - uses: actions/checkout@v4
+#         - ...                    # the BIN at the path 203.json names
+#         - uses: 203-Systems/CardenzaHAL/.github/actions/community-publish@<commit on main>
+#           with:
+#             elf: build/my_firmware.elf
+#
+# Run it after the build and the tests passed, for pushes to main and version tags, from a checkout of the
+# project: 203.json names the firmware (its `code`: publish the first version by hand, commit 203.json) and
+# its BINs, version.txt the version, CHANGELOG.md's "## <version>" entry the release notes (stable needs
+# them). Turn the beta and dev channels on once on the firmware's page. The credential publishes versions
+# only: the firmware's page (name, summary, tags, links, cover) is edited on the site, not from CI.
+# Building from source and flashing a board yourself stay possible; this is the standard way out.
+name: Publish to the 203 community
+description: Publishes a firmware version to the 203 community with 203c (trusted publishing), on dev (push to main), beta (vX.Y.Z-beta.N tag) or stable (vX.Y.Z tag).
+inputs:
+  working-directory:
+    description: The project's folder, where 203.json is.
+    required: false
+    default: "."
+  firmware:
+    description: The firmware's code. Default 203.json's code.
+    required: false
+    default: ""
+  bins:
+    description: The BINs, one device=path per line (relative to working-directory). Default 203.json's publish.bins.
+    required: false
+    default: ""
+  version:
+    description: The version. Default version.txt, else 203.json's version.
+    required: false
+    default: ""
+  channel:
+    description: auto (from the ref, above), or stable, beta or dev.
+    required: false
+    default: auto
+  dev-branch:
+    description: The branch whose pushes go to dev.
+    required: false
+    default: main
+  notes-file:
+    description: The release notes file (its "## <label>" entry; stable needs one, a beta without one gets a line naming it). Default 203.json's notes_file, else CHANGELOG.md.
+    required: false
+    default: ""
+  notices:
+    description: A notices file (third-party licences) uploaded with every BIN, optional.
+    required: false
+    default: ""
+  source:
+    description: Attach a source archive of the commit (git archive) to the version - auto (203.json publish_source), true or false.
+    required: false
+    default: auto
+  simulator:
+    description: The simulator version (Play on the community) - auto builds it when the runner has Emscripten (else none, with a notice); none; or a folder built before (cardenza_web.py build's site).
+    required: false
+    default: auto
+  elf:
+    description: The ELF (paths relative to the workspace, one per line) kept as the workflow artifact elf-<label> - the community does not take it, and crash backtraces need it.
+    required: false
+    default: ""
+  elf-retention-days:
+    description: How long the ELF artifact is kept.
+    required: false
+    default: "90"
+  dry-run:
+    description: true checks everything as the server would and publishes nothing.
+    required: false
+    default: "false"
+  timeout:
+    description: Seconds one attempt waits for the community's checks (under the credential's 15 minutes; a later attempt signs in again and goes on waiting).
+    required: false
+    default: "780"
+  token:
+    description: Not needed with trusted publishing. A personal ci token only where the repository cannot be linked (then the token is the secret, never in the repository).
+    required: false
+    default: ""
+  api:
+    description: The community's API. Default 203c's (the live community).
+    required: false
+    default: ""
+  skill-url:
+    description: Where 203c is installed from.
+    required: false
+    default: https://cardenza.203.io/community/skill
+outputs:
+  status:
+    description: published, already_published, dry_run, or skipped.
+    value: ${{ steps.publish.outputs.status || steps.plan.outputs.status }}
+  channel:
+    description: stable, beta or dev.
+    value: ${{ steps.plan.outputs.channel }}
+  label:
+    description: The version label.
+    value: ${{ steps.publish.outputs.label }}
+  firmware:
+    description: The firmware's code.
+    value: ${{ steps.publish.outputs.firmware }}
+  version-code:
+    description: The version's own code.
+    value: ${{ steps.publish.outputs.version-code }}
+  url:
+    description: The version's page.
+    value: ${{ steps.publish.outputs.url }}
+runs:
+  using: composite
+  steps:
+    # The channel from the ref; Node 18+ for 203c.
+    - id: plan
+      shell: bash
+      env:
+        CHANNEL: ${{ inputs.channel }}
+        DEV_BRANCH: ${{ inputs.dev-branch }}
+      run: |
+        set -euo pipefail
+        channel=$CHANNEL
+        if [ "$channel" = auto ]; then
+          channel=
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            case "$GITHUB_REF_NAME" in v*-beta.*) channel=beta ;; v[0-9]*) channel=stable ;; esac
+          elif [ "$GITHUB_EVENT_NAME" != pull_request ] && [ "$GITHUB_REF" = "refs/heads/$DEV_BRANCH" ]; then
+            channel=dev
+          fi
+        fi
+        case "$channel" in
+          stable|beta|dev) ;;
+          "") echo "::notice::$GITHUB_REF is neither a version tag nor $DEV_BRANCH: nothing published to the community."
+              echo "status=skipped" >> "$GITHUB_OUTPUT"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          *) echo "::error::channel is auto, stable, beta or dev (not $channel)"; exit 1 ;;
+        esac
+        echo "channel=$channel" >> "$GITHUB_OUTPUT"
+        if node -e 'process.exit(+process.versions.node.split(".")[0] >= 18 ? 0 : 1)' 2>/dev/null; then
+          echo "node=ok" >> "$GITHUB_OUTPUT"
+        fi
+    - if: steps.plan.outputs.skip != 'true' && steps.plan.outputs.node != 'ok'
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - id: publish
+      if: steps.plan.outputs.skip != 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TOKEN: ${{ inputs.token }}
+        COMMUNITY_API: ${{ inputs.api }}
+        COMMUNITY_SKILL_URL: ${{ inputs.skill-url }}
+        CHANNEL: ${{ steps.plan.outputs.channel }}
+        FIRMWARE: ${{ inputs.firmware }}
+        VERSION: ${{ inputs.version }}
+        BINS: ${{ inputs.bins }}
+        NOTES_FILE: ${{ inputs.notes-file }}
+        NOTICES: ${{ inputs.notices }}
+        SOURCE: ${{ inputs.source }}
+        SIMULATOR: ${{ inputs.simulator }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        TIMEOUT: ${{ inputs.timeout }}
+      run: |
+        set -euo pipefail
+        json() { node -p "const j = require('./203.json'); String(j.$1 ?? '')" 2> /dev/null || true; }
+        # The firmware and the version: the inputs, else 203.json and version.txt.
+        firmware=${FIRMWARE:-$(json code)}
+        [ -n "$firmware" ] || { echo "::error::no firmware code: publish the first version by hand (203c publish), commit 203.json with its code, then link this repository on the firmware's page"; exit 1; }
+        version=$VERSION
+        if [ -z "$version" ] && [ -f version.txt ]; then version=$(tr -d '[:space:]' < version.txt); fi
+        [ -n "$version" ] || version=$(json version)
+        [ -n "$version" ] || { echo "::error::no version: version.txt, 203.json's version, or the version input"; exit 1; }
+        tag=${GITHUB_REF_NAME#v}
+        case "$CHANNEL" in
+          dev) label="$version-dev.$GITHUB_RUN_NUMBER" ;;
+          stable) label=$version
+                  if [ "$GITHUB_REF_TYPE" = tag ] && [ "$tag" != "$version" ]; then
+                    echo "::error::the tag $GITHUB_REF_NAME does not match the version ($version): tag v$version"; exit 1; fi ;;
+          beta) if [ "$GITHUB_REF_TYPE" = tag ]; then label=$tag; else label="$version-beta.$GITHUB_RUN_NUMBER"; fi
+                case "$label" in
+                  "$version"-beta.[0-9]*) ;;
+                  *) echo "::error::the beta $label is not $version-beta.<n> (the version is $version)"; exit 1 ;;
+                esac ;;
+        esac
+        echo "label=$label" >> "$GITHUB_OUTPUT"
+
+        # 203c from the community (the installer checks the download's SHA-256), outside the project; its
+        # sign-in stays in this run's temporary folder.
+        home="$RUNNER_TEMP/203c"
+        export PATH="$home/bin:$PATH"
+        curl -fsSL --retry 3 "${COMMUNITY_SKILL_URL%/}/install.sh" |
+          CLAUDE_SKILLS_DIR="$home/skills" COMMUNITY_BIN_DIR="$home/bin" sh > /dev/null
+        export XDG_CONFIG_HOME="$home/config"
+        cli() { node "$home/skills/203-community/scripts/203c.mjs" "$@"; }
+        if [ -n "$TOKEN" ]; then
+          export COMMUNITY_TOKEN=$TOKEN
+        elif [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+          echo "::error::no OIDC token: give the job 'permissions: id-token: write' (trusted publishing)"; exit 1
+        fi
+        signin() {
+          [ -z "${COMMUNITY_TOKEN:-}" ] || return 0
+          cli login --github-oidc --firmware "$firmware" --json > /dev/null 2> "$RUNNER_TEMP/203c-login.err" || {
+            cat "$RUNNER_TEMP/203c-login.err" >&2
+            echo "::error::the community did not trust this run for $firmware: link this repository (and workflow) on the firmware's page, 自动发布 / Trusted publishing, or 203c firmware publishers add $firmware"
+            return 1; }
+        }
+
+        set -- publish --json --firmware "$firmware" --channel "$CHANNEL" --version "$label" --commit "$GITHUB_SHA" --timeout "$TIMEOUT"
+        while read -r bin; do [ -z "$bin" ] || set -- "$@" --bin "$bin"; done <<< "$(printf '%s\n' "$BINS" | tr ' ' '\n')"
+        # Notes: the "## <label>" entry of the notes file (stable needs one); a beta without its own entry
+        # gets a line naming it (203c asks for notes on beta), a dev version none.
+        notes_file=${NOTES_FILE:-$(json publish.notes_file)}
+        notes_file=${notes_file:-CHANGELOG.md}
+        if [ "$CHANNEL" = beta ] && ! grep -Eqs "^#{1,3} +v?${label//./\\.}( |$)" "$notes_file"; then
+          set -- "$@" --notes "Beta $label for testing (commit ${GITHUB_SHA:0:7})."
+        elif [ -n "$NOTES_FILE" ]; then
+          set -- "$@" --notes-file "$NOTES_FILE"
+        fi
+        [ -z "$NOTICES" ] || set -- "$@" --notices "$NOTICES"
+        case "$SOURCE" in true) set -- "$@" --source ;; false) set -- "$@" --no-source ;; esac
+        case "$SIMULATOR" in
+          auto) if ! command -v emcmake > /dev/null && [ ! -d "${EMSDK:-$HOME/emsdk}/upstream/emscripten" ]; then
+                  echo "::notice::no Emscripten on this runner: no simulator version (Play). Install emsdk before this step to publish one."
+                  set -- "$@" --no-sim
+                fi ;;
+          none|false) set -- "$@" --no-sim ;;
+          *) set -- "$@" --sim-dir "$SIMULATOR" ;;
+        esac
+        [ "$DRY_RUN" != true ] || set -- "$@" --dry-run
+
+        # Exit 3 (try again: the network, the checks still running) and 4 (the 15-minute credential ran
+        # out) sign in again and run it again: a run again resumes the same version, never a second one.
+        out="$RUNNER_TEMP/203c-publish.json" err="$RUNNER_TEMP/203c-publish.err"
+        for attempt in 1 2 3; do
+          signin
+          code=0
+          cli "$@" > "$out" 2> "$err" || code=$?
+          case "$code" in 3|4) [ "$attempt" = 3 ] || { echo "::warning::203c: $(tail -n 1 "$err" | cut -c1-300)"; sleep 20; continue; } ;; esac
+          break
+        done
+        if [ "$code" != 0 ]; then
+          cat "$out" "$err" >&2
+          case "$code" in
+            5) echo "::error::$label was sent back by the community's checks (the report above; 203c versions check <version code>)" ;;
+            6) echo "::error::$label needs a decision (the hint above): fix it, or publish it by hand" ;;
+            *) echo "::error::203c publish failed (exit $code): $(tail -n 1 "$err" | cut -c1-400)" ;;
+          esac
+          exit 1
+        fi
+        node -e '
+          const fs = require("fs");
+          const r = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          if (r.status === "dry_run" && !r.ready) { console.error(JSON.stringify(r.problems ?? r, null, 2)); process.exit(1); }
+          const fw = r.firmware ?? {}, v = r.version ?? {};
+          const o = {status: r.status, firmware: fw.code ?? "", "version-code": v.code ?? "", url: r.urls?.version ?? ""};
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(o).map(([k, x]) => `${k}=${x}`).join("\n") + "\n");
+          const line = `${fw.name ?? "firmware"} ${v.version ?? ""} on ${v.channel ?? process.env.CHANNEL}: ${r.status}` +
+            `${v.code ? ` (version ${v.code}, firmware ${fw.code})` : ""}${o.url ? " " + o.url : ""}`;
+          console.log(line);
+          if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "### 203 community\n\n" + line + "\n");
+        ' "$out"
+    - if: inputs.elf != '' && (steps.publish.outputs.status == 'published' || steps.publish.outputs.status == 'already_published')
+      uses: actions/upload-artifact@v4
+      with:
+        name: elf-${{ steps.publish.outputs.label }}
+        path: ${{ inputs.elf }}
+        retention-days: ${{ inputs.elf-retention-days }}
+        if-no-files-found: error

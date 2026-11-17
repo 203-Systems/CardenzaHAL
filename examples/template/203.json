@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "name": "My Firmware",
+  "code": null,
+  "summary": "Shows the Cardenza's keys on its screen: a starting point for a firmware on CardenzaHAL",
+  "tags": ["tool"],
+  "devices": ["cardenza"],
+  "publish_source": false,
+  "publish": {
+    "channel": "stable",
+    "bins": {"cardenza": "build/my_firmware.bin"},
+    "notes_file": "CHANGELOG.md"
+  }
+}

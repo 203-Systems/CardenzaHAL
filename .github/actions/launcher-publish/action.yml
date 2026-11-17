@@ -1,3 +1,7 @@
+# The old Launcher hub, for the transition only: 203 Systems' official firmware mirror their releases here
+# while 203 Launchers 0.2.0 (which read only the hub's catalog) are in use; it goes when they are gone. Every
+# firmware's standard release is the 203 community: ../community-publish (docs/FIRMWARE-PROJECT.md, Publish).
+#
 # Publishes a firmware image to the 203 Launcher hub: a Nightly for a push, a release for a tag
 # vX.Y.Z. The hub's Edge function checks the image, mirrors it and records it; this step holds only
 # the App's scoped token (a repository secret), never database or storage keys.
