@@ -55,7 +55,7 @@ Cardenza 平时运行 203 Launcher，由它安装和启动各个固件。被它�
 - 运行在 Launcher 的 bootloader 下，闪存是 QIO：按 QIO 构建；
 - 在 app 描述里带上版本号：`PROJECT_VER`（`cardenza_read_version`）就是 Launcher 在它下面显示的版本。列表里的名字不是项目名，而是登记或安装时用的名字；直接刷进去的固件显示分区名；
 - 用 [`System::RestartIntoLauncher()`](../system/launcher.h) 回到 Launcher（Launcher 的重启票据：即使打开了“Resume after reset”也进入 Launcher 首页，而普通的 `esp_restart()` 在这时会重新启动固件；从电脑上用 USB 的 `command launcher` 效果相同）；
-- 运行时也能收到 203 社区发来的固件：在线服务（[`net/presence.h`](../net/presence.h)，默认打开）把网站发来的固件交给 Launcher。给它一个钩子先保存工作（或者拒绝）；固件要自己运行 Wi-Fi 之前把它关掉（`Presence::Enable(false)` 或 Kconfig）；
+- 运行时也在 203 社区在线：在线服务（[`net/presence.h`](../net/presence.h)，默认打开）让设备保持在线，把网站发来的固件（以及 Launcher 自己的升级）交给 Launcher。给它一个钩子先保存工作（或者拒绝）；告诉它你在做什么（`Presence::SetActivity`：出声时 `RealTime`，需要收回 Wi-Fi 的内存和时间时 `Quiet`）以及你要留多少内部内存（`SetRamFloor`）；固件要自己运行 Wi-Fi 之前把它关掉（`Presence::Enable(false)` 或 Kconfig）；
 - 用 [`.github/actions/launcher-publish`](../.github/actions/launcher-publish/action.yml) 发布到 Launcher hub：推送到 main 是 Nightly，`vX.Y.Z` 标签（等于它的版本号）是正式版。
 
 完整规则（登记、元数据、安装）见 Launcher 自己的文档。

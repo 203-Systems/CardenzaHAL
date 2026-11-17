@@ -386,7 +386,7 @@ close(fd);
 | `Connected()` | 拿到了 IP 地址。连接断了不会自动重连：再调用 `Connect`。 |
 | `Disconnect()` | 停止并反初始化 Wi-Fi，删掉它的 netif，以及（如果是 Net 建的）默认事件循环。在线服务占用着连接时，连接为它保留（固件只是放手，省电模式回到调制解调器睡眠）。 |
 | `Send(request, response, progress, cancelled, context)` | 一个请求，每次新建连接。`https` 用 ESP-IDF 的证书包校验；不跟随重定向。回复正文写进调用者的缓冲区（以零结尾，更长时 `truncated`）。`Ok` 表示收到了回复，不论 HTTP 状态码是多少。 |
-| `RunningImageDigest(hex)` | 正在运行的镜像的 SHA-256，社区用它认出一个构建（64 位十六进制）。第一次调用会读取并校验整个镜像，结果会保存下来。 |
+| `RunningImageDigest(hex)` | 正在运行的镜像末尾附带的 SHA-256，社区用它认出一个构建（64 位十六进制，即 `esp_partition_get_sha256` 的结果）。只读镜像的各个头部就能找到（第一次调用时十几次小的闪存读取，结果会保存下来）：bootloader 启动它时已经校验过镜像。 |
 
 `ValidRequest`（`net/http_request.h`）是 `Send` 先做的检查：方法是 GET、POST、PUT、DELETE、HEAD 或 PATCH；`http://` 或 `https://` 的 URL，没有用户信息和片段，路径和查询是可打印 ASCII；头的名字是 token，值里没有控制字符（没有 CR 或 LF）；不能有 `Host`、`Content-Length`、`Transfer-Encoding`、`Connection` 头（由 Net 设置）；正文来自内存或文件，不能两者都给，最多 `INT_MAX` 字节。
 
@@ -406,7 +406,7 @@ close(fd);
 
 **内存。**
 
-- 链接进来时（固件只要调用了任何一个 Net 函数）：约 36 KB 静态内部 RAM（Wi-Fi、PHY 和 lwIP 的数据，以及即使关掉 IRAM 选项也必须留在 IRAM 里的 13 KB Wi-Fi、PHY 和系统代码）和约 610 KB 闪存，这是在一个已经运行 HAL 和 USB、使用下面这些选项的固件上测得的。从不调用 Net 的固件不受影响，各个内存段大小完全不变。打开 `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY`（见下表）后，其中约 14 KB，即 Wi-Fi（`net80211`、`pp`）、lwIP 和 supplicant 的 `.bss`，会移到 PSRAM：CardenzaSynth 的静态内部 RAM 因此只增加 20.7 KB，而不是 34 KB。
+- 链接进来时（固件只要调用了任何一个 Net 函数）：约 36 KB 静态内部 RAM（Wi-Fi、PHY 和 lwIP 的数据，以及即使关掉 IRAM 选项也必须留在 IRAM 里的 13 KB Wi-Fi、PHY 和系统代码）和约 610 KB 闪存，这是在一个已经运行 HAL 和 USB、使用下面这些选项的固件上测得的。从不调用 Net 的固件不受影响，各个内存段大小完全不变。打开 `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY`（见下表）后，其中约 14 KB，即 Wi-Fi（`net80211`、`pp`）、lwIP 和 supplicant 的 `.bss`，会移到 PSRAM：CardenzaSynth 的静态内部 RAM 因此只增加 21.3 KB，而不是 34 KB（2026-11-17）。
 - 连接期间：Wi-Fi 的接收缓冲区（6 个 1.6 KB 的静态缓冲区，从 `esp_wifi_init` 到 `esp_wifi_deinit`；动态缓冲区只在收发帧时占用），以及 Wi-Fi、lwIP 和事件任务：大约 40-60 KB 内部 RAM，实际数字由示例在板子上测出。
 - 请求期间：esp_http_client 的缓冲区（1 KB，以及请求行）、上传块（4 KB，内部 RAM，只在发文件时）和 TCP 发送缓冲（上传时最多 16 KB），都在内部 RAM；TLS 30-50 KB（16 KB 接收和 4 KB 发送的记录缓冲、服务器证书、握手），在设置了 `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC` 时放在 PSRAM。
 - `Disconnect` 之后：lwIP 自己的任务会留下来（ESP-IDF 5.3 不能反初始化 lwIP：连同 3 KB 的栈约 4 KB），NVS 保留一个很小的管理对象；ESP-IDF 每次 `ReadLauncherSettings` 还会漏掉 8 字节（`nvs_flash_init_partition_ptr` 创建的分区对象）。
@@ -422,9 +422,11 @@ close(fd);
 | `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y`、`CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y` | ESP-IDF 证书包里常用的一半（42 个根证书，17 KB）就有社区需要的：ISRG Root X1（Let's Encrypt，Vercel 给自己托管的域名用它，比如 `cardenza.203.io`）、GTS Root R1 和 GlobalSign Root CA（`*.vercel.app`）、GTS Root R4（`*.supabase.co`，社区的存储）。 |
 | `CONFIG_ESP_WIFI_IRAM_OPT=n`、`CONFIG_ESP_WIFI_RX_IRAM_OPT=n`、`CONFIG_LWIP_IRAM_OPTIMIZATION=n` | IRAM 留给固件的热点代码（音频）。Wi-Fi 和 lwIP 在闪存里运行，吞吐量会低一些。 |
 | `CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n`、`CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n` | 只作为站点连接用密码保护的网络：代码更少。 |
-| `CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6`、`DYNAMIC_RX_BUFFER_NUM=16`、`DYNAMIC_TX_BUFFER_NUM=16`、`RX_BA_WIN=6` | Wi-Fi 的缓冲区在内部 RAM（每个 1.6 KB）。块确认窗口不能超过动态接收缓冲区数，也不能超过静态接收缓冲区数的两倍。 |
+| `CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4`、`DYNAMIC_RX_BUFFER_NUM=16`、`DYNAMIC_TX_BUFFER_NUM=16`、`RX_BA_WIN=6` | Wi-Fi 的缓冲区在内部 RAM（每个 1.6 KB；静态 4 个，和 203 Launcher 一样）。块确认窗口不能超过动态接收缓冲区数，也不能超过静态接收缓冲区数的两倍。 |
 | `CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384`、`CONFIG_LWIP_TCP_WND_DEFAULT=5760` | 上传：TCP 在收到确认前能发出去的量决定了长往返时间下的速度（16 KB、往返 200 ms 约 80 KB/s，ESP-IDF 默认的 5.7 KB 不到 30 KB/s）。回复都很小。 |
-| `CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y`、`CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y` | 网络任务放在核 0，核 1 留给固件。 |
+| `CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y`、`CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y`、`CONFIG_LWIP_TCPIP_TASK_PRIO=4` | 网络任务放在核 0，核 1 留给固件；lwIP 任务的优先级低于固件的界面和音频（ESP-IDF 默认的 18 会抢占它们；Wi-Fi 自己的任务仍是 23）。 |
+| `CONFIG_LWIP_IPV6=n` | 只用 IPv4，和 203 Launcher 一样：代码更少，没有 IPv6 的表。 |
+| `CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS=y` | 在线服务的 TLS 会话在两次请求之间复用：第一次之后，空中不再传证书链，CPU 也不再做密钥交换和证书校验。 |
 | `CONFIG_SPIRAM_USE_MEMMAP=y` | PSRAM 只给明确申请的代码（examples/psram_heap）。 |
 | `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y` | Wi-Fi、lwIP 和 supplicant 的 `.bss`（约 14 KB）放到 PSRAM，只在联网时使用。它可以和 `SPIRAM_USE_MEMMAP` 一起用，但 ESP-IDF 把它放在 PSRAM 的开头：自己把 PSRAM 加进堆的固件必须从 `_ext_ram_bss_end` 之后开始加（两个示例都这样做），否则堆会把这些变量的内存再分出去。ESP-IDF 随之去掉 `SPIRAM_IGNORE_NOTFOUND`：PSRAM 起不来时板子不再启动。 |
 
@@ -436,31 +438,47 @@ close(fd);
 
 公开接口：[`net/presence.h`](net/presence.h)；它的判断逻辑写成纯函数、在电脑上测试：[`net/presence_logic.h`](net/presence_logic.h)。
 
-在 203 社区网站上，固件页面可以把这个固件发到登录用户已绑定的设备上，只安装，或安装后启动。203 Launcher 在它的菜单里接收这些命令；在线服务让设备在**任何基于 HAL 的固件**运行时也能收到，不论设备正在做什么。打开 `CONFIG_CARDENZA_HAL_PRESENCE`（menuconfig › CardenzaHAL；**默认打开**）时由 `CardenzaHAL::Init()` 启动，固件不需要再做别的：
+在 203 社区网站上，固件页面可以把这个固件发到登录用户已绑定的设备上，只安装，或安装后启动；「我的设备」还可以升级设备的 Launcher。203 Launcher 在它的菜单里接收这些命令；在线服务让设备在**任何基于 HAL 的固件**运行时也能收到（社区也能看到它在线、正在运行固件），不论设备正在做什么。打开 `CONFIG_CARDENZA_HAL_PRESENCE`（menuconfig › CardenzaHAL；**默认打开**）时由 `CardenzaHAL::Init()` 启动，什么都不做的固件也会在线：
 
 1. `Init()` 之后 `CONFIG_CARDENZA_HAL_PRESENCE_START_DELAY` 秒（10 秒），一个任务（优先级 1，核 0，8 KB 栈）读取 Launcher 的设置。只有 Launcher 把设备绑定到了社区（`l_account`，并且是社区自己的域名）、保存了 Wi-Fi 网络、并且 **设置 › 账号 › 接收固件** 是打开的，它才继续；否则任务结束（`State::Idle`），这次运行中不再占用任何资源。
-2. 它通过 [Net](#网络wi-fi-与-https) 连上 Wi-Fi（固件可以共用这个连接：`Net::Connect` 直接加入（服务正在连接时会等它连完），`Net::Disconnect` 只是自己放手，不会把连接从服务手里拿走），之后保持连接，两次信标之间进入调制解调器睡眠。
-3. 每 15 秒（以回复里的 `poll` 为准）用设备令牌请求一次 `GET <api>/launcher/inbox?from=firmware`。这个请求就是设备的在线状态：网站只允许发给 40 秒内请求过的设备，否则显示“设备没开机或没联网”。
-4. 收到的命令会**交给 Launcher**：先调用固件的钩子（`SetHandoverHook`：保存不能丢的东西，或者拒绝）；把命令（编号、`install` 或 `install_start`、社区为私有固件发来的解锁令牌、社区地址）写进共享 NVS 的 `l_pending` 命名空间；告诉社区（`POST <api>/launcher/commands/<id>` `{"status":"handover"}`）；然后重启进入 Launcher（`System::RestartIntoLauncher`，见下）。Launcher 先清掉 `l_pending`，再向社区要这条命令，像处理自己收件箱里的命令一样下载、校验、安装并逐步汇报，`install_start` 装好后启动。格式由 Launcher 定义：203-launcher `docs/SHARED_SETTINGS.md`。同一个回复里的其他命令立即拒绝（`failed`，“Unsupported command” 或 “Device busy”），网站不用一直等。
+2. 它通过 [Net](#网络wi-fi-与-https) 连上 Wi-Fi（固件可以共用这个连接：`Net::Connect` 直接加入，`Net::Disconnect` 只是自己放手，不会把连接从服务手里拿走），在固件允许的时候保持连接（见下），两次信标之间进入调制解调器睡眠。
+3. 每 15 秒（以回复里的 `poll` 为准）用设备令牌请求一次 `GET <api>/launcher/inbox?from=firmware`，同时带上 `X-Firmware-Name`、`X-Firmware-Version`（应用描述里的项目名和版本）和 `X-Image-Digest`（镜像末尾的 SHA-256，`Net::RunningImageDigest`），让社区知道正在运行什么。这个请求就是设备的在线状态：网站只允许发给 40 秒内请求过的设备，否则显示“设备没开机或没联网”。
+4. 收到的命令会**交给 Launcher**：先调用固件的钩子（`SetHandoverHook`：保存不能丢的东西，或者拒绝）；把命令（编号、动作 `install`、`install_start` 或 `update_launcher`、社区为私有固件发来的解锁令牌、社区地址）写进共享 NVS 的 `l_pending` 命名空间；告诉社区（`POST <api>/launcher/commands/<id>` `{"status":"handover"}`）；然后重启进入 Launcher（`System::RestartIntoLauncher`，见下）。Launcher 先清掉 `l_pending`，再向社区要这条命令（`GET <api>/launcher/commands/<id>`，其中的 Item 带着构建的签名声明），像处理自己收件箱里的命令一样执行并逐步汇报。格式由 Launcher 定义：203-launcher `docs/SHARED_SETTINGS.md`。同一个回复里的其他命令立即拒绝（`failed`，“Unsupported command” 或 “Device busy”），网站不用一直等。
 
 | 调用 | 作用 |
 | --- | --- |
 | `Start()` | 启动服务，只启动一次（打开选项时由 `Init()` 调用）。 |
-| `Enable(bool)` | 默认打开。关闭后不再请求，并放开 Wi-Fi（固件没有通过 Net 占用时 Wi-Fi 会关掉）；服务停下后才返回。在 `Init()` 之前调用可以让服务根本不启动。固件要自己运行 Wi-Fi 之前先关掉它（Wi-Fi 只能有一个主人：服务开着时，固件自己的 `esp_wifi_init` 会失败），或者在需要每一个 CPU 周期的时段关掉。 |
+| `Enable(bool)` | 默认打开。关闭后不再请求，并放开 Wi-Fi（固件没有通过 Net 占用时 Wi-Fi 会关掉）；服务停下后才返回，所以要在可以等待的任务里调用。在 `Init()` 之前调用可以让服务根本不启动。固件要自己运行 Wi-Fi 之前先关掉它（Wi-Fi 只能有一个主人：服务开着时，固件自己的 `esp_wifi_init` 会失败）。 |
+| `Planned()` | 这次运行中服务会不会上线（打开了、绑定到允许的社区、保存了网络、接收固件打开）。只读一次设置（只读，几毫秒）；固件可以在启动时问一下，给 Wi-Fi 留出空间。 |
+| `SetActivity(Activity)` | 固件正在做什么；立即返回，任何任务都可以调用。`Idle`（默认）：Wi-Fi 可以连上，请求照常。`RealTime`（正在出声）：不启动 Wi-Fi（一次运行里第一次启动会校准射频，让核 0 忙一阵），已经连上的照常请求。`Quiet`：服务放开 Wi-Fi（内存还给固件，正在进行的请求取消），活动改变之前不再请求。 |
+| `SetRamFloor(bytes)` | 固件给自己留的内部内存（默认 24 KB）：只有在留出这么多之外还放得下 Wi-Fi（第一次连上时实测，之前按 40 KB 算）才启动 Wi-Fi；空闲内部内存低于它时放开 Wi-Fi（之后 60 秒内不再连，固件一直需要时翻倍，最多 10 分钟）。 |
 | `GetState()` | `Off`、`Idle`（这次运行中无事可做）、`Connecting`、`Online`、`Waiting`（失败后或正在让路）、`SignedOut`（社区拒绝了令牌）、`HandingOver`。 |
-| `SetHandoverHook(hook, context)` | `bool hook(const Handover&, void*)` 在重启前、在服务的任务里运行：命令编号、是否启动、固件名称和版本（用来显示提示）。返回 `false` 表示拒绝（网站显示 “Refused by the running firmware”）。 |
+| `GetReport()` | 用于诊断：状态、在等什么（`Activity`、`AudioLate`、`Ram`、`FirmwareRequest`、`Failure`）、成功和失败的请求数、Wi-Fi 启动和放开的次数、Wi-Fi 占用的内部内存（`wifiBytes`）、上一次请求的耗时、它看到的空闲内部内存。 |
+| `SetHandoverHook(hook, context)` | `bool hook(const Handover&, void*)` 在重启前、在服务的任务里运行：命令编号和动作、是否启动或升级 Launcher、固件名称和版本（用来显示提示）。返回 `false` 表示拒绝（网站显示 “Refused by the running firmware”）。 |
 
-**它会让路。** 失败后等 5 秒，每次翻倍，最多 5 分钟。每次请求前检查：固件的音频跟得上，内部内存有富余（TLS 能用 PSRAM 时空闲 40 KB、最大块 12 KB，否则 80 KB 和 24 KB），固件自己的 Net 请求不在进行中；不满足就等 5 秒。音频看的是扬声器 DMA 的计数（`Audio::GetTxCounters()`：发出的块数，以及发出时没有新数据写入的块数）：音频流出现欠载，说明设备没有余力，不发起请求；如果某次请求期间音频断了流，只要音频还在播放，服务就暂停 60 秒，每次翻倍、最多 5 分钟，直到有一次请求期间没有欠载。它**不会**在扬声器一播放就停：一直在写音频的固件（合成器连静音也在渲染）那样就永远收不到命令了。任务优先级是 1、在核 0 上运行，只用别的任务不用的时间；按 Net 的配置，Wi-Fi 和 lwIP 的任务也在核 0。TLS 握手是这个任务里的计算（会被固件的任务抢占）和走闪存缓存的代码，不写闪存，也没有长时间的临界区。如果固件的音频还是受影响，可以在关键的时候用 `Enable(false)` 关掉，或者在 Kconfig 里关掉。
+**它会让路**（`Logic::Decide`，按顺序）。`Quiet` 时放开 Wi-Fi。空闲内存低于固件的下限时，把 Wi-Fi 的内存还给固件。扬声器 DMA 跟不上时（`Audio::GetTxCounters()`：发出时没有新数据的块），什么也不开始。没连 Wi-Fi 时，`RealTime` 就等着；只有下限加上 Wi-Fi 的开销（和它任务栈的一整块）放得下时才启动 Wi-Fi。连着 Wi-Fi 时，固件自己的 Net 请求优先；只有下限加上一次请求的内存放得下时才发请求（TLS 在 PSRAM 时 12 KB、最大块 8 KB，否则 48 KB、20 KB）。某次请求期间音频断了流，之后 60 秒内不发请求，每次翻倍、最多 5 分钟；失败后等 5 秒，每次翻倍、最多 5 分钟。它**不会**因为扬声器在播放就停：一直在写音频的固件（合成器连静音也在渲染）那样就永远收不到命令了，这种固件应当说 `RealTime` 或 `Quiet`。任务优先级是 1、在核 0 上运行，只用别的任务不用的时间；按参考 sdkconfig，Wi-Fi 的任务（23）和 lwIP 的任务（4，低于固件的界面和音频）也在核 0，Wi-Fi 和 lwIP 从闪存运行，IRAM 留给固件。服务不写闪存（交接那一次除外），也没有长时间的临界区。
 
-**令牌发到哪里。** 设备上的每个固件都能读到设备令牌（见 Net），所以把它当作半公开的：服务只通过 https 把它发给 `presence_logic.h` 里的域名（`community.203.io`、`cardenza.203.io`，端口 443），绑定里写的是别的地址时根本不发请求（SD 卡或测试设置都不能把它引到别处）。`CONFIG_CARDENZA_HAL_PRESENCE_LOCAL_HTTP`（仅调试版本，默认关闭）额外允许用 http:// 连环回或私有 IPv4 地址上的测试社区。日志里从不出现令牌、解锁令牌或 URL 的路径。收到 401 `signin_required`（或 403 `banned`）时，先再读一次 `l_account`（也许 Launcher 换了令牌），仍然不行就停到下次启动；`l_account` 本身从不改动。绑定在启动时以及每次重新连上 Wi-Fi 时读取：只有 Launcher 会写它，而 Launcher 从不和固件同时运行（每次请求都重新打开 NVS 分区，在 ESP-IDF 5.3 下每次会漏掉几个字节，每 15 秒一次）。
+**有实时音频的固件怎么做。** 出声时说 `RealTime`（Wi-Fi 不会在声音中间启动，已经连着的保持连接），需要每个字节、每个周期的时段（录音、大的载入）说 `Quiet`，其余时候 `Idle`；内存下限设成运行时需要分配的量（CardenzaSynth 留 32 KB：它的效果器和引擎要检查 16-20 KB 空闲）。从不调用这些的固件是 `Idle`、下限 24 KB。
+
+**令牌发到哪里。** 设备上的每个固件都能读到设备令牌（见 Net），所以把它当作半公开的：服务只通过 https 把它发给 `presence_logic.h` 里的域名（`community.203.io`、`cardenza.203.io`，端口 443），绑定里写的是别的地址时根本不发请求（SD 卡或测试设置都不能把它引到别处）。它只用来请求收件箱和汇报命令（社区的设备凭据是最小权限的）。`CONFIG_CARDENZA_HAL_PRESENCE_LOCAL_HTTP`（仅调试版本，默认关闭）额外允许用 http:// 连环回或私有 IPv4 地址上的测试社区。日志里从不出现令牌、解锁令牌或 URL 的路径。收到 401 `signin_required`（或 403 `banned`）时，先再读一次 `l_account`（也许 Launcher 换了令牌：它每天轮换一次，但从不在固件运行时轮换），仍然不行就停到下次启动；`l_account` 本身从不改动。每次连上 Wi-Fi 时读取绑定。
 
 **回到 Launcher。** [`system/launcher.h`](system/launcher.h) 的 `System::RestartIntoLauncher()` 写入 Launcher 的重启票据（RTC 快速内存里的两个字，Launcher 的 bootloader 读取后清除：进入 Launcher 首页，即使打开了“Resume after reset”，也不显示“Boot last app”倒计时），把 USB PHY 交还给 USB-Serial-JTAG，然后重启。`USB::RestartIntoLauncher()`（0x40 命令）现在通知 USB 主机后也这样做。没有 Launcher 时就是重启固件。
 
 **唯一一次写 NVS。** 交接时只往共享 NVS 分区写 `l_pending`（不写别的），在重启前写一次：固件自己打开了分区就用它，否则像 Launcher 启动时那样以读写方式打开 NVS（它会修复断电留下的半截写入，Launcher 片刻之后本来也会这样做）。只有擦除才能打开的分区不去动它，交接失败（“Could not hand over to the Launcher”）。写闪存会让缓存停几毫秒：重启前按键灯可能闪一下。
 
-**开销。** 打开选项后会链接 Net：在 `examples/community_presence` 上与关闭选项的同一构建相比，静态内部内存多约 23 KB（13 KB 必须留在 IRAM 的 Wi-Fi、PHY 和系统代码，9 KB 数据，1 KB .bss），闪存多 643 KB（镜像从 400 KB 增加到 1044 KB）；这是用 Net 的参考 sdkconfig 测的（Wi-Fi 和 lwIP 从闪存运行，它们 13.7 KB 的 .bss 放在 PSRAM：`CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY`），不用这些选项时静态内部内存约多 36 KB（Net 的数字）。ESP-IDF 5.3.5，2026-11-14。在已绑定的板子上运行时：8 KB 任务栈，以及保持 Wi-Fi 连接（Wi-Fi 的缓冲区、lwIP 和事件任务：40-60 KB 内部内存，Net 的实测）。每次请求：一个 TLS 连接（完整握手，连同服务器证书约 5-6 KB 流量，另有约 1 KB 的请求和回复；TLS 内存 30-50 KB，只占用片刻，打开 `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC` 时在 PSRAM 里）和 16 KB 的回复缓冲区（有 PSRAM 时在 PSRAM 里），请求结束后都还回去：每分钟约 25 KB 流量，每 15 秒几百毫秒优先级 1 的 CPU 时间（估计值；[`examples/community_presence`](examples/community_presence) 会打印用过的栈）。成功的请求只在调试级别记录，一切正常时服务不会往固件的日志里加任何一行。
+**开销**（ESP-IDF 5.3.5，2026-11-17，[`examples/launcher_net`](examples/launcher_net/sdkconfig.defaults) 的参考 sdkconfig）。
 
-**关闭。** `CONFIG_CARDENZA_HAL_PRESENCE=n`：服务和 Net 都不会被链接，接口什么也不做（`GetState()` 是 `Off`）。网页目标没有网络：接口存在，服务不存在。
+| | 实测 | 怎么测的 |
+| --- | --- | --- |
+| 静态内部内存 | **+22.6 KB**（IRAM 代码 +13.1 KB：Wi-Fi、PHY 和系统必须留在 IRAM 的代码；.data +8.1 KB；.bss +1.4 KB）；另有约 12 KB 的 Wi-Fi 和 lwIP .bss 放在 PSRAM | `examples/community_presence` 打开与关闭选项对比（`esp_idf_size --diff`）；CardenzaSynth：+21.3 KB |
+| 闪存 | **+610 KB**（Wi-Fi、lwIP、supplicant、mbedTLS、证书包） | 同上 |
+| Wi-Fi 连着时的内部内存 | 在板子上实测：`GetReport().wifiBytes`，以及日志里的 `Wi-Fi up: it took … of internal RAM`；预计 30-45 KB（4 个静态接收缓冲区，Wi-Fi、lwIP 和事件循环的任务，驱动，supplicant），另加本任务的 8 KB 栈 | Net 以前在板子上的实测：6 个静态缓冲区时 40-60 KB |
+| 每次请求 | 复用 TLS 会话：约 2 KB 流量，lwIP 和 Wi-Fi 任务里几毫秒的 CPU；一次连接的第一个请求是完整握手（约 6 KB，P-256 的 ECDHE 是软件算的：优先级 1 上几十毫秒，另有片刻 30-50 KB 的 TLS 内存，在 PSRAM）。16 KB 的回复和其中的命令在 PSRAM；两次请求之间保留一个 2 KB（内部内存）的客户端 | 日志里第一次请求那一行，`GetReport().lastAskMs` |
+| 两次请求之间 | 调制解调器睡眠：Wi-Fi 为接入点的信标醒来（每秒几次，每次核 0 上不到一毫秒） | |
+
+成功的请求只在调试级别记录，固件放开 Wi-Fi 之后重新连上的例行步骤也是：只有发生了能解释问题的事情时（第一次上线、为什么等内存、因为内存放开 Wi-Fi、失败、令牌被拒、交接），服务才往固件的日志里加一行。
+
+**关闭。** `CONFIG_CARDENZA_HAL_PRESENCE=n`：服务和 Net 都不会被链接，接口什么也不做（`GetState()` 是 `Off`，`Planned()` 是 false）。网页目标没有网络：接口存在，服务不存在。
 
 ## 硬件资源归属
 

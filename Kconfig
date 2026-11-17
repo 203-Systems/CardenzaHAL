@@ -6,16 +6,24 @@ menu "CardenzaHAL"
         help
             CardenzaHAL::Init starts the community presence service (net/presence.h): on a board the
             203 Launcher bound to the community and connected to Wi-Fi, a task of priority 1 keeps Wi-Fi
-            up and asks the community's inbox every 15 seconds with the device token, so firmware sent
-            from the website installs (and starts) whatever this firmware is doing: the command is handed
-            over to the Launcher (NVS l_pending) and the device restarts into it.
+            up and asks the community's inbox every 15 seconds with the device token (and the firmware's
+            name, version and image digest), so the community shows the device online and what it runs,
+            and firmware sent from the website (or the Launcher's own update) installs whatever this
+            firmware is doing: the command is handed over to the Launcher (NVS l_pending) and the device
+            restarts into it.
 
-            Costs, with it on: Net is linked (about 36 KB of static internal RAM, some 20 KB with
-            CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY, and about 610 KB of flash); on a bound board an
-            8 KB task stack and Wi-Fi's 40-60 KB of internal RAM while it runs, and per request a TLS
-            connection (30-50 KB for a moment, PSRAM with CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC). Off, nothing
-            of it is linked. At run time CardenzaHAL::Presence::Enable(false) switches it off; a firmware
-            that runs Wi-Fi itself must do that first (or turn this off).
+            It gives way to the firmware: Wi-Fi comes up only while the firmware's activity is Idle and
+            its internal RAM floor stays free beside Wi-Fi (Presence::SetActivity, SetRamFloor), and is
+            let go when the firmware says Quiet or runs short of RAM; no request starts while the
+            speaker's DMA runs late.
+
+            Costs, with it on (README.md, "Community presence", measured): Net is linked (about 22 KB of
+            static internal RAM with the reference sdkconfig, examples/launcher_net/sdkconfig.defaults,
+            about 34 KB without its .bss in PSRAM; about 610 KB of flash); on a bound board an 8 KB task
+            stack and Wi-Fi's internal RAM while it is up (Presence::GetReport().wifiBytes), and per
+            request a TLS connection (resumed after the first with CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS).
+            Off, nothing of it is linked. At run time CardenzaHAL::Presence::Enable(false) switches it off;
+            a firmware that runs Wi-Fi itself must do that first (or turn this off).
 
     config CARDENZA_HAL_PRESENCE_START_DELAY
         int "Seconds after CardenzaHAL::Init before the presence service looks at the settings"

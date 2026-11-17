@@ -42,9 +42,10 @@ CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
 CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
 
 # Wi-Fi's buffers are internal RAM (about 1.6 KB each). The static receive buffers are taken by
-# esp_wifi_init and given back by esp_wifi_deinit; the dynamic ones only while frames come and go. The
-# block-ack window may not exceed the dynamic receive buffers or twice the static ones.
-CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+# esp_wifi_init and given back by esp_wifi_deinit (4, as the 203 Launcher has them); the dynamic ones only
+# while frames come and go. The block-ack window may not exceed the dynamic receive buffers or twice the
+# static ones.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=16
 CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=16
 CONFIG_ESP_WIFI_RX_BA_WIN=6
@@ -54,8 +55,20 @@ CONFIG_ESP_WIFI_RX_BA_WIN=6
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
 CONFIG_LWIP_TCP_WND_DEFAULT=5760
 
-# Wi-Fi's and lwIP's tasks on core 0 (Wi-Fi's priority 23, lwIP's 18), so that a firmware can keep
-# core 1 for its time-critical work. The task calling Net is the firmware's: a stack of 6-8 KB (TLS),
-# below the UI and the audio.
+# Wi-Fi's and lwIP's tasks on core 0, so that a firmware can keep core 1 for its time-critical work.
+# Wi-Fi's task runs at priority 23 (ESP-IDF's, fixed); lwIP's at 4 instead of 18, below a firmware's UI
+# and audio tasks: TCP and TLS records wait for a free moment of core 0 rather than preempt the sound
+# (an answer of a few hundred bytes does not need more). The task calling Net is the firmware's: a stack
+# of 6-8 KB (TLS), below the UI and the audio.
 CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y
 CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y
+CONFIG_LWIP_TCPIP_TASK_PRIO=4
+
+# IPv4 only, as the 203 Launcher: less code, and no IPv6 neighbour tables in internal RAM.
+CONFIG_LWIP_IPV6=n
+
+# TLS sessions are resumed (session ids and tickets): the presence service keeps its client from one
+# request to the next, so after the first only an abbreviated handshake goes over the air (no
+# certificate chain, about 2 KB a request instead of 6) and the CPU does no key exchange or certificate
+# check (ECDHE on P-256 is software on the ESP32-S3: tens of milliseconds a handshake).
+CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS=y
