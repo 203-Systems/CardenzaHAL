@@ -3,9 +3,12 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "net/presence.h"
+
 // The presence service's decisions (net/presence.h) as plain functions: where the device token may go,
-// the inbox answer, which command is handed over, how long to wait, when the audio or the RAM says "not
-// now", and what is written for the Launcher. Pure (no ESP-IDF): host tests and simulators include it.
+// the inbox answer, which command is handed over, how long to wait, when the firmware's activity, the
+// audio or the RAM says "not now", what the requests say about the firmware, and what is written for the
+// Launcher. Pure (no ESP-IDF): host tests and simulators include it.
 namespace CardenzaHAL::Presence::Logic {
 
     // --- Where the device token goes ------------------------------------------------------------------
@@ -28,14 +31,26 @@ namespace CardenzaHAL::Presence::Logic {
 
     inline constexpr std::size_t kIdMax = 40;
     inline constexpr std::size_t kUnlockLength = 68;  // "cfu_" + 64 lower-case hex digits
+    // What a command asks for (COMMUNITY.md, Command.action). The service hands every known one over to
+    // the Launcher, which carries it out.
+    enum class Action : uint8_t {
+        Unknown,         // anything else: refused ("Unsupported command")
+        Install,         // install
+        InstallStart,    // install_start: the Launcher starts it after installing
+        UpdateLauncher,  // update_launcher: the 203 Launcher updates itself
+    };
+    Action ActionOf(const char* text);
+    // The action as the community and l_pending spell it ("" for Unknown); at most kActionMax characters.
+    const char* ActionText(Action action);
+    inline constexpr std::size_t kActionMax = 15;
     struct Command {
         char id[kIdMax + 1] = {};  // as it goes back into /launcher/commands/<id>: digits, or [A-Za-z0-9_-]
-        bool known = false;        // action is install or install_start
-        bool start = false;        // install_start: the Launcher starts it after installing
+        Action action = Action::Unknown;
         char unlock[kUnlockLength + 1] = {};  // a private firmware's unlock token, or empty
         char firmwareName[65] = {};           // for the log and the firmware's hook (UTF-8, cut at a character)
         char version[33] = {};
-        const char* Action() const { return start ? "install_start" : "install"; }
+        bool Known() const { return action != Action::Unknown; }
+        const char* ActionName() const { return ActionText(action); }
     };
     inline constexpr std::size_t kMaxCommands = 4;
     inline constexpr uint32_t kDefaultPollSeconds = 15;
@@ -109,13 +124,84 @@ namespace CardenzaHAL::Presence::Logic {
         void Clean() { seconds = 0; }
     };
 
-    // --- RAM ------------------------------------------------------------------------------------------
+    // --- What to do next ------------------------------------------------------------------------------
 
-    // Whether a request may start: internal RAM free and its largest block, and whether TLS takes its
-    // memory from PSRAM (CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC with PSRAM in the heap). TLS in PSRAM: 40 KB free
-    // and a 12 KB block (Wi-Fi's buffers, TCP, the HTTP client); in internal RAM: 80 KB and 24 KB (its 16 KB
-    // receive record too). Below that the firmware needs its RAM more than the community needs an answer.
-    bool MemoryAllows(std::size_t freeInternal, std::size_t largestInternal, bool tlsInPsram);
+    // The internal RAM a firmware keeps for itself unless it says otherwise (SetRamFloor).
+    inline constexpr std::size_t kDefaultRamFloor = 24 * 1024;
+    // What Wi-Fi takes of internal RAM until it has been measured on this device (its buffers, tasks,
+    // lwIP, the supplicant; the reference sdkconfig of README.md).
+    inline constexpr std::size_t kWifiCostEstimate = 40 * 1024;
+    // Wi-Fi's largest block (its task's stack is about 6.5 KB).
+    inline constexpr std::size_t kWifiLargestBlock = 8 * 1024;
+    // A request's internal RAM beside TLS (TCP and Wi-Fi buffers, the HTTP client's 2 KB): with TLS in
+    // PSRAM 12 KB and an 8 KB block; with TLS in internal RAM 48 KB and a 20 KB block (its 16 KB receive
+    // record).
+    inline constexpr std::size_t kRequestBytesTlsInPsram = 12 * 1024;
+    inline constexpr std::size_t kRequestBlockTlsInPsram = 8 * 1024;
+    inline constexpr std::size_t kRequestBytesTlsInternal = 48 * 1024;
+    inline constexpr std::size_t kRequestBlockTlsInternal = 20 * 1024;
+
+    // What the service knows when it looks.
+    struct Situation {
+        Activity activity = Activity::Idle;
+        Audio audio = Audio::Quiet;      // the speaker's DMA since the last look
+        bool connected = false;          // the service holds Wi-Fi and it has an address
+        bool firmwareSending = false;    // the firmware's own Net request is under way
+        bool tlsInPsram = false;         // TLS takes its memory from PSRAM
+        bool ramPaused = false;          // Wi-Fi was let go for the firmware's RAM a short while ago
+        std::size_t freeInternal = 0;    // internal RAM free, and its largest block
+        std::size_t largestInternal = 0;
+        std::size_t floor = kDefaultRamFloor;
+        std::size_t wifiCost = kWifiCostEstimate;  // learnt (LearnWifiCost) or the estimate
+    };
+    enum class Step : uint8_t {
+        Ask,    // ask the inbox now
+        Join,   // bring Wi-Fi up (and read the Launcher's settings)
+        LetGo,  // let go of Wi-Fi: the firmware needs it gone
+        Wait,   // nothing now (the reason says why)
+    };
+    struct Decision {
+        Step step = Step::Wait;
+        Wait reason = Wait::None;
+    };
+    // In order: Quiet lets go of Wi-Fi (or waits); a firmware below its RAM floor gets Wi-Fi's RAM back;
+    // audio running late waits; without Wi-Fi, RealTime waits, then Wi-Fi comes up when the floor and
+    // Wi-Fi's cost fit (not again for a while after a RAM let-go); with Wi-Fi, the firmware's own request
+    // waits, then a request starts when the floor and the request's RAM fit.
+    Decision Decide(const Situation& situation);
+
+    // What Wi-Fi took: internal RAM free before it came up less what is free once it has an address,
+    // within 16..96 KB (other tasks allocate meanwhile too); `previous` when the measure makes no sense.
+    std::size_t LearnWifiCost(std::size_t previous, std::size_t freeBefore, std::size_t freeAfter);
+
+    // After Wi-Fi was let go for the firmware's RAM, it does not come up again for a while: 60 s, doubling
+    // up to 600 s while the firmware keeps needing it; a quiet stretch (a request without a let-go) ends it.
+    struct RamPause {
+        uint32_t seconds = 0;
+        void LetGo() { seconds = seconds == 0 ? 60 : (seconds >= 300 ? 600 : seconds * 2); }
+        void Clean() { seconds = 0; }
+    };
+
+    // --- What the requests say about the firmware -----------------------------------------------------
+
+    // Headers on every inbox request, so the community knows what runs (COMMUNITY.md, presence): the
+    // firmware's name and version from its app description, and its image digest (the community knows
+    // its builds by it). Values: printable ASCII without '"' or a backslash (other bytes become '_'), spaces
+    // trimmed, at most 32 characters; empty when nothing is left.
+    inline constexpr const char* kFirmwareNameHeader = "X-Firmware-Name";
+    inline constexpr const char* kFirmwareVersionHeader = "X-Firmware-Version";
+    inline constexpr const char* kImageDigestHeader = "X-Image-Digest";
+    inline constexpr std::size_t kHeaderTextMax = 32;
+    void HeaderText(const char* text, char* out, std::size_t capacity);
+
+    // Where an ESP-IDF app image keeps its appended SHA-256 (the digest the community knows a build by,
+    // what esp_partition_get_sha256 gives for an app partition), found from its headers alone: the 24-byte
+    // image header (magic 0xE9, the segment count, byte 23 hash_appended), each segment's 8-byte header
+    // and data, the checksum byte padded to 16 (L0 = (end of the last segment + 16) & ~15), the digest at
+    // L0. `read` reads `length` bytes at `offset` of the image (false: failed). False for anything that
+    // is not such an image within `limit` bytes, or one without an appended digest.
+    using ReadAt = bool (*)(void* context, uint32_t offset, void* out, uint32_t length);
+    bool AppendedDigestOffset(ReadAt read, void* context, uint32_t limit, uint32_t& offset);
 
     // --- The handover ---------------------------------------------------------------------------------
 
@@ -126,7 +212,7 @@ namespace CardenzaHAL::Presence::Logic {
         inline constexpr char kVersionKey[] = "v";  // u8
         inline constexpr uint8_t kVersion = 1;
         inline constexpr char kCommandKey[] = "cmd";      // string: the command's id
-        inline constexpr char kActionKey[] = "action";    // string: install | install_start
+        inline constexpr char kActionKey[] = "action";    // string: install | install_start | update_launcher
         inline constexpr char kUnlockKey[] = "unlock";    // string: "cfu_..." when the inbox gave one
         inline constexpr char kApiKey[] = "api";          // string: the community the command came from
     }

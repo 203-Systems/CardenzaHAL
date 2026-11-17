@@ -426,8 +426,7 @@ bool ReadCommand(Reader& reader, Command& command, bool& usable)
         return reader.Skip();
     });
     if (!ok) return false;
-    command.start = std::strcmp(action, "install_start") == 0;
-    command.known = command.start || std::strcmp(action, "install") == 0;
+    command.action = ActionOf(action);
     usable = haveId;
     return true;
 }
@@ -454,6 +453,27 @@ std::size_t ApiLength(const char* api)
 }
 
 }  // namespace
+
+Action ActionOf(const char* text)
+{
+    if (text == nullptr) return Action::Unknown;
+    if (std::strcmp(text, "install") == 0) return Action::Install;
+    if (std::strcmp(text, "install_start") == 0) return Action::InstallStart;
+    if (std::strcmp(text, "update_launcher") == 0) return Action::UpdateLauncher;
+    return Action::Unknown;
+}
+
+const char* ActionText(Action action)
+{
+    switch (action)
+    {
+    case Action::Install: return "install";
+    case Action::InstallStart: return "install_start";
+    case Action::UpdateLauncher: return "update_launcher";
+    case Action::Unknown: break;
+    }
+    return "";
+}
 
 bool AllowedApi(const char* api, bool localHttp)
 {
@@ -583,7 +603,7 @@ Plan PlanCommands(const Inbox& inbox)
     Plan plan;
     for (std::size_t i = 0; i < inbox.count && i < kMaxCommands; ++i)
     {
-        if (!inbox.commands[i].known)
+        if (!inbox.commands[i].Known())
             plan.fate[i] = Fate::Unsupported;
         else if (plan.handOver < 0)
         {
@@ -652,10 +672,78 @@ Audio ClassifyAudio(uint32_t sentBlocks, uint32_t emptyBlocks)
     return emptyBlocks == 0 ? Audio::Streaming : Audio::Struggling;
 }
 
-bool MemoryAllows(std::size_t freeInternal, std::size_t largestInternal, bool tlsInPsram)
+Decision Decide(const Situation& s)
 {
-    if (tlsInPsram) return freeInternal >= 40 * 1024 && largestInternal >= 12 * 1024;
-    return freeInternal >= 80 * 1024 && largestInternal >= 24 * 1024;
+    const auto decide = [](Step step, Wait reason) { return Decision{step, reason}; };
+    if (s.activity == Activity::Quiet)
+        return s.connected ? decide(Step::LetGo, Wait::Activity) : decide(Step::Wait, Wait::Activity);
+    if (s.connected && s.freeInternal < s.floor) return decide(Step::LetGo, Wait::Ram);
+    if (s.audio == Audio::Struggling) return decide(Step::Wait, Wait::AudioLate);
+    if (!s.connected)
+    {
+        if (s.activity == Activity::RealTime) return decide(Step::Wait, Wait::Activity);
+        if (s.ramPaused || s.freeInternal < s.floor + s.wifiCost || s.largestInternal < kWifiLargestBlock)
+            return decide(Step::Wait, Wait::Ram);
+        return decide(Step::Join, Wait::None);
+    }
+    if (s.firmwareSending) return decide(Step::Wait, Wait::FirmwareRequest);
+    const std::size_t need = s.tlsInPsram ? kRequestBytesTlsInPsram : kRequestBytesTlsInternal;
+    const std::size_t block = s.tlsInPsram ? kRequestBlockTlsInPsram : kRequestBlockTlsInternal;
+    if (s.freeInternal < s.floor + need || s.largestInternal < block) return decide(Step::Wait, Wait::Ram);
+    return decide(Step::Ask, Wait::None);
+}
+
+std::size_t LearnWifiCost(std::size_t previous, std::size_t freeBefore, std::size_t freeAfter)
+{
+    if (freeAfter >= freeBefore) return previous;
+    const std::size_t taken = freeBefore - freeAfter;
+    if (taken < 16 * 1024) return 16 * 1024;
+    return taken > 96 * 1024 ? 96 * 1024 : taken;
+}
+
+void HeaderText(const char* text, char* out, std::size_t capacity)
+{
+    if (capacity == 0) return;
+    out[0] = 0;
+    if (text == nullptr) return;
+    while (*text == ' ') ++text;
+    std::size_t length = 0;
+    for (; *text != 0 && length < kHeaderTextMax && length + 1 < capacity; ++text)
+    {
+        const unsigned char c = static_cast<unsigned char>(*text);
+        out[length++] = c >= 0x20 && c <= 0x7E && c != '"' && c != '\\' ? static_cast<char>(c) : '_';
+    }
+    while (length > 0 && out[length - 1] == ' ') --length;
+    out[length] = 0;
+}
+
+bool AppendedDigestOffset(ReadAt read, void* context, uint32_t limit, uint32_t& offset)
+{
+    // esp_image_header_t (ESP-IDF bootloader_support/include/esp_app_format.h) and the segment headers.
+    constexpr uint32_t kHeaderBytes = 24;
+    constexpr uint32_t kSegmentHeaderBytes = 8;
+    constexpr uint8_t kMagic = 0xE9;
+    constexpr uint32_t kMaxSegments = 16;
+    constexpr uint32_t kDigestBytes = 32;
+    uint8_t header[kHeaderBytes];
+    if (read == nullptr || limit < kHeaderBytes || !read(context, 0, header, kHeaderBytes)) return false;
+    const uint32_t segments = header[1];
+    if (header[0] != kMagic || segments == 0 || segments > kMaxSegments || header[23] != 1) return false;
+    uint64_t at = kHeaderBytes;
+    for (uint32_t i = 0; i < segments; ++i)
+    {
+        uint8_t segment[kSegmentHeaderBytes];
+        if (at + kSegmentHeaderBytes > limit || !read(context, static_cast<uint32_t>(at), segment, kSegmentHeaderBytes))
+            return false;
+        const uint32_t length = static_cast<uint32_t>(segment[4]) | static_cast<uint32_t>(segment[5]) << 8 |
+                                static_cast<uint32_t>(segment[6]) << 16 | static_cast<uint32_t>(segment[7]) << 24;
+        at += kSegmentHeaderBytes + uint64_t{length};
+        if (at > limit) return false;
+    }
+    const uint64_t digest = (at + 16) & ~uint64_t{15};
+    if (digest + kDigestBytes > limit) return false;
+    offset = static_cast<uint32_t>(digest);
+    return true;
 }
 
 }  // namespace CardenzaHAL::Presence::Logic
