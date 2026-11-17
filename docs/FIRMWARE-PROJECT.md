@@ -5,6 +5,12 @@ hardware layer of the 203 Systems Cardenza, and for publishing it on the 203 fir
 to install, which files a project has, how it uses the HAL, how it builds, what the community checks,
 versions, forks, publishing and what never goes into the repository.
 
+**The standard release is the same for every firmware, 203 Systems' own and everyone else's**: its versions go
+to the 203 community on its channels (stable, beta, dev), from CI with the HAL's `community-publish` action and
+trusted publishing ([Publish](#8-publish)). The community is where devices get firmware: the 203 Launcher
+installs and updates by a firmware's code from it. Building from source and flashing your own board stay
+possible; they are not how a firmware is released.
+
 This file is the single source. It lives in CardenzaHAL
 ([`docs/FIRMWARE-PROJECT.md`](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md));
 the community serves the same file at <https://cardenza.203.io/community/develop.md>, `203c rules`
@@ -26,9 +32,10 @@ Do these in order; stop and ask the user only where a step says so.
 5. Write the firmware following [the HAL rules](#3-using-the-hal): public headers only, nothing the HAL already does, no copyleft code.
 6. Build for the board (`idf.py build`) and for the browser (`python3 components/CardenzaHAL/tools/cardenza_web.py build .`); fix every error and warning of yours. Both must build ([Build](#4-build)).
 7. Raise `version.txt` and add a `## <version>` entry to `CHANGELOG.md`.
-8. `203c publish --dry-run`, fix what it reports, then `203c publish` ([Publish](#8-publish)). Ask the user before the real publish, and before `--force`.
+8. The first version: `203c publish --dry-run`, fix what it reports, then `203c publish` ([Publish](#8-publish)). Ask the user before the real publish, and before `--force`.
 9. When the checks send the version back, read the report ([Checks](#5-what-the-community-checks)); fix and publish the next version, or, only for a false positive, appeal.
 10. Commit `203.json` (203c writes the firmware's code into it). Never commit a secret ([Never commit](#9-never-commit)).
+11. Set up the standard release ([Publish from CI](#publish-from-ci-the-standard-release)): the workflow from the template, and ask the user to link the repository on the firmware's page (自动发布 / Trusted publishing). From then on a push to `main` is a dev version and a tag `vX.Y.Z` the release.
 
 ## 1. Dependencies and setup
 
@@ -473,6 +480,15 @@ When a version is sent back: `203c versions check <VCODE> --json` shows which st
 - **The BIN says its own version** (its app description, from `version.txt`): on stable and beta the label must be that version (203c stops otherwise); on dev it may add to it (`<version>-dev.<run>`), which keeps CI labels unique and in order.
 - Every version gets its own 6-character code. The firmware's code installs its newest version on the channel chosen in the Launcher; a version's code installs exactly that version.
 - One firmware may carry builds for several devices (`devices` in `203.json`); each device has its own newest version per channel.
+- **From CI (the standard release)** the channel follows the Git ref, the same for every firmware:
+
+  | Ref | Channel | Label |
+  | --- | --- | --- |
+  | a push to `main` | `dev` | `<version>-dev.<run number>` |
+  | a tag `vX.Y.Z` (equal to `version.txt`) | `stable` | `X.Y.Z`, its notes `CHANGELOG.md`'s `## X.Y.Z` |
+  | a tag `vX.Y.Z-beta.N` (`X.Y.Z` equal to `version.txt`) | `beta` | `X.Y.Z-beta.N`, its notes `## X.Y.Z-beta.N` if there is one, else a line naming the beta |
+
+  So a release is: raise `version.txt`, add its `CHANGELOG.md` entry, merge to `main`, tag `vX.Y.Z`.
 - Limits per account per day: 30 stable and beta versions, 300 dev versions. A draft not published within a day is removed.
 
 ## 7. Forks and provenance
@@ -486,9 +502,13 @@ so a fork is always traced back to its original.
 - **Keep the original's licence**: its `LICENSE` file and copyright lines stay, your changes are under terms it allows, and `203.json` `license` says the result's licence. A firmware without a licence grants no right to redistribute it: ask its author first.
 - **Give credit**: say in the README what the firmware was made from, with a link. Do not publish someone else's work as your original.
 - Launchers are not forked: only the official 203 Launcher is offered, and only admins make or fork launchers.
-- Official firmware (published by 203 Systems through the Launcher hub) take no versions from the community; your fork is your own firmware with its own code.
+- Official firmware are published the standard way too: their owner's CI publishes their versions with the same action (Cardenza Synth, `V6QK28`; the 203 Launcher). Only an official firmware mirrored from the old Launcher hub (no owner) takes no versions from 203c (`official_from_hub`). Your fork is your own firmware with its own code.
 
 ## 8. Publish
+
+Every firmware is released the same way, 203 Systems' own included: versions on the community's channels,
+published by CI with the HAL's [`community-publish`](https://github.com/203-Systems/CardenzaHAL/blob/main/.github/actions/community-publish/action.yml)
+action. The first version is published by hand, which makes the firmware and gives it its code:
 
 ```sh
 203c init                     # once: writes 203.json; check name, summary, tags, license, source
@@ -504,23 +524,39 @@ git add 203.json && git commit -m "203.json: the firmware's code"   # after the 
 - It waits for the checks and prints the firmware's and the version's codes, the version's page and its Play link; a version sent back makes it exit with an error ([Checks](#5-what-the-community-checks)).
 - `203c publish --json` answers in JSON (for agents and CI). `203c help` lists every command; `203c rules` prints this file.
 
-### Publish from CI
+### Publish from CI (the standard release)
 
-1. On the community, 设置 › 个人令牌 (Personal tokens, `/me/tokens`), a new token with `write`. Store it as the CI secret **`COMMUNITY_TOKEN`** (never in the repository).
-2. Turn the firmware's `dev` channel on (its page on the site).
-3. Publish every build of `main` to `dev`:
+**Trusted publishing**: no secret is stored anywhere. The job asks GitHub for its OIDC identity token, and
+the community trades it for a credential that lasts 15 minutes and only publishes versions of this one
+firmware, when the token comes from a repository (and workflow) the firmware's owner linked
+(`203c login --github-oidc --firmware <CODE>`; the action does it).
+
+1. **Link the repository** (the firmware's owner, once): on the firmware's page, 自动发布 / Trusted publishing:
+   the repository (`owner/name`), the workflow file (`firmware.yml`), optionally a GitHub environment, and the
+   channels it may publish; or `203c firmware publishers add <CODE> ...` (`203c firmware publishers list <CODE>`
+   shows them). A tag `vX.Y.Z` may then publish stable (and beta, dev), a tag `vX.Y.Z-beta.N` beta (and dev),
+   any other ref dev only.
+2. **Turn the beta and dev channels on** on the firmware's page: the CI credential publishes versions and
+   nothing else (it changes no page, channel or cover).
+3. **The workflow**: the template's [`.github/workflows/firmware.yml`](https://github.com/203-Systems/CardenzaHAL/blob/main/examples/template/.github/workflows/firmware.yml)
+   (copied with the template). The publishing part:
 
 ```yaml
 # .github/workflows/firmware.yml (excerpt)
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
 jobs:
   firmware:
     runs-on: ubuntu-latest
     container: espressif/idf:v5.3.5
+    permissions:
+      contents: read
+      id-token: write          # trusted publishing: the job's OIDC token
     steps:
       - uses: actions/checkout@v4
         with: {submodules: recursive}
-      - uses: actions/setup-node@v4
-        with: {node-version: 22}
       - name: Build
         shell: bash
         run: |
@@ -531,21 +567,18 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
           ~/emsdk/emsdk install latest && ~/emsdk/emsdk activate latest
-      - name: Publish to dev
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: bash
-        env:
-          COMMUNITY_TOKEN: ${{ secrets.COMMUNITY_TOKEN }}
-        run: |
-          . "$IDF_PATH/export.sh" > /dev/null
-          curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
-          ~/.local/bin/203c publish --channel dev \
-            --version "$(tr -d '[:space:]' < version.txt)-dev.${GITHUB_RUN_NUMBER}" \
-            --commit "$GITHUB_SHA" --json
+      # The HAL's action, at the HAL commit this firmware builds with (the submodule).
+      - uses: ./components/CardenzaHAL/.github/actions/community-publish
+        with:
+          elf: build/my_firmware.elf
 ```
 
-- A retried run with the same label resumes its draft; a label already published with the same BIN is reported as done.
-- Stable releases stay a person's decision: publish them by hand (or from a version tag equal to `version.txt`, with release notes in `CHANGELOG.md`).
+- The action takes the channel and the label from the ref (the table in [Versions and channels](#6-versions-and-channels)), the firmware's code and BINs from `203.json`, the version from `version.txt`, the notes from `CHANGELOG.md`; on another ref it does nothing. A stable tag that does not equal `version.txt`, or has no `CHANGELOG.md` entry, fails.
+- It installs 203c from the community, signs in with the job's OIDC token, publishes and waits for the checks (a version sent back fails the job, with the report); a run again resumes the same version, never a second one. It builds the simulator version when the runner has Emscripten (the step above), else publishes the BIN alone with a notice.
+- `elf:` keeps the ELF as the run's artifact `elf-<label>` (90 days; the community does not take it). Keep the ELF of every release yourself too (a GitHub Release): a crash's backtrace needs it.
+- Outside the HAL's submodule, `uses: 203-Systems/CardenzaHAL/.github/actions/community-publish@<a commit on main>`.
+- Change the firmware's page (name, summary, tags, links, cover) on the site: CI does not touch it, and `203.json`'s page fields only matter for the first publish.
+- Not on GitHub Actions (or a repository that cannot be linked): a personal token (设置 › 个人令牌, `/me/tokens`, scope `write`) as the CI system's secret `COMMUNITY_TOKEN`, and `203c publish --channel dev --version "$(tr -d '[:space:]' < version.txt)-dev.<n>" --commit <sha> --json` (the action's `token:` input does the same on GitHub).
 
 ## 9. Never commit
 
@@ -574,3 +607,4 @@ deleting the line does not remove it from the history.
 - [ ] `LICENSE` and `README.md` present; a fork keeps the original's licence and credits it.
 - [ ] No secret tracked (`git ls-files` shows none of [the list](#9-never-commit)).
 - [ ] `203c publish --dry-run` reports nothing left to fix.
+- [ ] Releases: the workflow with the `community-publish` action and `id-token: write`; the repository linked on the firmware's page (自动发布); beta and dev turned on if you use them.

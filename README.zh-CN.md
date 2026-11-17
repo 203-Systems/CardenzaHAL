@@ -16,6 +16,15 @@ curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
 203c publish --dry-run && 203c publish
 ```
 
+## 发布
+
+基于 HAL 的每个固件，203 Systems 自己的（Cardenza Synth、203 Launcher）和第三方的，都用同一种方式发布：发到 203 社区，203 Launcher 从社区的渠道安装和更新固件。
+
+- 渠道跟着 Git 引用走，由 CI 用 [`.github/actions/community-publish`](.github/actions/community-publish/action.yml) 发布：推送到 `main` 是 **dev**（`<版本>-dev.<运行号>`），等于 `version.txt` 的 `vX.Y.Z` 标签是 **stable**（更新说明取 `CHANGELOG.md` 的 `## X.Y.Z`），`vX.Y.Z-beta.N` 标签是 **beta**。
+- 受信任发布，不存任何密钥：作业（`permissions: id-token: write`）用 GitHub 的 OIDC 令牌登录，社区只接受固件主人在固件页「自动发布」里（或用 `203c firmware publishers add`）关联过的仓库。
+- 第一个版本手动发布（`203c publish`），固件由此得到代码；工作流在 [`examples/template`](examples/template) 里。细节见 [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md#8-publish)。
+- 自己从源码编译、给自己的板子烧录仍然可以，但那不是发布。
+
 ## 使用前提
 
 - 当前版本的 Cardenza 硬件，引脚定义见 [`board/pins.h`](board/pins.h)。
@@ -381,7 +390,8 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`examples/template`](examples/template)：做新固件的起点：HAL 作为子模块、板子默认配置、保留 Launcher 的分区表、`version.txt`、`CHANGELOG.md` 和 `203.json`；同时能编译到板子和网页。
 - [`examples/psram_heap`](examples/psram_heap)：一个小固件，把 PSRAM 加进堆、只给明确申请的代码用，并替换 `new`，让申请失败变成空指针而不是重启。`idf.py -C examples/psram_heap build`。
 - [`examples/hal_check`](examples/hal_check)：通过 HAL 逐个检查板子：每个键的格子和按键灯、音频任务为每个按住的键发一个音、HOME。同一份源码既能编译到板子上，也能编译成网页版。
-- [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：给 203 Systems 官方固件用的，用 App 的专用令牌把固件发布到 203 Launcher hub 的 GitHub Action（推送是 Nightly，`vX.Y.Z` 标签是正式版）。
+- [`.github/actions/community-publish`](.github/actions/community-publish/action.yml)：每个固件的标准发布，用 `203c` 和受信任发布把版本发到 203 社区的 GitHub Action（推送到 main 是 dev，`vX.Y.Z-beta.N` 和 `vX.Y.Z` 标签是 beta 和 stable；见[发布](#发布)）。
+- [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：旧的 Launcher hub，只用于过渡期：还有人在用只读 hub 目录的 203 Launcher 0.2.0，所以 203 Systems 的官方固件把正式版同时镜像到那里。新固件不要用它。
 
 ## 网页模拟器
 

@@ -25,12 +25,13 @@
    python3 components/CardenzaHAL/tools/cardenza_web.py serve build-web/site   # http://localhost:8000/
    ```
    装了 203 Launcher 的板子**不能** `idf.py flash`（会把 Launcher 刷掉）：从 Launcher 安装，或用 `tools/cardenza_flash.py --app-into <分区名>`。
-5. 发布：提高 `version.txt`，在 `CHANGELOG.md` 写 `## <版本>`，然后
+5. 第一个版本手动发布：提高 `version.txt`，在 `CHANGELOG.md` 写 `## <版本>`，然后
    ```sh
    203c publish --dry-run
    203c publish
    ```
    第一次发布后 203c 把固件代码写回 `203.json`：提交它。
+6. 之后用 CI 发布（标准方式，203 Systems 的官方固件也一样）：用模板里的 `.github/workflows/firmware.yml`（HAL 的 `community-publish` action），在固件页的「自动发布」里关联这个仓库和工作流文件（或 `203c firmware publishers add`），并在固件页打开 beta、dev 渠道。推送到 `main` 发 dev，打 `vX.Y.Z` 标签发 stable，`vX.Y.Z-beta.N` 发 beta。受信任发布：作业用 GitHub 的 OIDC 令牌登录（`permissions: id-token: write`），不存任何密钥；CI 只发布版本，不改固件页。
 
 ## 必须有的文件
 
@@ -48,11 +49,11 @@
 
 ## 版本与渠道
 
-`stable`（默认，手动发布，要有更新说明）、`beta`、`dev`（CI，保留最新 30 个）。版本号 1–32 个 `0-9 A-Z a-z . _ + -`，同一固件内唯一，不能低于该渠道最新的版本；stable / beta 的版本号要和 BIN 里的版本一致，dev 可以写成 `<版本>-dev.<序号>`。CI 用网站 `/me` 生成的 `ci` 令牌，放进 CI 的密钥 `COMMUNITY_TOKEN`，`203c publish --channel dev`。
+`stable`（默认，要有更新说明）、`beta`、`dev`（保留最新 30 个）。版本号 1–32 个 `0-9 A-Z a-z . _ + -`，同一固件内唯一，不能低于该渠道最新的版本；stable / beta 的版本号要和 BIN 里的版本一致，dev 可以写成 `<版本>-dev.<序号>`。CI 发布时渠道跟着 Git 引用走：推送到 `main` → dev（`<版本>-dev.<运行号>`），`vX.Y.Z` 标签（等于 `version.txt`）→ stable，`vX.Y.Z-beta.N` → beta。不在 GitHub Actions 上的 CI 才需要个人令牌（设置 › 个人令牌，`write`），放进 CI 的密钥 `COMMUNITY_TOKEN`。
 
 ## Fork
 
-用 `203c fork` 开始；`forked_from` 记录来源；事后补：`203c firmware based-on <代码> <来源>`。保留原作的 LICENSE 和版权声明，在 README 里注明来源。Launcher 只有官方的 203 Launcher，只有管理员能发布。
+用 `203c fork` 开始；`forked_from` 记录来源；事后补：`203c firmware based-on <代码> <来源>`。保留原作的 LICENSE 和版权声明，在 README 里注明来源。Launcher 只有官方的 203 Launcher，只有管理员能发布。官方固件也按上面的标准方式发布（有主人的官方固件由主人的 CI 发布）；只有从旧 Launcher hub 镜像来、没有主人的官方固件不接受 203c 的版本。
 
 ## 绝不能提交
 

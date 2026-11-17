@@ -16,6 +16,16 @@ curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
 203c publish --dry-run && 203c publish
 ```
 
+## Releasing
+
+Every firmware on the HAL, 203 Systems' own (Cardenza Synth, the 203 Launcher) and everyone else's, is released
+the same way: to the 203 community, whose channels the 203 Launcher installs and updates from.
+
+- Channels follow the Git ref, from CI with [`.github/actions/community-publish`](.github/actions/community-publish/action.yml): a push to `main` is **dev** (`<version>-dev.<run>`), a tag `vX.Y.Z` equal to `version.txt` is **stable** (its notes are `CHANGELOG.md`'s `## X.Y.Z`), a tag `vX.Y.Z-beta.N` is **beta**.
+- Trusted publishing, no stored secret: the job (`permissions: id-token: write`) signs in with its GitHub OIDC token, which the community accepts for the repositories the firmware's owner linked on its page (自动发布 / Trusted publishing) or with `203c firmware publishers add`.
+- The first version is published by hand (`203c publish`), which gives the firmware its code; [`examples/template`](examples/template) has the workflow. The details: [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md#8-publish).
+- Building from source and flashing your own board stay possible; they are not releases.
+
 ## Requirements
 
 - The current Cardenza board; pin assignments are in [`board/pins.h`](board/pins.h).
@@ -379,7 +389,8 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`examples/template`](examples/template): a firmware project to start from: the HAL as a submodule, the board's defaults, a partition table that keeps the Launcher, `version.txt`, `CHANGELOG.md` and `203.json`. It builds for the board and the browser.
 - [`examples/psram_heap`](examples/psram_heap): a small firmware that adds the PSRAM to the heap only for code that asks for it, and replaces `new` so a failed allocation is a null pointer instead of a reboot. `idf.py -C examples/psram_heap build`.
 - [`examples/hal_check`](examples/hal_check): the board through the HAL, key by key: every key's cell and LED, a tone per held key from an audio task, HOME. It builds for the board and for the browser alike.
-- [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml): for 203 Systems' official firmware, a GitHub Action that publishes a firmware image to the 203 Launcher hub (a Nightly for a push, a release for a `vX.Y.Z` tag) with the App's scoped token.
+- [`.github/actions/community-publish`](.github/actions/community-publish/action.yml): the standard release of every firmware, a GitHub Action that publishes a version to the 203 community with `203c` and trusted publishing (dev for a push to main, beta and stable for `vX.Y.Z-beta.N` and `vX.Y.Z` tags; [Releasing](#releasing)).
+- [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml): the old Launcher hub, only for the transition: 203 Systems' official firmware mirror their releases there while 203 Launchers 0.2.0, which read only the hub's catalog, are still in use. New firmware do not use it.
 
 ## Web simulator
 

@@ -41,10 +41,18 @@ Inside the CardenzaHAL repository it builds in place: `idf.py -C examples/templa
 
 ## Publish
 
+The first version by hand (it makes the firmware and writes its code into `203.json`: commit that):
+
 ```sh
 203c login
 203c publish --dry-run
 203c publish
 ```
+
+Then every release comes from CI, the standard way for every firmware: `.github/workflows/firmware.yml`
+publishes a push to `main` as a dev version, a tag `vX.Y.Z` (equal to `version.txt`, with its
+`CHANGELOG.md` entry) as stable and `vX.Y.Z-beta.N` as beta, with the HAL's `community-publish` action and
+no secret (trusted publishing). Link the repository once on the firmware's page (自动发布 / Trusted
+publishing: this repository, workflow `firmware.yml`) and turn beta and dev on there.
 
 Everything else (setup, the rules, what the community checks, versions, forks): [`docs/FIRMWARE-PROJECT.md`](../../docs/FIRMWARE-PROJECT.md).
