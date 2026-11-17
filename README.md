@@ -2,6 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+[Website](https://203.io/products/cardenza-mini-synthsiser) · [Learn Cardenza](https://cardenza.203.io) · [203 Community](https://cardenza.203.io/community) · [Firmware developer guide](https://cardenza.203.io/community/develop) · [Example firmware: CardenzaSynth](https://github.com/203-Systems/CardenzaSynth)
+
 CardenzaHAL is the ESP-IDF hardware layer for Cardenza, an ESP32-S3 device. Use it to read the 56-key keyboard, drive individual key LEDs, draw to the 240 × 135 display, play PCM audio, access an SD card, and add USB MIDI, audio, and HID to your firmware.
 
 The HAL provides hardware initialization and native ESP-IDF handles. Your application owns rendering, key mappings, audio processing, file formats, and the main loop. This repository is a component, not a standalone firmware; its web target builds your firmware into a browser simulator as well ([Web simulator](#web-simulator)).
