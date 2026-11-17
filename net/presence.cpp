@@ -456,6 +456,9 @@ void Run()
     {
         if (waitMs != 0 && !WaitFor(waitMs)) break;
         waitMs = 0;
+        // Wi-Fi up but without an address (the network went away): its RAM is given back first, so that
+        // joining again is decided like the first time.
+        if (Net::Internal::Holds(User::Presence) && !Net::Connected()) Net::Internal::Disconnect(User::Presence);
         const int64_t now = esp_timer_get_time();
         const Logic::Situation s = Look(lastAudio, now < ramPauseUntilUs, wifiCost);
         const Logic::Decision decision = Logic::Decide(s);
