@@ -24,6 +24,8 @@ if(COMMAND idf_component_register)
             net/presence_logic.cpp
             storage/storage.cpp
             system/launcher.cpp
+            system/menu.cpp
+            system/menu/logic.cpp
             system/system.cpp
             usb/usb.cpp
         INCLUDE_DIRS
@@ -38,6 +40,7 @@ if(COMMAND idf_component_register)
             vfs
             espressif__tinyusb
         PRIV_REQUIRES
+            esp_app_format
             esp_hw_support
             esp_rom
             log
@@ -87,6 +90,8 @@ set(cardenza_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/net/presence.cpp
     ${CMAKE_CURRENT_LIST_DIR}/net/presence_logic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/launcher.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/menu.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/menu/logic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/system.cpp
     ${CMAKE_CURRENT_LIST_DIR}/usb/usb.cpp
 )

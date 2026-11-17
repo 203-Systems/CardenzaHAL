@@ -17,6 +17,12 @@ namespace CardenzaHAL::System {
 
     namespace LauncherTicket {
         inline constexpr uint32_t kRestart = 0x32303352u;  // "203R", LAUNCHER_RESTART_TICKET
+        // The system menu's Restart (system/menu.h): the next software restart starts the firmware the
+        // Launcher started, without its countdown (as the Launcher's own hand-over to a firmware).
+        inline constexpr uint32_t kBoot = 0x32303342u;     // "203B", LAUNCHER_BOOT_TICKET
+        // The system menu's Turn off: the wake from deep sleep goes through the Launcher, as after a
+        // power-on (as the Launcher's own Turn off).
+        inline constexpr uint32_t kSleep = 0x32303353u;    // "203S", LAUNCHER_SLEEP_TICKET
         // ESP32-S3: RTC fast memory ends at 0x60100000 (SOC_RTC_DRAM_HIGH); rtc_retain_mem_t with 8 custom
         // bytes is 24 bytes (aligned to 8) below it, its custom bytes 12 bytes into it.
         inline constexpr uint32_t kRtcFastEnd = 0x60100000u;

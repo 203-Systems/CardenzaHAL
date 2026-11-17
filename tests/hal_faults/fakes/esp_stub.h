@@ -136,6 +136,7 @@ inline int gpio_hold_dis(int pin) {
   if (pin == 38) ++Fake::backlightHoldReleases;
   return Fake::Result("gpio");
 }
+inline int gpio_hold_en(int) { return Fake::Result("gpio"); }
 struct FakeGpioRegisters { std::uint32_t in = ~0u; };
 inline FakeGpioRegisters GPIO;
 struct spi_dev_t {};
@@ -274,6 +275,7 @@ inline int esp_lcd_panel_swap_xy(void*, bool) { return ESP_OK; }
 inline int esp_lcd_panel_mirror(void*, bool, bool) { return ESP_OK; }
 inline int esp_lcd_panel_set_gap(void*, int, int) { return ESP_OK; }
 inline int esp_lcd_panel_disp_on_off(void*, bool on) { Fake::panelOn = on; return ESP_OK; }
+inline int esp_lcd_panel_disp_sleep(void*, bool sleep) { if (sleep) Fake::panelOn = false; return ESP_OK; }
 inline int esp_lcd_panel_io_register_event_callbacks(void*, const esp_lcd_panel_io_callbacks_t* callbacks, void* context) {
   ++Fake::callbackRegistrations;
   if (Fake::Bad("display_callback")) return ESP_FAIL;
@@ -316,6 +318,10 @@ inline int ledc_set_duty(int, int channel, unsigned duty) {
     if (Fake::Bad("display_brightness")) return ESP_FAIL;
     ++Fake::backlightWrites; Fake::backlightPendingDuty = duty;
   }
+  return ESP_OK;
+}
+inline int ledc_stop(int, int channel, unsigned) {
+  if (channel == LEDC_CHANNEL_7) Fake::backlightDuty = Fake::backlightPendingDuty = 0;
   return ESP_OK;
 }
 inline int ledc_update_duty(int, int channel) {

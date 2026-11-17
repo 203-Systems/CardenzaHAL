@@ -4,6 +4,7 @@
 #   the key-count guard, LED frames, the backlight curve).
 # - net_test: the pure parts of net/ (the Launcher's settings format, request checks, connect order).
 # - presence_test: the presence service's decisions (net/presence_logic.h) and the Launcher's restart ticket.
+# - system_menu_test: the system menu's pure parts (system/menu/logic.h).
 # - hal_faults: the HAL's driver sources against fake ESP-IDF drivers (fakes/esp_stub.h) that fail on
 #   purpose, so every error path is taken and leaves the hardware in a known state.
 cmake_minimum_required(VERSION 3.20)
@@ -53,6 +54,12 @@ add_executable(CardenzaPresenceTests presence_test.cpp
   ${cardenza_test_guard})
 target_include_directories(CardenzaPresenceTests PRIVATE ${hal_root})
 add_test(NAME CardenzaPresenceTests COMMAND CardenzaPresenceTests)
+
+# system/menu/logic.h: the system menu's long press, keys, list, words and glyphs, drawing, NVS reader.
+add_executable(CardenzaSystemMenuTests system_menu_test.cpp ${hal_root}/system/menu/logic.cpp
+  ${cardenza_test_guard})
+target_include_directories(CardenzaSystemMenuTests PRIVATE ${hal_root})
+add_test(NAME CardenzaSystemMenuTests COMMAND CardenzaSystemMenuTests)
 
 add_subdirectory(hal_faults)
 

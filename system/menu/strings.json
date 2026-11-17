@@ -1,0 +1,15 @@
+{
+  "_comment": "The system menu's words (system/menu.h), in the 203 Launcher's languages and order of its NVS value launcher/lang: 0 English, 1 Simplified Chinese (2 is read as 1), 3 Japanese, 4 Indonesian, 5 Vietnamese. tools/system_menu_text.py turns this into system/menu/text.inc with the glyphs these words need, taken from the Launcher's own bitmaps so the menu reads like the Launcher.",
+  "languages": ["en", "zh-Hans", "ja", "id", "vi"],
+  "title":    {"en": "System", "zh-Hans": "系统菜单", "ja": "システム", "id": "Sistem", "vi": "Hệ thống"},
+  "continue": {"en": "Continue", "zh-Hans": "继续", "ja": "続ける", "id": "Lanjutkan", "vi": "Tiếp tục"},
+  "launcher": {"en": "Back to Launcher", "zh-Hans": "返回启动器", "ja": "ランチャーへ", "id": "Ke Launcher", "vi": "Về Launcher"},
+  "launcher.detail": {"en": "Open its home screen", "zh-Hans": "打开启动器主页", "ja": "ランチャーのホームを開く", "id": "Buka layar utama Launcher", "vi": "Mở màn hình chính Launcher"},
+  "restart":  {"en": "Restart", "zh-Hans": "重新启动", "ja": "再起動", "id": "Mulai ulang", "vi": "Khởi động lại"},
+  "restart.detail": {"en": "Start this firmware again", "zh-Hans": "重新启动这个固件", "ja": "このファームウェアを再起動", "id": "Mulai ulang firmware ini", "vi": "Khởi động lại firmware này"},
+  "off":      {"en": "Turn off", "zh-Hans": "关机", "ja": "電源オフ", "id": "Matikan", "vi": "Tắt máy"},
+  "off.detail": {"en": "Press HOME to turn on", "zh-Hans": "按 HOME 键开机", "ja": "HOMEキーで電源オン", "id": "Tekan HOME untuk menyalakan", "vi": "Nhấn HOME để bật"},
+  "download": {"en": "Download mode", "zh-Hans": "下载模式", "ja": "ダウンロードモード", "id": "Mode unduh", "vi": "Chế độ nạp"},
+  "download.detail": {"en": "Flash over USB", "zh-Hans": "用 USB 刷写固件", "ja": "USBで書き込み", "id": "Flash lewat USB", "vi": "Nạp qua USB"},
+  "release":  {"en": "Release HOME", "zh-Hans": "请松开 HOME 键", "ja": "HOMEキーを離してください", "id": "Lepaskan HOME", "vi": "Thả phím HOME"}
+}

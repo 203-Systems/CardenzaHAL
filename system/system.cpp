@@ -1,7 +1,10 @@
 #include "system.h"
+#include "internal/hooks.h"
 #include "../board/pins.h"
 
 #include <driver/i2c_master.h>
+#include <atomic>
+
 #include <driver/gpio.h>
 
 namespace CardenzaHAL::System {
@@ -60,9 +63,51 @@ i2c_master_bus_handle_t GetI2CBus()
     return i2cBus;
 }
 
+namespace {
+
+// The system menu's hold on the side key (system/menu.h): 0 none, 1 the menu has it (the firmware reads
+// it released), 2 hidden until it is let go (the press that opened or closed the menu).
+std::atomic<uint8_t> funcHold{0};
+std::atomic<void (*)()> usbStop{nullptr};
+
+}  // namespace
+
 bool GetFuncButton()
+{
+    const bool down = detail::FuncButtonRaw();
+    const uint8_t hold = funcHold.load();
+    if (hold == 1) return false;
+    if (hold == 2)
+    {
+        if (down) return false;
+        uint8_t expected = 2;
+        funcHold.compare_exchange_strong(expected, 0);
+    }
+    return down;
+}
+
+namespace detail {
+
+bool FuncButtonRaw()
 {
     return gpio_get_level(static_cast<gpio_num_t>(Pins::kFuncButton)) == 0;
 }
+
+void HoldFuncButton(bool held)
+{
+    funcHold.store(held ? 1 : 2);
+}
+
+void SetUsbStop(void (*stop)())
+{
+    usbStop.store(stop);
+}
+
+void StopUsb()
+{
+    if (auto stop = usbStop.exchange(nullptr)) stop();
+}
+
+}  // namespace detail
 
 }  // namespace CardenzaHAL::System

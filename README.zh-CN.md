@@ -284,10 +284,29 @@ void ReadSettings()
 
 ## Func、I2C 与红外
 
-- [`System::GetFuncButton()`](system/system.h) 在 **GPIO0 的 Func 按键**被按下时返回 `true`。它是独立按键，与矩阵键盘及其中的 Fn 键分开。
+- [`System::GetFuncButton()`](system/system.h) 在 **GPIO0 的 Func 按键**（HOME 侧键）被按下时返回 `true`。它是独立按键，与矩阵键盘及其中的 Fn 键分开。它的**长按归系统菜单**（见下节）：打开或关闭菜单的那一下按键在这里读作松开。
 - `System::GetI2CBus()` 返回 `System::Init()` 创建的原生 I2C 主总线句柄。用 `i2c_master_bus_add_device()` 添加设备，避免在同一组引脚重复创建总线（SCL GPIO1、SDA GPIO2）。
 - `System::EnterDeepSleep()` 当前**只删除共享 I2C 总线**，并不会让 ESP32 进入深度睡眠，也不会配置唤醒源。调用前需要协调编解码器和其他 I2C 使用者。
 - [`IR::Send(addr, cmd)`](ir/ir.h) 在 GPIO44 上用 38 kHz 载波发出 8 位 NEC 地址/命令及各自反码。必要时会自行初始化发射器，并等待发送结束。没有接收接口，也不返回发送状态。
+
+## 系统菜单（任何固件里长按 HOME）
+
+在 HAL 上的任何固件里，按住 HOME 侧键（GPIO0）一秒，弹出[系统菜单](system/menu.h)：样式和 203 Launcher 的列表一样，语言跟随 Launcher 的设置。
+
+| 项 | 作用 |
+| --- | --- |
+| 继续 | 回到固件（ESC、del 也可以） |
+| 返回启动器 | 打开 Launcher 主页，不管它怎么设置（用它的重启票据：不走“启动上次的软件”倒计时） |
+| 重新启动 | 重新启动这个固件（在 Launcher 下用它的启动票据，不倒计时） |
+| 关机 | 深度睡眠；按 HOME 开机，和上电一样经过 Launcher |
+| 下载模式 | 进入 ROM 下载模式，用 USB 刷机（esptool） |
+
+按键和 Launcher 一样：`;`、`,` 向上，`.`、`/` 向下，ENTER 或单击 HOME 确定，ESC 或 del 返回；菜单打开时这几个键会亮。
+
+- 屏幕初始化成功后由 `CardenzaHAL::Init` 启动（`CONFIG_CARDENZA_HAL_SYSTEM_MENU`，默认开）：一个 3 KB 栈的任务，每 20 ms 读一次 GPIO0；文字和字形约占 10 KB flash。
+- 菜单打开期间固件照常运行（任务和声音都不停），但 HAL 会挡住会干扰菜单的东西：`Display::Present*` 不发送并返回 `true`（菜单关闭后的下一帧整屏发送，固件画面自己回来）；`Keyboard::updateKeyList` 不报任何按键（关闭时还按着的键，松开之前都不报）；按键灯显示菜单的键（固件 `setLED*` 设的亮度会保留，关闭后恢复）。直接用面板句柄画屏的固件，应在 `SystemMenu::IsOpen()` 时暂停绘制。
+- `SystemMenu::SetListener` 在菜单打开和关闭时通知；`SystemMenu::SetLeaveHook` 在重启、关机或进入下载模式之前调用（保存需要留下的东西）。自己要用 HOME 长按的固件，调用 `SystemMenu::Enable(false)`。
+- 中文、日文和越南文用的是 203 Launcher 里由 **HarmonyOS Sans**（12 像素）生成的点阵，由 `tools/system_menu_text.py` 按 `system/menu/strings.json` 取出；点阵是用该字体制作的作品，授权允许分发（[licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)），仓库里不含字体文件。5x7 字体来自 NullPerator（BSD-3-Clause，声明见 [system/menu/font5x7.h](system/menu/font5x7.h)）。
 
 ## USB 设备用法
 
@@ -511,7 +530,7 @@ GPIO 以 [`board/pins.h`](board/pins.h) 为准。应用应避免重新配置 HAL
 | LEDC timer 0 / channel 7 | 屏幕背光，APB 时钟 |
 | LEDC timer 1 / channel 6 | 按键灯全局亮度，APB 时钟 |
 | GPIO47/48/21 | 按键灯使能、时钟、数据 |
-| GPIO0 | Func 按键与 ROM 启动选择 |
+| GPIO0 | Func 按键（HOME；长按归系统菜单）与 ROM 启动选择 |
 | 内部 USB PHY | USB 设备或 USB-Serial-JTAG |
 | Wi-Fi 射频 | Net：固件在 `Connect` 和 `Disconnect` 之间，以及在线服务运行期间（固件自己运行 Wi-Fi 之前先 `Presence::Enable(false)`） |
 
@@ -642,3 +661,4 @@ ctest --test-dir build-tests --output-on-failure
 - **[M5Stack Cardputer](https://docs.m5stack.com/en/core/Cardputer)**：一个很棒的项目。它是鸣片（Cardenza）的灵感来源，也是我们动手做鸣片的初衷，谢谢 M5Stack 团队。鸣片和这个 HAL 不兼容 M5Stack 的设备。
 - **[ESP-IDF](https://github.com/espressif/esp-idf)**（Espressif）与 **[TinyUSB](https://github.com/hathach/tinyusb)**：这里每个模块所基于的框架，以及 `usb/usb.h` 背后的 USB 协议栈。
 - **[Emscripten](https://emscripten.org)**：网页目标靠它把同一份固件源码跑在浏览器里。
+- **HarmonyOS Sans**（华为终端有限公司）：系统菜单的中文、日文和越南文用由它生成的点阵（取自 203 Launcher），授权见 [licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)。

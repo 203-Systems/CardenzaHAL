@@ -1,6 +1,7 @@
 #include "display.h"
 #include "changed_regions.h"
 #include "backlight_brightness.h"
+#include "internal/overlay.h"
 #include "../board/pins.h"
 
 #include <algorithm>
@@ -51,6 +52,48 @@ DMA_ATTR uint16_t transferBand[WIDTH * kTransferBandRows] = {};
 SemaphoreHandle_t transferDone = nullptr;
 bool completionCallbackInstalled = false;
 bool transferPending = false;
+
+// The system menu (system/menu.h) draws over the firmware: while overlayActive the firmware's frames are
+// not sent. Every submission takes displayLock, so the menu's task and the firmware's never share the
+// band or the panel. The backlight is at least kOverlayBrightness while the menu shows.
+bool overlayActive = false;
+constexpr uint8_t kOverlayBrightness = 128;
+SemaphoreHandle_t displayLock = nullptr;
+portMUX_TYPE displayLockMux = portMUX_INITIALIZER_UNLOCKED;
+
+class DisplayLock {
+  public:
+    DisplayLock()
+    {
+        if (displayLock == nullptr)
+        {
+            SemaphoreHandle_t made = xSemaphoreCreateMutex();
+            portENTER_CRITICAL(&displayLockMux);
+            if (displayLock == nullptr)
+            {
+                displayLock = made;
+                made = nullptr;
+            }
+            portEXIT_CRITICAL(&displayLockMux);
+            if (made != nullptr) vSemaphoreDelete(made);
+        }
+        held_ = displayLock != nullptr && xSemaphoreTake(displayLock, portMAX_DELAY) == pdTRUE;
+    }
+    ~DisplayLock()
+    {
+        if (held_) xSemaphoreGive(displayLock);
+    }
+    DisplayLock(const DisplayLock&) = delete;
+    DisplayLock& operator=(const DisplayLock&) = delete;
+
+  private:
+    bool held_ = false;
+};
+
+uint8_t ShownBrightness(uint8_t requested)
+{
+    return overlayActive && requested < kOverlayBrightness ? kOverlayBrightness : requested;
+}
 
 esp_err_t ApplyBrightness(uint8_t value)
 {
@@ -171,9 +214,9 @@ bool RevealFrame()
         if (esp_lcd_panel_disp_on_off(panel, true) != ESP_OK) return false;
         // A warm start leaves the previous backlight route alone until now.
         // Configure our PWM at its final duty before releasing any pad hold.
-        if (InitBacklight(brightness) != ESP_OK) return false;
+        if (InitBacklight(ShownBrightness(brightness)) != ESP_OK) return false;
     }
-    if (ApplyBrightness(brightness) != ESP_OK) return false;
+    if (ApplyBrightness(ShownBrightness(brightness)) != ESP_OK) return false;
     if (!firstFramePresented && gpio_hold_dis(static_cast<gpio_num_t>(Pins::kDisplayBacklight)) != ESP_OK) return false;
     firstFramePresented = true;
     return true;
@@ -306,15 +349,17 @@ bool Init()
     return true;
 }
 
-bool Present(const uint16_t* framebuffer)
-{
-    const Region fullFrame{0, 0, WIDTH, HEIGHT};
-    return Present(framebuffer, &fullFrame, 1);
-}
+namespace {
 
-bool Present(const uint16_t* framebuffer, const Region* regions, std::size_t count)
+bool PresentLocked(const uint16_t* framebuffer, const Region* regions, std::size_t count)
 {
     if (framebuffer == nullptr || (count != 0 && regions == nullptr)) return false;
+    // The system menu is on the screen: this frame is not sent, and the first one after it goes whole.
+    if (overlayActive)
+    {
+        fullRefreshRequired = true;
+        return true;
+    }
     for (std::size_t index = 0; index < count; ++index)
         if (!ValidRegion(regions[index])) return false;
     if (!Init() || !EnsureCompletionCallback()) return false;
@@ -336,6 +381,20 @@ bool Present(const uint16_t* framebuffer, const Region* regions, std::size_t cou
     return true;
 }
 
+}  // namespace
+
+bool Present(const uint16_t* framebuffer)
+{
+    const Region fullFrame{0, 0, WIDTH, HEIGHT};
+    return Present(framebuffer, &fullFrame, 1);
+}
+
+bool Present(const uint16_t* framebuffer, const Region* regions, std::size_t count)
+{
+    DisplayLock lock;
+    return PresentLocked(framebuffer, regions, count);
+}
+
 namespace {
 // PresentChanged's table of row hashes, made on its first frame (PSRAM when there is some: it is read
 // once a frame). Null after that: no room, so every frame goes whole.
@@ -346,6 +405,12 @@ bool changedRegionsTried = false;
 bool PresentChanged(const uint16_t* framebuffer)
 {
     if (framebuffer == nullptr) return false;
+    DisplayLock lock;
+    if (overlayActive)
+    {
+        fullRefreshRequired = true;
+        return true;
+    }
     if (!changedRegionsTried)
     {
         changedRegionsTried = true;
@@ -356,15 +421,18 @@ bool PresentChanged(const uint16_t* framebuffer)
         if (finder != nullptr) changedRegions = new (finder) ChangedRegions(static_cast<uint32_t*>(hashes));
         else if (hashes != nullptr) heap_caps_free(hashes);
     }
-    if (changedRegions == nullptr) return Present(framebuffer);
+    const Region fullFrame{0, 0, WIDTH, HEIGHT};
+    if (changedRegions == nullptr) return PresentLocked(framebuffer, &fullFrame, 1);
     Region regions[ChangedRegions::kMaxRegions];
     const std::size_t count = changedRegions->Find(framebuffer, regions);
     // A failed send leaves the panel unsure: Present sends the whole screen next time.
-    return Present(framebuffer, regions, count);
+    return PresentLocked(framebuffer, regions, count);
 }
 
 bool Present()
 {
+    DisplayLock lock;
+    if (overlayActive) return true;
     if (!Init() || !WaitForTransfer(0)) return false;
     // Raw-handle users own submission and callbacks. The SDK parameter
     // transaction synchronously drains their preceding color transfers.
@@ -386,6 +454,7 @@ esp_lcd_panel_io_handle_t GetPanelIO()
 
 bool SetBrightness(uint8_t value)
 {
+    DisplayLock lock;
     brightness = value;
 
     if (!firstFramePresented)
@@ -393,7 +462,7 @@ bool SetBrightness(uint8_t value)
         return true;
     }
 
-    return ApplyBrightness(value) == ESP_OK;
+    return ApplyBrightness(ShownBrightness(value)) == ESP_OK;
 }
 
 uint8_t GetBrightness()
@@ -402,3 +471,56 @@ uint8_t GetBrightness()
 }
 
 }  // namespace CardenzaHAL::Display
+
+namespace CardenzaHAL::Display::detail {
+
+bool BeginOverlay()
+{
+    DisplayLock lock;
+    if (!Init() || !EnsureCompletionCallback()) return false;
+    overlayActive = true;
+    return true;
+}
+
+bool PaintOverlay(BandPainter painter, void* context)
+{
+    DisplayLock lock;
+    if (!overlayActive || painter == nullptr) return false;
+    // A timed-out DMA may still own the band.
+    if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
+    fullRefreshRequired = true;  // the firmware's next frame goes whole
+    for (int y = 0; y < HEIGHT; y += kTransferBandRows)
+    {
+        const int rows = std::min(kTransferBandRows, HEIGHT - y);
+        painter(context, y, rows, transferBand);
+        while (xSemaphoreTake(transferDone, 0) == pdTRUE) {}
+        if (esp_lcd_panel_draw_bitmap(panel, 0, y, WIDTH, y + rows, transferBand) != ESP_OK) return false;
+        transferPending = true;
+        if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
+    }
+    return RevealFrame();
+}
+
+void EndOverlay()
+{
+    DisplayLock lock;
+    if (!overlayActive) return;
+    overlayActive = false;
+    fullRefreshRequired = true;
+    if (firstFramePresented) (void)ApplyBrightness(brightness);
+}
+
+bool SleepPanel()
+{
+    DisplayLock lock;
+    if (!Init()) return false;
+    (void)WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs));
+    bool ok = esp_lcd_panel_disp_sleep(panel, true) == ESP_OK;
+    // Dark while the chip sleeps: the backlight's LEDC stops low and its pin is held there.
+    if (backlightInitialized) ok = ledc_stop(kBacklightSpeedMode, kBacklightChannel, 0) == ESP_OK && ok;
+    ok = gpio_set_level(static_cast<gpio_num_t>(Pins::kDisplayBacklight), 0) == ESP_OK && ok;
+    ok = gpio_hold_en(static_cast<gpio_num_t>(Pins::kDisplayBacklight)) == ESP_OK && ok;
+    return ok;
+}
+
+}  // namespace CardenzaHAL::Display::detail
