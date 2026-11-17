@@ -125,7 +125,7 @@ curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
 - `203c login` opens the browser on the community's sign-in page: sign in there (GitHub) if it asks, approve "203c on <your computer>", and the browser goes back to 203c (OAuth's authorization code with PKCE and a redirect to 203c on `127.0.0.1`). Where no browser can be opened, make a personal token on the site (设置 › 个人令牌, `/me/tokens`) and run `203c login --with-token`: it asks for the token (not shown), checks it and saves it (a script pipes it in: `203c login --with-token < token.txt`). An agent running remotely signs in with `203c login --no-browser`: a link and a code to approve on the site. Every way saves a personal token, listed on the site under 设置 › 个人令牌, where you can delete it. You sign in once: it has no end.
 - Everything the community's API does for you, 203c does (`203c --help`; `203c api` for anything else): use 203c, not raw HTTP.
 - Every command except `login`, `logout`, `help`, `version`, `doctor` and `rules` needs that sign-in.
-- 203c keeps its token in your home folder, never in the project. CI uses a personal token of its own ([Publish from CI](#publish-from-ci)).
+- 203c keeps its token in your home folder, never in the project. GitHub Actions needs no token at all: trusted publishing ([Publish from CI](#publish-from-ci-the-standard-release)).
 
 ## 2. The project: files and layout
 
