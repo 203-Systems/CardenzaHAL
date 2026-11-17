@@ -16,6 +16,7 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <soc/io_mux_reg.h>
 #include <soc/rtc_cntl_reg.h>
 #include <soc/rtc_cntl_struct.h>
 
@@ -25,6 +26,7 @@
 #include "system/internal/hooks.h"
 #include "system/launcher.h"
 #include "system/menu/logic.h"
+#include "system/menu/test.h"
 
 namespace CardenzaHAL::SystemMenu {
 
@@ -41,6 +43,7 @@ constexpr UBaseType_t kPriority = 4;
 std::atomic<bool> g_started{false};
 std::atomic<bool> g_enabled{true};
 std::atomic<bool> g_open{false};
+std::atomic<uint8_t> g_injectedKey{0};  // system/menu/test.h
 portMUX_TYPE g_hooksMux = portMUX_INITIALIZER_UNLOCKED;
 Listener g_listener = nullptr;
 void* g_listenerContext = nullptr;
@@ -89,7 +92,8 @@ int ReadLauncherLanguage()
     (void)rtc_gpio_pulldown_dis(key);
     (void)esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
     (void)esp_sleep_enable_ext0_wakeup(key, 0);
-    System::detail::WriteLauncherTicket(System::LauncherTicket::kSleep);
+    // No Launcher ticket: esp_deep_sleep_start syncs the RTC timer's time over it (system/launcher.cpp).
+    // HOME's wake then starts this firmware again, as the Launcher's bootloader does after a firmware's sleep.
     esp_deep_sleep_start();
 }
 
@@ -110,9 +114,7 @@ int ReadLauncherLanguage()
             System::RestartIntoLauncher();
         case Action::Restart:
             ESP_LOGW(kTag, "system menu: restarting");
-            System::detail::WriteLauncherTicket(System::LauncherTicket::kBoot);
-            RTCCNTL.usb_conf.sw_hw_usb_phy_sel = 0;
-            esp_restart();
+            System::detail::RestartWithTicket(System::LauncherTicket::kBoot);
         case Action::Download:
             ESP_LOGW(kTag, "system menu: restarting into the ROM download mode");
             // USB-Serial-JTAG back on the PHY (this survives the restart) and the ROM stays in download mode.
@@ -194,6 +196,8 @@ void RunMenu()
         vTaskDelay(pdMS_TO_TICKS(kMenuPollMs));
         if (!g_enabled.load()) break;
         detail::Key act = repeat.Update(HeldKey(), NowMs());
+        if (const auto injected = static_cast<detail::Key>(g_injectedKey.exchange(0)); injected != detail::Key::None)
+            act = injected;
         const bool funcDown = System::detail::FuncButtonRaw();
         if (funcWasDown && !funcDown)
         {
@@ -246,6 +250,14 @@ void MenuTask(void*)
     while (true)
     {
         vTaskDelay(pdMS_TO_TICKS(kPollMs));
+        // Another driver may have reset GPIO0 (ESP-IDF's SD driver does, storage/storage.cpp): an input
+        // turned off reads as always pressed. Give it back its input.
+        if (!(REG_READ(IO_MUX_GPIO0_REG) & FUN_IE))
+        {
+            ESP_LOGW(kTag, "system menu: GPIO0's input was off (another driver reset it): restored");
+            System::detail::RestoreFuncButton();
+            hold.Reset(System::detail::FuncButtonRaw());
+        }
         const bool down = System::detail::FuncButtonRaw();
         if (!g_enabled.load())
         {
@@ -259,6 +271,15 @@ void MenuTask(void*)
 }
 
 }  // namespace
+
+namespace detail {
+
+void InjectKey(Key key)
+{
+    g_injectedKey.store(static_cast<uint8_t>(key));
+}
+
+}  // namespace detail
 
 void Start()
 {

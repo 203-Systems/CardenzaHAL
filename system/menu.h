@@ -9,8 +9,7 @@
 //   Back to Launcher   the Launcher's home screen, whatever its settings (the restart ticket,
 //                      system/launcher.h)
 //   Restart            this firmware again (under the Launcher: its boot ticket, no countdown)
-//   Turn off           deep sleep; HOME turns the board on again (under the Launcher: through it, as
-//                      after a power-on, as its own Turn off does)
+//   Turn off           deep sleep; HOME turns the board on again and this firmware starts
 //   Download mode      the ROM's download mode, to flash over USB (esptool)
 //
 // Keys, as in the Launcher: ; and , up, . and / down, ENTER or a tap on HOME choose, ESC or del go back;

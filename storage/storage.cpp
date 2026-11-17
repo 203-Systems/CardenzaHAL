@@ -1,4 +1,5 @@
 #include "storage.h"
+#include "../system/internal/hooks.h"
 #include "../board/pins.h"
 
 #include <driver/sdmmc_host.h>
@@ -34,7 +35,9 @@ bool Init()
         // consumer's mount retry, never from the middle of an active write.
         sdmmc_card_t* stale = card;
         card = nullptr; // The SDK frees the card even if VFS unregister fails.
-        if (esp_vfs_fat_sdcard_unmount(kMountPoint, stale) != ESP_OK) return false;
+        const bool unmounted = esp_vfs_fat_sdcard_unmount(kMountPoint, stale) == ESP_OK;
+        System::detail::RestoreFuncButton();  // the SD driver's slot reset takes GPIO0 too
+        if (!unmounted) return false;
     }
 
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
@@ -57,6 +60,10 @@ bool Init()
     if (status != ESP_OK)
     {
         card = nullptr;
+        // ESP-IDF 5.3's SD driver resets every pin of the slot it gives up, the unused d4-d7 of a 4-bit
+        // slot included, which it keeps as 0: GPIO0, HOME, loses its input (it then always reads pressed,
+        // and the Launcher's bootloader takes it for its entry key). Seen on the board 2026-11-17, no card.
+        System::detail::RestoreFuncButton();
         return false;
     }
 

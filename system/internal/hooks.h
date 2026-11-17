@@ -16,7 +16,14 @@ namespace CardenzaHAL::System::detail {
     void SetUsbStop(void (*stop)());
     void StopUsb();
 
-    // One of the Launcher's tickets (system/launcher.h, LauncherTicket) for the next restart or wake.
+    // One of the Launcher's tickets (system/launcher.h, LauncherTicket) for the next restart.
     void WriteLauncherTicket(uint32_t value);
+    // Writes it after everything that would overwrite it (ESP-IDF's timekeeping sync) and restarts.
+    [[noreturn]] void RestartWithTicket(uint32_t value);
+
+    // The side key's pad as System::Init sets it (an input with its pull-up). ESP-IDF's SD driver resets
+    // GPIO0 when it lets a 4-bit slot go (its unused d4-d7 are 0): Storage calls this after a mount fails
+    // and after an unmount.
+    void RestoreFuncButton();
 
 }  // namespace CardenzaHAL::System::detail

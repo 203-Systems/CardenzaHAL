@@ -297,7 +297,7 @@ Holding HOME (the side key, GPIO0) for a second opens the [system menu](system/m
 | Continue | back to the firmware (also ESC or del) |
 | Back to Launcher | the Launcher's home screen, whatever its settings (its restart ticket: no "Boot last app" countdown) |
 | Restart | this firmware again (under the Launcher: its boot ticket, no countdown) |
-| Turn off | deep sleep; HOME turns the board on again, through the Launcher as after a power-on |
+| Turn off | deep sleep: screen, backlight and key lights off; HOME turns the board on again and the firmware starts |
 | Download mode | the ROM's download mode, to flash over USB (esptool) |
 
 Keys are the Launcher's: `;` and `,` up, `.` and `/` down, ENTER or a tap on HOME choose, ESC or del go back; they are lit while the menu is open.

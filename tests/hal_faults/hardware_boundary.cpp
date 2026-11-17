@@ -7,6 +7,9 @@ bool Init() { return !Fake::Bad("system"); }
 i2c_master_bus_handle_t GetI2CBus() { return reinterpret_cast<void*>(1); }
 bool GetFuncButton() { return false; }
 void EnterDeepSleep() {}
+namespace detail {
+void RestoreFuncButton() { ++Fake::funcButtonRestores; }
+}
 }
 namespace CardenzaHAL::Keyboard::detail {
 portMUX_TYPE kKeyboardStateMux = portMUX_INITIALIZER_UNLOCKED;

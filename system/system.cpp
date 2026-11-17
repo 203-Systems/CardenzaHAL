@@ -93,6 +93,11 @@ bool FuncButtonRaw()
     return gpio_get_level(static_cast<gpio_num_t>(Pins::kFuncButton)) == 0;
 }
 
+void RestoreFuncButton()
+{
+    (void)ConfigureFuncButton();
+}
+
 void HoldFuncButton(bool held)
 {
     funcHold.store(held ? 1 : 2);
