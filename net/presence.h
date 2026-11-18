@@ -85,6 +85,9 @@ namespace CardenzaHAL::Presence {
                    // RAM returns, a request under way is cancelled) and asks nothing until the activity
                    // changes. The website shows the device offline 40 s after its last request.
     };
+    // While the activity keeps Wi-Fi down (Quiet, or RealTime before it came up) the service's task ends and
+    // its 8 KB stack returns to the firmware; the next change of the activity starts it again (it then
+    // looks at once: no start delay, what it learnt kept).
     void SetActivity(Activity activity);
     Activity GetActivity();
 

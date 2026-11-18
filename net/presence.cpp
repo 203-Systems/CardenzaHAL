@@ -74,6 +74,11 @@ std::atomic<int> g_planned{-1};  // Planned(): -1 not read yet, else 0 / 1
 std::mutex g_plannedMutex;
 TaskHandle_t g_task = nullptr;  // under g_lifecycle
 bool g_delayed = false;         // the start delay is done (the task's own)
+// The task ended while the firmware's activity kept Wi-Fi down (Run, Park): it starts again when the
+// activity changes, and what it learnt carries over.
+std::atomic<bool> g_parked{false};
+std::size_t g_wifiCost = Logic::kWifiCostEstimate;  // the task's own (Run): learnt when Wi-Fi comes up
+bool g_joinedOnce = false;                          // the task's own: the first join of a run is news
 
 // The report (GetReport), 32-bit words: written by the service's task, read by anyone.
 std::atomic<uint32_t> g_asked{0};
@@ -442,14 +447,14 @@ void Run()
     Logic::AudioPause audioPause;
     Logic::RamPause ramPause;
     Audio::TxCounters lastAudio = Audio::GetTxCounters();
-    std::size_t wifiCost = Logic::kWifiCostEstimate;
+    std::size_t& wifiCost = g_wifiCost;
     int64_t nextAskUs = 0;      // the poll interval since the last answer
     int64_t nextJoinUs = 0;     // the backoff after a failed join
     int64_t ramPauseUntilUs = 0;
     uint32_t waitMs = 0;
     bool retriedToken = false;
     bool stackLogged = false;
-    bool joinedOnce = false;
+    bool& joinedOnce = g_joinedOnce;
     Wait loggedWait = Wait::None;
     int64_t ramLoggedUs = INT64_MIN / 2;  // RAM waits are news at most every 10 minutes
 
@@ -482,6 +487,14 @@ void Run()
         if (decision.step == Logic::Step::Wait)
         {
             SetWaiting(decision.reason);
+            // The firmware's activity keeps Wi-Fi down (Quiet, or RealTime while it is down): the task ends
+            // and gives its stack (8 KB of internal RAM) back to the firmware, which wants it most then;
+            // SetActivity starts it again.
+            if (decision.reason == Wait::Activity && !s.connected)
+            {
+                g_parked = true;
+                break;
+            }
             // RAM is news once per stretch (and at most every 10 minutes): it is why a device does not
             // come online.
             if (decision.reason == Wait::Ram && loggedWait != Wait::Ram && !s.ramPaused &&
@@ -666,11 +679,12 @@ void TaskMain(void*)
     Net::Internal::Disconnect(User::Presence);
     std::lock_guard<std::mutex> lock(g_lifecycle);
     const State state = static_cast<State>(g_state.load());
-    if (state != State::Idle && state != State::SignedOut) SetState(State::Off);
+    const bool parked = g_parked.load();
+    if (state != State::Idle && state != State::SignedOut && !parked) SetState(State::Off);
     g_task = nullptr;
     g_running = false;
-    // Switched on again while it was stopping: start over.
-    if (g_enabled && state != State::Idle && state != State::SignedOut) StartTaskLocked();
+    // Switched on again while it was stopping, or the activity changed while it parked: start over.
+    if (g_enabled && state != State::Idle && state != State::SignedOut && (!parked || g_wake.load())) StartTaskLocked();
     vTaskDelete(nullptr);
 }
 
@@ -678,10 +692,13 @@ void StartTaskLocked()
 {
     if (!g_started || !g_enabled || g_running || g_signedOut) return;
     g_running = true;
+    // Before the task exists: it may park again at once.
+    const bool wasParked = g_parked.exchange(false);
     if (xTaskCreatePinnedToCore(TaskMain, "presence", kStackBytes, nullptr, kPriority, &g_task, kCore) != pdPASS)
     {
         g_running = false;
         g_task = nullptr;
+        g_parked = wasParked;  // a parked service tries again at the next change of the activity
         ESP_LOGE(kTag, "no memory for the service's task");
     }
 }
@@ -690,7 +707,10 @@ void Wake()
 {
     g_wake = true;
     std::lock_guard<std::mutex> lock(g_lifecycle);
-    if (g_task != nullptr) xTaskNotifyGive(g_task);
+    if (g_task != nullptr)
+        xTaskNotifyGive(g_task);
+    else if (g_parked)
+        StartTaskLocked();  // it ended while the activity kept Wi-Fi down
 }
 
 }  // namespace
