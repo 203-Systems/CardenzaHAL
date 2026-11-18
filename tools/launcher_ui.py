@@ -57,7 +57,9 @@ WHOLE = ["text.h", "font5x7.h", "i18n.h", "text_ink.h", "ui_layout.h", "ui_motio
 # (output, source, [(start marker, end marker)]): the text from each start up to its end.
 PIECES = [
     ("lcd_draw.inc", "src/platform/lcd.cpp", [
-        ("void Lcd::greyRect(", "void Lcd::fillRect("),
+        # greyRect alone: colorPicture (the store's covers in colour) follows it there, and the menu draws
+        # no pictures.
+        ("void Lcd::greyRect(", "void Lcd::colorPicture("),
         ("void Lcd::text(", "void Lcd::print("),
         ("void Lcd::textVertical(", None),
     ]),
