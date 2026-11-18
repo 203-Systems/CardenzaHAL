@@ -19,6 +19,7 @@ every step, for people and agents alike: [`docs/FIRMWARE-PROJECT.md`](docs/FIRMW
 
 ```sh
 npm install -g 203c && 203c skill install                           # 203c and its Agent Skill (Node.js 18+, any OS)
+npm install -g github:203-Systems/203-CLI && 203c skill install    # until 203c is on npm: the same from its repository
 203c new "My firmware" --summary "What it does"                      # the project: this HAL as a submodule, the template
 cd my-firmware
 python3 components/CardenzaHAL/tools/cardenza.py doctor   # what this computer still needs (ESP-IDF 5.3.5, Emscripten, 203c)
@@ -50,7 +51,7 @@ What the Cardenza has, and where it is in the HAL. Pins: [`board/pins.h`](board/
 | Speaker | ES8156 codec, I2S, 44.1 kHz 16-bit, mono speaker (stereo slots available) | [`audio/audio.h`](audio/audio.h): `Init`, `GetTxChannel`, `SetVolume`; [Audio output](#audio-output) |
 | Microphone | PDM, 44.1 kHz mono; its clock shares GPIO43 with the speaker | [`mic/mic.h`](mic/mic.h); [Microphone and shared audio pins](#microphone-and-shared-audio-pins) |
 | SD card | microSD, 4-bit SDMMC, FAT at `/sdcard` | [`storage/storage.h`](storage/storage.h): `Init`, `IsMounted`, `CheckAfterIoError`; [SD card storage](#sd-card-storage) |
-| HOME | the side key (GPIO0; held while plugging in USB: the ROM's download mode) | [`system/system.h`](system/system.h): `GetFuncButton`; [Func button, I2C, and IR](#func-button-i2c-and-ir) |
+| HOME | the side key (GPIO0; a press opens the [system menu](#system-menu-press-home-in-any-firmware); held while plugging in USB or at a reset: the ROM's download mode) | [`system/system.h`](system/system.h): `GetFuncButton`; [Func button, I2C, and IR](#func-button-i2c-and-ir) |
 | I2C | the shared bus (GPIO1/2), the codec on it | [`system/system.h`](system/system.h): `GetI2CBus` |
 | IR | a transmitter (GPIO44, NEC at 38 kHz) | [`ir/ir.h`](ir/ir.h): `Send` |
 | USB | the chip's USB PHY: USB-Serial-JTAG (the log, esptool), or the HAL's device: MIDI, audio both ways, HID, the system channel (log, restart into the Launcher) | [`usb/usb.h`](usb/usb.h); [USB device usage](#usb-device-usage); on the computer: `203c log`, [`tools/cardenza_usb.py`](tools/cardenza_usb.py) |
@@ -339,6 +340,8 @@ A press of HOME (the side key, GPIO0) opens the [system menu](system/menu.h) in 
 | Restart | this firmware again (under the Launcher: its boot ticket, no countdown) |
 | Turn off | deep sleep: screen, backlight and key lights off; HOME turns the board on again and the firmware starts |
 | Download mode | the ROM's download mode, to flash over USB (esptool) |
+
+Without the menu, the Launcher opens when FN (the keyboard's bottom-left key) is held while the board starts (power-on or a reset); not HOME: held at a reset, HOME starts the ROM's download mode.
 
 Keys are the Launcher's: `;` and `,` up, `.` and `/` down, ENTER or a tap on HOME choose, ESC or del go back; they are lit while the menu is open.
 

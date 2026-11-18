@@ -11,6 +11,10 @@
    npm install -g 203c
    203c skill install     # 把 Agent Skill 放到 AI 读取的目录
    ```
+   203c 还没上 npm 时，第一行换成从它的仓库安装（同一个包，需要 git）：
+   ```sh
+   npm install -g github:203-Systems/203-CLI
+   ```
 2. 建工程：`203c new "固件名" --summary "它做什么"`：生成一个 git 仓库，HAL 作为子模块放在 `components/CardenzaHAL`，从 [`examples/template`](https://github.com/203-Systems/CardenzaHAL/tree/main/examples/template) 复制并按固件名改好 `project()`、`203.json` 和发布工作流；直接能编译。改别人的固件：`203c fork <代码> [目录]`（克隆源码、建 Fork、写好 `203.json` 的 `forked_from`）。
 3. 检查环境：`python3 components/CardenzaHAL/tools/cardenza.py doctor` 列出这台电脑还缺什么（ESP-IDF **5.3.5**、Emscripten、`203c`、登录），每项给出安装命令。登录每台电脑只要一次：`203c login` 打开浏览器，在社区网站上批准（远程时加 --no-browser，用链接和验证码）。
 4. 写固件：只用 HAL 的公开头文件（硬件和对应头文件见 [README 的硬件一览](https://github.com/203-Systems/CardenzaHAL/blob/main/README.zh-CN.md#硬件一览)）；HAL 已有的驱动不要自己再写；只用 ESP-IDF；不引入传染性许可（copyleft）的代码；先调用 `CardenzaHAL::Init()`，缺硬件时报错但不要 abort 或重启。

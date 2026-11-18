@@ -32,7 +32,8 @@ import sys
 
 HAL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RULES = "https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md"
-INSTALL_203C = "npm install -g 203c && 203c skill install"
+INSTALL_203C = ("npm install -g 203c && 203c skill install"
+                "  (until 203c is on npm: npm install -g github:203-Systems/203-CLI && 203c skill install)")
 IDF_WANTED = (5, 3)
 IDF_TESTED = "5.3.5"
 CLI_WANTED = (3, 5, 0)   # 203c new, log, sync, link, skill install

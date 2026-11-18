@@ -14,6 +14,7 @@ HAL 负责硬件初始化，并提供原生 ESP-IDF 句柄；应用负责界面�
 
 ```sh
 npm install -g 203c && 203c skill install                           # 203c 和它的 Agent Skill（Node.js 18+，各系统都一样）
+npm install -g github:203-Systems/203-CLI && 203c skill install    # 203c 上 npm 之前：从它的仓库装，内容相同
 203c new "My firmware" --summary "它做什么"                           # 新项目：这个 HAL 作为子模块，加上模板
 cd my-firmware
 python3 components/CardenzaHAL/tools/cardenza.py doctor   # 这台电脑还缺什么（ESP-IDF 5.3.5、Emscripten、203c）
@@ -41,7 +42,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方�
 | 喇叭 | ES8156 解码器，I2S，44.1 kHz 16 位，单声道喇叭（可用立体声声道） | [`audio/audio.h`](audio/audio.h)：`Init`、`GetTxChannel`、`SetVolume`；[音频输出](#音频输出) |
 | 麦克风 | PDM，44.1 kHz 单声道；时钟和喇叭共用 GPIO43 | [`mic/mic.h`](mic/mic.h)；[麦克风与音频共用引脚](#麦克风与音频共用引脚) |
 | SD 卡 | microSD，4 线 SDMMC，FAT 挂在 `/sdcard` | [`storage/storage.h`](storage/storage.h)：`Init`、`IsMounted`、`CheckAfterIoError`；[SD 卡存储](#sd-卡存储) |
-| HOME | 侧边键（GPIO0；插 USB 时按住进 ROM 下载模式） | [`system/system.h`](system/system.h)：`GetFuncButton`；[Func、I2C 与红外](#funci2c-与红外) |
+| HOME | 侧边键（GPIO0；按一下打开[系统菜单](#系统菜单任何固件里按-home)；插 USB 或复位时按住进 ROM 下载模式） | [`system/system.h`](system/system.h)：`GetFuncButton`；[Func、I2C 与红外](#funci2c-与红外) |
 | I2C | 共用总线（GPIO1/2），解码器在上面 | [`system/system.h`](system/system.h)：`GetI2CBus` |
 | 红外 | 发射管（GPIO44，NEC 38 kHz） | [`ir/ir.h`](ir/ir.h)：`Send` |
 | USB | 芯片自带的 USB PHY：USB-Serial-JTAG（日志、esptool），或 HAL 的 USB 设备：MIDI、双向音频、HID、系统通道（日志、重启进 Launcher） | [`usb/usb.h`](usb/usb.h)；[USB 设备用法](#usb-设备用法)；电脑端：`203c log`、[`tools/cardenza_usb.py`](tools/cardenza_usb.py) |
@@ -331,6 +332,8 @@ void ReadSettings()
 | 重新启动 | 重新启动这个固件（在 Launcher 下用它的启动票据，不倒计时） |
 | 关机 | 深度睡眠：屏幕、背光和键灯全关；按 HOME 开机，固件重新启动 |
 | 下载模式 | 进入 ROM 下载模式，用 USB 刷机（esptool） |
+
+不用菜单时：开机或复位时按住 FN（键盘左下角的键）进入 Launcher；不是 HOME：复位时按住 HOME 会进入 ROM 下载模式。
 
 按键和 Launcher 一样：`;`、`,` 向上，`.`、`/` 向下，ENTER 或单击 HOME 确定，ESC 或 del 返回；菜单打开时这几个键会亮。
 

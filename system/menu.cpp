@@ -1,4 +1,4 @@
-// The system menu (system/menu.h): long-press HOME in any firmware on the HAL.
+// The system menu (system/menu.h): a press of HOME in any firmware on the HAL.
 #include "system/menu.h"
 
 #include <algorithm>

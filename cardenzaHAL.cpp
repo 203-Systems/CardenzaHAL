@@ -70,7 +70,7 @@ bool Init()
     g_initReport.overall = g_initReport.system && g_initReport.keyboard && g_initReport.audio && g_initReport.display;
     g_initialized = g_initReport.overall;
 #if CONFIG_CARDENZA_HAL_SYSTEM_MENU
-    // Hold HOME for a second: back to the Launcher, restart, turn off (system/menu.h).
+    // A press of HOME: the system menu (back to the Launcher, restart, turn off; system/menu.h).
     if (g_initReport.display) SystemMenu::Start();
 #endif
 #if CONFIG_CARDENZA_HAL_PRESENCE
