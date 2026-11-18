@@ -1,6 +1,7 @@
-# Builds: the device (idf.py) and the browser (cardenza_web.py)
+# Builds: the device (idf.py) and the browser (cardenza_web.py); 203c's working folder (203c sync: .203/community.md)
 build/
 build-*/
+.203/
 # Generated from sdkconfig.defaults by idf.py; commit the defaults, not this
 sdkconfig
 sdkconfig.old

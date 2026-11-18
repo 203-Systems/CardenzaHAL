@@ -10,15 +10,42 @@ HAL 负责硬件初始化，并提供原生 ESP-IDF 句柄；应用负责界面�
 
 ## 在 CardenzaHAL 上做固件
 
-先读 [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md)（英文，唯一的规范；[中文摘要](docs/FIRMWARE-PROJECT.zh-CN.md)）：每个基于 HAL 的固件都要遵守的规则，人和编程智能体都按它做（环境、工程文件和 `203.json`、HAL 的规则、编译板子版和网页版、203 社区发布前检查什么、版本、Fork、什么绝不能提交）。从 [`examples/template`](examples/template) 开始，用 `203c` 发布到社区。
-
-先装 [203-CLI](https://github.com/203-Systems/203-CLI)：社区命令行 `203c`，附给 AI 编程助手用的 Agent Skill，以及每台 203 设备的开发指引和硬件资料（鸣片的在 [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)）：
+有两样是必须的：**这个 HAL**（每个固件都只通过它访问硬件）和 **[203-CLI](https://github.com/203-Systems/203-CLI)**，即 203 社区的命令行 `203c`：它建项目、把编译好的固件装到你的鸣片上、读日志，也是发布的唯一途径（手动或 CI）。它附带给 AI 编程助手用的 Agent Skill 和每台 203 设备的开发指引（鸣片的在 [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)）。每一步的规则（人和 AI 读同一份）：[`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md)（英文，唯一的规范；[中文摘要](docs/FIRMWARE-PROJECT.zh-CN.md)）。
 
 ```sh
-curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
-203c login
-203c publish --dry-run && 203c publish
+npm install -g 203c && 203c skill install                           # 203c 和它的 Agent Skill（Node.js 18+，各系统都一样）
+203c new "My firmware" --summary "它做什么"                           # 新项目：这个 HAL 作为子模块，加上模板
+cd my-firmware
+python3 components/CardenzaHAL/tools/cardenza.py doctor   # 这台电脑还缺什么（ESP-IDF 5.3.5、Emscripten、203c）
+python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方式：先检查，再 idf.py build
+203c flash --bin build/my_firmware.bin                    # 通过 203 Launcher 用 USB 线装到你的鸣片上
+203c log                                                  # 看它打印的日志
+203c login                                                # 每台电脑一次：浏览器里批准
+203c publish --dry-run && 203c publish                    # 第一个版本；之后由 CI 发布（见「发布」）
+203c sync                                                 # 之后：.203/community.md，大家提了什么需求、说了什么
 ```
+
+[`tools/cardenza.py`](tools/cardenza.py) 是首选的编译方式：编译前检查 ESP-IDF 5.3、这个 HAL 是干净的子模块、`203c` 已安装（并已登录），shell 没激活 ESP-IDF 时它自己导出环境再编译。**不要对鸣片 `idf.py flash`**：那会抹掉 203 Launcher 和它装过的所有固件；`203c flash` 通过 Launcher 安装。
+
+## 硬件一览
+
+鸣片有什么，在 HAL 的哪里。引脚：[`board/pins.h`](board/pins.h)；原理图和 PCB 模型：[Cardenza-Hardware](https://github.com/203-Systems/Cardenza-Hardware)。
+
+| 部件 | 是什么 | 在 HAL 里 |
+| --- | --- | --- |
+| 芯片 | ESP32-S3，双核 240 MHz；512 KB 内部 RAM，2 MB 四线 PSRAM | ESP-IDF 本身；[板子默认配置](#板子默认配置分区表与刷机)、[`docs/developing.md`](docs/developing.md)（两种 RAM） |
+| Flash | 16 MB，四线 120 MHz；0x170000 以下归 203 Launcher，一个应用最多 0x690000 字节 | [`board/partitions.csv`](board/partitions.csv)、[`board/sdkconfig.defaults`](board/sdkconfig.defaults) |
+| 按键 | 56 键，4 行 × 14 列（编号 1..56）；同时最多可靠读出 4 个 | [`keyboard/keyboard.h`](keyboard/keyboard.h)：`updateKeyList`、`keyList`、`isKeyPressing`；[键盘与按键灯](#键盘与按键灯) |
+| 按键灯 | 每个键下一颗单色 LED，16 级，外加总亮度 | [`keyboard/keyboard.h`](keyboard/keyboard.h)：`setLED`、`setLEDFrame`、`setLEDGlobalBrightness`、`enableLED`；[`keyboard/led_light.h`](keyboard/led_light.h) |
+| 屏幕 | 240 × 135 彩屏（RGB565），SPI 接口的 ST7789，背光走 LEDC；整屏一帧 17 ms | [`display/display.h`](display/display.h)：`Present`、`PresentChanged`、`SetBrightness`、`GetPanel`；[屏幕显示](#屏幕显示) |
+| 喇叭 | ES8156 解码器，I2S，44.1 kHz 16 位，单声道喇叭（可用立体声声道） | [`audio/audio.h`](audio/audio.h)：`Init`、`GetTxChannel`、`SetVolume`；[音频输出](#音频输出) |
+| 麦克风 | PDM，44.1 kHz 单声道；时钟和喇叭共用 GPIO43 | [`mic/mic.h`](mic/mic.h)；[麦克风与音频共用引脚](#麦克风与音频共用引脚) |
+| SD 卡 | microSD，4 线 SDMMC，FAT 挂在 `/sdcard` | [`storage/storage.h`](storage/storage.h)：`Init`、`IsMounted`、`CheckAfterIoError`；[SD 卡存储](#sd-卡存储) |
+| HOME | 侧边键（GPIO0；插 USB 时按住进 ROM 下载模式） | [`system/system.h`](system/system.h)：`GetFuncButton`；[Func、I2C 与红外](#funci2c-与红外) |
+| I2C | 共用总线（GPIO1/2），解码器在上面 | [`system/system.h`](system/system.h)：`GetI2CBus` |
+| 红外 | 发射管（GPIO44，NEC 38 kHz） | [`ir/ir.h`](ir/ir.h)：`Send` |
+| USB | 芯片自带的 USB PHY：USB-Serial-JTAG（日志、esptool），或 HAL 的 USB 设备：MIDI、双向音频、HID、系统通道（日志、重启进 Launcher） | [`usb/usb.h`](usb/usb.h)；[USB 设备用法](#usb-设备用法)；电脑端：`203c log`、[`tools/cardenza_usb.py`](tools/cardenza_usb.py) |
+| Wi-Fi、蓝牙 | 芯片自带（2.4 GHz Wi-Fi、蓝牙 5 LE） | 用 ESP-IDF 自己的驱动，不在 HAL 里（浏览器模拟器里没有：[网页模拟器](#网页模拟器)） |
 
 ## 发布
 
@@ -132,15 +159,15 @@ extern "C" void app_main()
 
 ### 3. 编译并运行固件
 
-激活 ESP-IDF 环境后，在固件根目录执行：
+在固件根目录执行（工具会找到并导出 ESP-IDF 5.3）：
 
 ```sh
-idf.py set-target esp32s3
-idf.py build
-idf.py -p <PORT> flash monitor
+python3 components/CardenzaHAL/tools/cardenza.py build   # 或者在激活了 ESP-IDF 的 shell 里：idf.py build
+203c flash --bin build/cardenza_hello.bin                # 通过 203 Launcher 安装（不要 idf.py flash：会抹掉 Launcher）
+203c log                                                 # 通过 USB 看日志
 ```
 
-把 `<PORT>` 换成实际设备端口。运行后，黑色屏幕顶部出现一条白色横条；按住哪个键，哪个键就亮，松开后熄灭。没有 SD 卡也可以运行。示例初始化了音频硬件，但不会播放声音。
+没有 203 Launcher 的板子（裸芯片）才用 `idf.py -p <PORT> flash monitor`。运行后，黑色屏幕顶部出现一条白色横条；按住哪个键，哪个键就亮，松开后熄灭。没有 SD 卡也可以运行。示例初始化了音频硬件，但不会播放声音。
 
 这些命令用于你的固件工程。通过 Launcher 分发的应用还需要匹配的分区布局和元数据，见 [Launcher 应用](#launcher-应用)。
 
@@ -566,6 +593,8 @@ HAL 附带了这块板子本身的事实，作为固件可以直接用的默认�
 ## 电脑端工具
 
 给板子所连电脑用的命令行工具（Python 3）：
+
+- [`tools/cardenza.py`](tools/cardenza.py)：首选的编译方式。`doctor` 说出项目和电脑还缺什么（ESP-IDF 5.3、git、干净的 HAL 子模块、`203c` 及其登录、Emscripten）以及怎么装；`build` 先检查，再运行 `idf.py build`（shell 没激活时自己导出 ESP-IDF），并说出镜像占了 Launcher 空间的多少（`--web` 同时编译网页版）；`web` 编译网页版；`flash` 和 `log` 交给 `203c flash --bin` 和 `203c log`。只用标准库，Linux、macOS、Windows 都能用。
 
 - [`tools/cardenza_usb.py`](tools/cardenza_usb.py)：`usb/usb.h` 的电脑端。`list` 列出板子的 HID、MIDI 和音频设备；`command identify|reboot|launcher|download` 重启它（进 Launcher，或进 ROM 下载模式：固件开了 USB 就没有串口，要这样才能刷）；`console <秒数>` 打印控制台和日志；`app <文字>` 和固件自己的应用通道对话。固件自己的工具可以导入它。需要 `pip install hidapi`；MIDI 走 macOS 的 CoreMIDI。
 - [`tools/cardenza_flash.py`](tools/cardenza_flash.py)：刷机时不会抹掉 Launcher（见上）。

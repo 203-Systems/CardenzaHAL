@@ -24,19 +24,22 @@ from it. It is written for people and for coding agents alike: imperative, with 
 
 ## If you are an AI agent
 
-Do these in order; stop and ask the user only where a step says so.
+"Make a metronome for the Cardenza" and the like: do these in order; stop and ask the user only where a step says so.
 
-1. Read this file to the end once. Then read the HAL's [README](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md) for the API you need.
-2. Check the tools ([Setup](#1-dependencies-and-setup)): `idf.py --version` says v5.3.5, `node --version` is 18 or later, `203c doctor` runs. Install what is missing with the commands below.
-3. Sign in: `203c doctor --json`; when it is not signed in, run `203c login`: it opens the user's browser on the community, they approve, and it comes back signed in (tell the user to approve 203c in the browser). Not on the user's computer (SSH, CI, a remote agent): `203c login --no-browser`, give the user the link and the code it prints, then `203c login --wait`. Never ask for passwords or tokens.
-4. Set up the project: a new one from [examples/template](https://github.com/203-Systems/CardenzaHAL/tree/main/examples/template) ([Start a project](#start-a-project)), or someone else's firmware with `203c fork <CODE> [DIR]` ([Forks](#7-forks-and-provenance)). Make sure the [required files](#2-the-project-files-and-layout) are there; `203c init` writes `203.json`.
-5. Write the firmware following [the HAL rules](#3-using-the-hal): public headers only, nothing the HAL already does, no copyleft code.
-6. Build for the board (`idf.py build`) and for the browser (`python3 components/CardenzaHAL/tools/cardenza_web.py build .`); fix every error and warning of yours. Both must build ([Build](#4-build)).
-7. Raise `version.txt` and add a `## <version>` entry to `CHANGELOG.md`.
-8. The first version: `203c publish --dry-run`, fix what it reports, then `203c publish` ([Publish](#8-publish)). Ask the user before the real publish, and before `--force`.
-9. When the checks send the version back, read the report ([Checks](#5-what-the-community-checks)); fix and publish the next version, or, only for a false positive, appeal.
-10. Commit `203.json` (203c writes the firmware's code into it). Never commit a secret ([Never commit](#9-never-commit)).
-11. Set up the standard release ([Publish from CI](#publish-from-ci-the-standard-release)): the workflow from the template, and ask the user to link the repository on the firmware's page (自动发布 / Trusted publishing). From then on a push to `main` is a dev version and a tag `vX.Y.Z` the release.
+1. Read this file to the end once. Then read the HAL's [README](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md): its [hardware table](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md#the-hardware) says what the Cardenza has and which header drives it.
+2. Install `203c` if `203c --version` fails: `npm install -g 203c`, then `203c skill install` ([Setup](#nodejs-and-203c)). It is required, for every step below.
+3. Set up the project: a new one with `203c new "<Name>" --summary "<what it does>"` ([Start a project](#start-a-project)); someone else's firmware with `203c fork <CODE> [DIR]` ([Forks](#7-forks-and-provenance)).
+4. `python3 components/CardenzaHAL/tools/cardenza.py doctor` in the project: it lists what this computer lacks (ESP-IDF 5.3.5, Emscripten, 203c, the sign-in) with the command for each. Install what is missing ([Setup](#1-dependencies-and-setup)).
+5. Sign in once: when doctor says "not signed in", run `203c login`: it opens the user's browser on the community, they approve, and it comes back signed in (tell the user to approve 203c in the browser). Not on the user's computer (SSH, CI, a remote agent): `203c login --no-browser`, give the user the link and the code it prints, then `203c login --wait`. Never ask for passwords or tokens.
+6. Write the firmware following [the HAL rules](#3-using-the-hal): public headers only, nothing the HAL already does, no copyleft code.
+7. Build with `python3 components/CardenzaHAL/tools/cardenza.py build --web` (the board and the browser; [Build](#4-build)); fix every error and warning of yours.
+8. When the user has a Cardenza on USB: `203c flash --bin build/<project>.bin`, then `203c log --until "<a line your firmware prints when it is ready>" --seconds 30` ([Trying it on a board](#trying-it-on-a-board)). Never `idf.py flash`: it erases the 203 Launcher.
+9. Raise `version.txt` and add a `## <version>` entry to `CHANGELOG.md` (the template starts at 0.1.0 with one).
+10. The first version: `203c publish --dry-run`, fix what it reports, then `203c publish` ([Publish](#8-publish)). Ask the user before the real publish, and before `--force`. Publishing goes through 203c only (by hand or from CI).
+11. When the checks send the version back, read the report ([Checks](#5-what-the-community-checks)); fix and publish the next version, or, only for a false positive, appeal.
+12. Commit `203.json` (203c writes the firmware's code into it). Never commit a secret ([Never commit](#9-never-commit)).
+13. The standard release ([Publish from CI](#publish-from-ci-the-standard-release)): once the repository is on GitHub, `203c link` makes it the firmware's trusted publisher (the template has the workflow). From then on a push to `main` is a dev version and a tag `vX.Y.Z` the release.
+14. Before every change to a published firmware: `203c sync`, then read `.203/community.md`: the page, every version's notes, what users asked for and said (requests with votes and their discussion, comments with replies), merge requests and forks, new ones marked. Work from it, answer with `203c comments add …`, release the next version. `203c project diff <FORK>` shows what a fork changed.
 
 ## 1. Dependencies and setup
 
@@ -47,7 +50,7 @@ Do these in order; stop and ask the user only where a step says so.
 | Emscripten (emsdk) | `latest` | the simulator version (web build) |
 | CMake, ninja, Python 3 | CMake 3.20+ | the web build (ESP-IDF's own are fine) |
 | Node.js | 18+ | `203c` |
-| `203c` | current | signing in, `203.json`, publishing |
+| `203c` | current (**required**) | a new project, installing on a Cardenza and its log, signing in, `203.json`, publishing, users' feedback |
 | git | any | the submodule, forks, source archives |
 
 ### ESP-IDF 5.3.5
@@ -71,7 +74,11 @@ macOS: `xcode-select --install`, `brew install cmake ninja dfu-util python3`, th
 
 Windows: the ESP-IDF Tools Installer (<https://dl.espressif.com/dl/esp-idf/>), choosing **v5.3.5**; build
 in the "ESP-IDF 5.3 PowerShell" (or CMD) it installs. In a clone, `install.ps1 esp32s3` once and
-`export.ps1` in every shell. The web build and 203c are simplest in WSL2 with the Linux steps.
+`export.ps1` in every shell.
+
+You do not have to activate ESP-IDF yourself to build: the HAL's `tools/cardenza.py build` finds an ESP-IDF 5.3 in
+`IDF_PATH`, `~/esp/esp-idf*` or `C:\Espressif\frameworks` and exports it for the build (an agent's shell starts
+fresh every time).
 
 ### CardenzaHAL as a git submodule
 
@@ -118,13 +125,17 @@ CMake is missing; its message says how to install it.
 [203-CLI](https://github.com/203-Systems/203-CLI), which also holds each 203 device's development guide and hardware
 reference (`products/cardenza` is this one). It needs Node.js 18 or later.
 
+On macOS, Linux and Windows alike:
+
 ```sh
-curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
+npm install -g 203c
+203c skill install
 203c doctor
 203c login
 ```
 
-- The installer puts the skill (203-CLI at the commit the community pins, its SHA-256 checked) in `~/.claude/skills/203-community` and a `203c` command in `~/.local/bin` (put that on `PATH`). Without the command: `node ~/.claude/skills/203-community/scripts/203c.mjs`. From a clone of 203-CLI instead: `sh 203-CLI/install.sh`.
+- `npm install -g 203c` gives the `203c` command (no dependencies, no install scripts); `203c skill install` puts its Agent Skill where coding agents read it (`~/.claude/skills/203-community`, and `~/.codex/skills` when Codex is there). Run both again to update; `203c doctor` says when the skill is older than the command.
+- 203c runs wherever Node does; it uses the USB cable (`flash`, `log`) on macOS and Linux, and on Windows the website does that in Chrome or Edge.
 - `203c login` opens the browser on the community's sign-in page: sign in there (GitHub) if it asks, approve "203c on <your computer>", and the browser goes back to 203c (OAuth's authorization code with PKCE and a redirect to 203c on `127.0.0.1`). Where no browser can be opened, make a personal token on the site (设置 › 个人令牌, `/me/tokens`) and run `203c login --with-token`: it asks for the token (not shown), checks it and saves it (a script pipes it in: `203c login --with-token < token.txt`). An agent running remotely signs in with `203c login --no-browser`: a link and a code to approve on the site. Every way saves a personal token, listed on the site under 设置 › 个人令牌, where you can delete it. You sign in once: it has no end.
 - Everything the community's API does for you, 203c does (`203c --help`; `203c api` for anything else): use 203c, not raw HTTP.
 - Every command except `login`, `logout`, `help`, `version`, `doctor` and `rules` needs that sign-in.
@@ -153,7 +164,18 @@ my-firmware/
 
 ### Start a project
 
-From the template (it builds as it is, for the board and the browser, and passes the community's checks):
+```sh
+203c new "My Firmware" --summary "What it does, in a line"
+```
+
+It makes `my-firmware/` from the template (it builds as it is, for the board and the browser, and passes the
+community's checks): a git repository, the HAL as the submodule `components/CardenzaHAL`, CMake's `project()`
+named after the firmware (`my_firmware`: the BIN is `build/my_firmware.bin`), `203.json`, a README that says how to
+build, try and publish it, and the release workflow. Nothing is committed or published. Then add a `LICENSE`, write
+`main/main.cpp`, and commit. To change someone else's firmware instead, use `203c fork`
+([Forks](#7-forks-and-provenance)).
+
+By hand, the same:
 
 ```sh
 git clone --depth 1 https://github.com/203-Systems/CardenzaHAL.git /tmp/CardenzaHAL
@@ -162,9 +184,8 @@ cd my-firmware && git init
 git submodule add https://github.com/203-Systems/CardenzaHAL.git components/CardenzaHAL
 ```
 
-Then rename `project(my_firmware)` in `CMakeLists.txt` (and `publish.bins` in `203.json` with it), fill in
-`203.json`, add a `LICENSE`, and replace `main/main.cpp`. To change someone else's firmware instead, use
-`203c fork` ([Forks](#7-forks-and-provenance)).
+then rename `my_firmware` in `CMakeLists.txt`, `203.json` (`publish.bins`) and `.github/workflows/firmware.yml`
+(`elf:`), and fill in `203.json`.
 
 ### `203.json`
 
@@ -323,6 +344,7 @@ put `version` in `203.json` and `PROJECT_VER` in CMake ([above](#203json)).
 ```gitignore
 build/
 build-*/
+.203/
 sdkconfig
 sdkconfig.old
 managed_components/
@@ -335,7 +357,8 @@ managed_components/
 *.pfx
 ```
 
-`build-web/` (the web build) is covered by `build-*/`. Commit `dependencies.lock`.
+`build-web/` (the web build) is covered by `build-*/`; `.203/` is 203c's working folder (`203c sync` writes
+`.203/community.md` there). Commit `dependencies.lock`.
 
 ## 3. Using the HAL
 
@@ -410,25 +433,37 @@ there to show the real firmware.
 
 ### The device
 
-In an ESP-IDF 5.3.5 shell, from the project's root:
+From the project's root:
 
 ```sh
-idf.py set-target esp32s3      # once, and after changing sdkconfig.defaults (it regenerates sdkconfig)
-idf.py build
+python3 components/CardenzaHAL/tools/cardenza.py build      # the preferred way; --web builds the browser version too
 ```
+
+The HAL's build tool checks first what a build needs (ESP-IDF 5.3, git, a clean HAL submodule, `203c` installed;
+`doctor` lists it all with the command that installs each), exports ESP-IDF when the shell has not, runs
+`idf.py build` and says how much of the Launcher's room the image takes. In an activated ESP-IDF 5.3.5 shell,
+`idf.py build` alone builds the same.
 
 - The BIN to install and publish is **`build/<project>.bin`** (the application image). Not `bootloader/bootloader.bin`, not a merged image, not the `.elf`.
 - Keep the `.elf` of every BIN you give anyone: a crash's backtrace is read with it (`xtensa-esp32s3-elf-addr2line -pfiaC -e build/<project>.elf <addresses>`).
-- `idf.py build` fails when the image does not fit the partition table's app partition.
+- The build fails when the image does not fit the partition table's app partition.
 
 ### Trying it on a board
 
-Most boards run the 203 Launcher. **Never `idf.py flash` a board that has it**: a full flash writes your
-bootloader and partition table, which erases the Launcher and its list of installed firmware.
+Most boards run the 203 Launcher. **Never `idf.py flash` a board that has it** (ESP-IDF suggests it after every
+build): a full flash writes your bootloader and partition table, which erases the Launcher and its list of
+installed firmware. Install through the Launcher, the way users get it:
 
-- Install through the Launcher: copy `build/<project>.bin` to the SD card and install it from the Launcher's file browser; or over the serial port with the HAL's [uploader](https://github.com/203-Systems/CardenzaHAL/blob/main/tools/uploader/README.md): `python3 components/CardenzaHAL/tools/uploader/serial_flasher.py --no-reset -p <PORT> -f build/<project>.bin -n MyFirmware` (from the Launcher's home screen).
-- Or write only the app into one of the Launcher's app partitions, then start or register it in the Launcher: `python3 components/CardenzaHAL/tools/cardenza_flash.py -p <PORT> build --app-into <label>` (it reads the board first and refuses a full flash when the Launcher is there; `--check-only` only reports).
-- A firmware that started USB (`USB::Init`) has no serial port: read its log with `python3 components/CardenzaHAL/tools/cardenza_usb.py console 30`, and go back to the Launcher with `cardenza_usb.py command launcher` (or `command download` for the ROM download mode). Without USB on, `idf.py -p <PORT> monitor` shows the log.
+```sh
+203c flash --bin build/<project>.bin                     # over the USB cable; no sign-in
+203c log                                                 # what it prints (Ctrl-C stops; a program: --seconds)
+203c log --until "my_firmware 0.1.0 ready" --seconds 30  # a test: exit 0 at that line, 1 at a panic or when it never comes
+```
+
+- `flash` finds the device in its Launcher or running a firmware (a firmware on the HAL is restarted into its Launcher first), writes the image through it and the Launcher starts it. An image of a firmware the device has replaces that copy, and 203c says so.
+- `log` reads a running firmware's console over the HAL's USB system channel when the firmware started USB (`USB::Init`: then it has no serial port), else the serial port (the Launcher, a firmware without USB such as the template). The first lines are the last kilobyte the firmware printed before you asked.
+- Windows: the website installs a local BIN in Chrome or Edge (the firmware section's "Flash a local file"); the log: `pip install hidapi`, then `python components/CardenzaHAL/tools/cardenza_usb.py console 60`.
+- Other ways: copy `build/<project>.bin` to the SD card and install it from the Launcher's file browser; the HAL's [uploader](https://github.com/203-Systems/CardenzaHAL/blob/main/tools/uploader/README.md) (`serial_flasher.py`, from the Launcher's home screen); [`cardenza_flash.py`](https://github.com/203-Systems/CardenzaHAL/blob/main/tools/cardenza_flash.py) `--app-into <label>` (only the app into one of the Launcher's slots; it refuses a full flash when the Launcher is there); `cardenza_usb.py command launcher|download` restarts a firmware into the Launcher or the ROM's download mode.
 - Released firmware reaches people through the community (`203c publish`), not as files to flash.
 
 ### The browser (the simulator version)
@@ -516,12 +551,15 @@ published by CI with the HAL's [`community-publish`](https://github.com/203-Syst
 action. The first version is published by hand, which makes the firmware and gives it its code:
 
 ```sh
-203c init                     # once: writes 203.json; check name, summary, tags, license, source
-idf.py build                  # the BIN (raise version.txt and CHANGELOG.md first)
+python3 components/CardenzaHAL/tools/cardenza.py build   # the BIN (raise version.txt and CHANGELOG.md first)
 203c publish --dry-run        # everything checked, nothing changed: fix what it reports
 203c publish                  # uploads, waits for the checks, prints the codes and the pages
 git add 203.json && git commit -m "203.json: the firmware's code"   # after the first publish
+203c link                     # once the repository is on GitHub: its CI publishes (below)
 ```
+
+Publishing goes through 203c, by hand or from CI (the action runs it). A project without `203.json` (not made by
+`203c new`): `203c init` writes it first.
 
 - `203c publish` reads `203.json` (flags win over it): the firmware (`code`, or made from `name` and `summary` on the first publish), the version (`version.txt` or `version`), the channel (`publish.channel`, else stable), the BINs (`publish.bins`: `build/<project>.bin` for each device), the release notes (`CHANGELOG.md`'s `## <version>` entry).
 - For a CardenzaHAL firmware it also builds the simulator version (`cardenza_web.py build`) and uploads it with the BIN, so the version shows Play once its web build boots. It needs Emscripten for that; without it, install it ([Setup](#emscripten-the-simulator-version)).
@@ -536,10 +574,11 @@ the community trades it for a credential that lasts 15 minutes and only publishe
 firmware, when the token comes from a repository (and workflow) the firmware's owner linked
 (`203c login --github-oidc --firmware <CODE>`; the action does it).
 
-1. **Link the repository** (the firmware's owner, once): on the firmware's page, 自动发布 / Trusted publishing:
-   the repository (`owner/name`), the workflow file (`firmware.yml`), optionally a GitHub environment, and the
-   channels it may publish; or `203c firmware publishers add <CODE> ...` (`203c firmware publishers list <CODE>`
-   shows them). A tag `vX.Y.Z` may then publish stable (and beta, dev), a tag `vX.Y.Z-beta.N` beta (and dev),
+1. **Link the repository** (the firmware's owner, once): `203c link` in the project (it also writes the page's
+   source link and `203.json`'s; after the repository moved, `203c link --move` unlinks the old one); or on the
+   firmware's page, 自动发布 / Trusted publishing: the repository (`owner/name`), the workflow file (`firmware.yml`),
+   optionally a GitHub environment, and the channels it may publish; or `203c firmware publishers add <CODE> ...`
+   (`203c firmware publishers list <CODE>` shows them). A tag `vX.Y.Z` may then publish stable (and beta, dev), a tag `vX.Y.Z-beta.N` beta (and dev),
    any other ref dev only.
 2. **Turn the beta and dev channels on** on the firmware's page: the CI credential publishes versions and
    nothing else (it changes no page, channel or cover).
@@ -583,7 +622,19 @@ jobs:
 - `elf:` keeps the ELF as the run's artifact `elf-<label>` (90 days; the community does not take it). Keep the ELF of every release yourself too (a GitHub Release): a crash's backtrace needs it.
 - Outside the HAL's submodule, `uses: 203-Systems/CardenzaHAL/.github/actions/community-publish@<a commit on main>`.
 - Change the firmware's page (name, summary, tags, links, cover) on the site: CI does not touch it, and `203.json`'s page fields only matter for the first publish.
+- **On your own Cardenza** (optional): a self-hosted runner on a computer with a Cardenza on its USB cable (labels `self-hosted, cardenza`) installs every build and checks that it starts; the template's workflow has the job (`on-device`, commented out): `203c flash --bin build/<project>.bin` and `203c log --until "<ready line>" --seconds 60`, which fails the job at a panic or when the line never comes.
 - Not on GitHub Actions (or a repository that cannot be linked): a personal token (设置 › 个人令牌, `/me/tokens`, scope `write`) as the CI system's secret `COMMUNITY_TOKEN`, and `203c publish --channel dev --version "$(tr -d '[:space:]' < version.txt)-dev.<n>" --commit <sha> --json` (the action's `token:` input does the same on GitHub).
+
+### Users' feedback and forks
+
+What the community has about a published firmware comes back to the project with `203c sync` (in the project's
+folder: the firmware is `203.json`'s): `.203/community.md` (and `community.json`) holds its page, every version and its
+notes, the requests with their votes, status and discussion, every comment thread with its replies and likes, the merge
+requests and the forks (魔改版), new since the last sync marked (git-ignore `.203/`; the template does). Read it before
+planning a change. One part at a time: `203c project show`, `project versions`, `project feedback --new`, `project
+forks`; `203c project diff <FORK>` compares a fork's source with this folder (`--patch` the unified diff), `203c
+project diff 1.0.0 1.1.0` two versions (their source archives: `publish_source: true`). Answer people with
+`203c comments add …` (they are notified); `203c dev update …` keeps the internal tracker.
 
 ## 9. Never commit
 
@@ -603,7 +654,8 @@ deleting the line does not remove it from the history.
 
 ## Checklist before publishing
 
-- [ ] `idf.py build` and `cardenza_web.py build .` both succeed; the BIN is `build/<project>.bin`.
+- [ ] `tools/cardenza.py build --web` succeeds (the board and the browser); the BIN is `build/<project>.bin`.
+- [ ] On a Cardenza: `203c flash --bin build/<project>.bin` and `203c log` show it starting, without a panic.
 - [ ] `CardenzaHAL::Init()` runs first; missing hardware is reported, never aborts or restarts the firmware.
 - [ ] The HAL submodule is clean and on upstream `main` (`check_submodule.py --fetch`).
 - [ ] The partition table keeps the Launcher's regions; the image is well under 0x690000 bytes.

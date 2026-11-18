@@ -10,17 +10,51 @@ The HAL provides hardware initialization and native ESP-IDF handles. Your applic
 
 ## Making a firmware on CardenzaHAL
 
-Read [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md) first: the rules every firmware on the HAL follows, for people and coding agents alike (setup, the project's files and `203.json`, the HAL rules, building for the board and the browser, what the 203 community checks, versions, forks, what never to commit). Start from [`examples/template`](examples/template), and publish to the community with `203c`.
-
-Install [203-CLI](https://github.com/203-Systems/203-CLI) first: `203c`, the community's command line, with its Agent
-Skill for coding agents and the development guide and hardware reference of every 203 device (the Cardenza's is
-[`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)):
+Two things are required: **this HAL** (every firmware reaches the hardware only through it) and
+**[203-CLI](https://github.com/203-Systems/203-CLI)**, `203c`, the 203 community's command line: it makes the
+project, puts a build on your Cardenza, reads its log and is the only way to publish (by hand or from CI). It comes
+with an Agent Skill for coding agents and every 203 device's guide (the Cardenza's:
+[`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)). The rules for
+every step, for people and agents alike: [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md).
 
 ```sh
-curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
-203c login
-203c publish --dry-run && 203c publish
+npm install -g 203c && 203c skill install                           # 203c and its Agent Skill (Node.js 18+, any OS)
+203c new "My firmware" --summary "What it does"                      # the project: this HAL as a submodule, the template
+cd my-firmware
+python3 components/CardenzaHAL/tools/cardenza.py doctor   # what this computer still needs (ESP-IDF 5.3.5, Emscripten, 203c)
+python3 components/CardenzaHAL/tools/cardenza.py build    # the preferred build: the checks, then idf.py build
+203c flash --bin build/my_firmware.bin                    # onto your Cardenza over USB, through the 203 Launcher
+203c log                                                  # what it prints
+203c login                                                # once on a computer: the browser asks you to approve
+203c publish --dry-run && 203c publish                    # the first version; then CI publishes (Releasing)
+203c sync                                                 # later: .203/community.md, what people asked for and said
 ```
+
+[`tools/cardenza.py`](tools/cardenza.py) is the preferred way to build: it checks ESP-IDF 5.3, that this HAL is a
+clean submodule and that `203c` is installed (and signed in) before it builds, and exports ESP-IDF for the build when
+the shell has not. **Never `idf.py flash` a Cardenza**: it erases the 203 Launcher and every firmware it installed;
+`203c flash` installs through the Launcher.
+
+## The hardware
+
+What the Cardenza has, and where it is in the HAL. Pins: [`board/pins.h`](board/pins.h); schematic and PCB model:
+[Cardenza-Hardware](https://github.com/203-Systems/Cardenza-Hardware).
+
+| Part | What it is | In the HAL |
+| --- | --- | --- |
+| Chip | ESP32-S3, two cores at 240 MHz; 512 KB internal RAM, 2 MB quad PSRAM | ESP-IDF itself; [board defaults](#board-defaults-partitions-and-flashing), [`docs/developing.md`](docs/developing.md) (the two RAMs) |
+| Flash | 16 MB, quad I/O at 120 MHz; the 203 Launcher keeps everything below 0x170000, an app gets at most 0x690000 bytes | [`board/partitions.csv`](board/partitions.csv), [`board/sdkconfig.defaults`](board/sdkconfig.defaults) |
+| Keys | 56 keys, 4 rows × 14 columns (numbers 1..56); at most 4 held at once are read reliably | [`keyboard/keyboard.h`](keyboard/keyboard.h): `updateKeyList`, `keyList`, `isKeyPressing`; [Keyboard and key LEDs](#keyboard-and-key-leds) |
+| Key lights | a single-colour LED under each key, 16 levels, and a global brightness | [`keyboard/keyboard.h`](keyboard/keyboard.h): `setLED`, `setLEDFrame`, `setLEDGlobalBrightness`, `enableLED`; [`keyboard/led_light.h`](keyboard/led_light.h) |
+| Screen | 240 × 135 colour (RGB565), ST7789 on SPI, backlight on LEDC; a whole frame is 17 ms | [`display/display.h`](display/display.h): `Present`, `PresentChanged`, `SetBrightness`, `GetPanel`; [Display](#display) |
+| Speaker | ES8156 codec, I2S, 44.1 kHz 16-bit, mono speaker (stereo slots available) | [`audio/audio.h`](audio/audio.h): `Init`, `GetTxChannel`, `SetVolume`; [Audio output](#audio-output) |
+| Microphone | PDM, 44.1 kHz mono; its clock shares GPIO43 with the speaker | [`mic/mic.h`](mic/mic.h); [Microphone and shared audio pins](#microphone-and-shared-audio-pins) |
+| SD card | microSD, 4-bit SDMMC, FAT at `/sdcard` | [`storage/storage.h`](storage/storage.h): `Init`, `IsMounted`, `CheckAfterIoError`; [SD card storage](#sd-card-storage) |
+| HOME | the side key (GPIO0; held while plugging in USB: the ROM's download mode) | [`system/system.h`](system/system.h): `GetFuncButton`; [Func button, I2C, and IR](#func-button-i2c-and-ir) |
+| I2C | the shared bus (GPIO1/2), the codec on it | [`system/system.h`](system/system.h): `GetI2CBus` |
+| IR | a transmitter (GPIO44, NEC at 38 kHz) | [`ir/ir.h`](ir/ir.h): `Send` |
+| USB | the chip's USB PHY: USB-Serial-JTAG (the log, esptool), or the HAL's device: MIDI, audio both ways, HID, the system channel (log, restart into the Launcher) | [`usb/usb.h`](usb/usb.h); [USB device usage](#usb-device-usage); on the computer: `203c log`, [`tools/cardenza_usb.py`](tools/cardenza_usb.py) |
+| Wi-Fi, Bluetooth | the chip's radios (2.4 GHz Wi-Fi, Bluetooth 5 LE) | ESP-IDF's own drivers, not the HAL (the browser simulator has none: [Web simulator](#web-simulator)) |
 
 ## Releasing
 
@@ -133,15 +167,15 @@ extern "C" void app_main()
 
 ### 3. Build and run your firmware
 
-In an activated ESP-IDF shell, from the firmware root:
+From the firmware root (ESP-IDF 5.3 found and exported by the tool):
 
 ```sh
-idf.py set-target esp32s3
-idf.py build
-idf.py -p <PORT> flash monitor
+python3 components/CardenzaHAL/tools/cardenza.py build   # or, in an activated ESP-IDF shell: idf.py build
+203c flash --bin build/cardenza_hello.bin                # through the 203 Launcher (never idf.py flash: it erases the Launcher)
+203c log                                                 # its log over USB
 ```
 
-Replace `<PORT>` with your device port. The example shows a white strip on a black screen; held keys light up and turn off when released. A missing SD card is allowed. This example initializes the audio hardware but does not play sound.
+A board without the 203 Launcher (a bare chip): `idf.py -p <PORT> flash monitor`. The example shows a white strip on a black screen; held keys light up and turn off when released. A missing SD card is allowed. This example initializes the audio hardware but does not play sound.
 
 These are commands for your consuming firmware. Launcher-distributed applications also need the appropriate partition layout and metadata; see [Launcher applications](#launcher-applications).
 
@@ -567,6 +601,8 @@ The HAL ships what the board is, as defaults a firmware can take (none is enforc
 ## Host tools
 
 Command-line tools for the computer the board is plugged into (Python 3, no board needed to read them):
+
+- [`tools/cardenza.py`](tools/cardenza.py): the preferred way to build a firmware. `doctor` says what the project and the computer lack (ESP-IDF 5.3, git, a clean HAL submodule, `203c` and its sign-in, Emscripten) and how to install it; `build` checks first, then runs `idf.py build` (exporting ESP-IDF when the shell has not) and says how much of the Launcher's room the image takes (`--web`: the browser version too); `web` builds the browser version; `flash` and `log` hand the build to `203c flash --bin` and `203c log`. Standard library only, Linux, macOS and Windows.
 
 - [`tools/cardenza_usb.py`](tools/cardenza_usb.py): the host side of `usb/usb.h`. `list` shows the board's HID, MIDI and audio devices; `command identify|reboot|launcher|download` restarts it (into the Launcher, or into ROM download mode, the way to flash a firmware that runs USB and so has no serial port); `console <seconds>` prints its console and log; `app <text>` talks to the firmware's own app channel. A firmware's own tool can import it. Needs `pip install hidapi`; MIDI goes through macOS CoreMIDI.
 - [`tools/cardenza_flash.py`](tools/cardenza_flash.py): flashes a build without erasing the Launcher (above).

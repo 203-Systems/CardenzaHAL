@@ -10,34 +10,28 @@ board and for the browser.
 ## Start a firmware from it
 
 ```sh
-git clone --depth 1 https://github.com/203-Systems/CardenzaHAL.git /tmp/CardenzaHAL
-cp -r /tmp/CardenzaHAL/examples/template my-firmware
-cd my-firmware
-git init
-git submodule add https://github.com/203-Systems/CardenzaHAL.git components/CardenzaHAL
+203c new "My Firmware" --summary "What it does"   # 203-CLI: https://github.com/203-Systems/203-CLI
 ```
 
-Then make it yours:
+makes `my-firmware/` from it: a git repository, CardenzaHAL as the submodule `components/CardenzaHAL`, the project
+named (`project()` in `CMakeLists.txt`, `publish.bins` in `203.json`, `elf:` in the workflow), `203.json` filled in.
+Then add a `LICENSE` file for your code (and its SPDX id in `203.json` `license`), replace `main/main.cpp`, keep
+`version.txt` (`major.minor.patch`) and a `## <version>` entry in `CHANGELOG.md` for every release. By hand instead:
+[`docs/FIRMWARE-PROJECT.md`](../../docs/FIRMWARE-PROJECT.md#start-a-project).
 
-1. `CMakeLists.txt`: `project(my_firmware)` becomes your project's name (letters, digits, `_`), and
-   `publish.bins` in `203.json` follows it (`build/<name>.bin`).
-2. `203.json`: `name` (shown in the community and the Launcher), `summary`, `tags`; `source` once the
-   repository is online; `license` once you chose one (`203c init` fills in what it can find).
-3. Add a `LICENSE` file for your code (MIT, Apache-2.0, ...) and say it in `203.json` `license`.
-4. `version.txt` (`major.minor.patch`) and a `## <version>` entry in `CHANGELOG.md` for every release.
-5. Replace `main/main.cpp`.
-
-## Build
+## Build and try
 
 ```sh
-idf.py set-target esp32s3            # once, in an ESP-IDF 5.3.5 shell
-idf.py build                         # build/my_firmware.bin
-python3 components/CardenzaHAL/tools/cardenza_web.py build .              # build-web/site
-python3 components/CardenzaHAL/tools/cardenza_web.py serve build-web/site # http://localhost:8000/
+python3 components/CardenzaHAL/tools/cardenza.py doctor   # what this computer still needs
+python3 components/CardenzaHAL/tools/cardenza.py build    # build/my_firmware.bin (ESP-IDF 5.3, exported if needed)
+python3 components/CardenzaHAL/tools/cardenza.py web      # build-web/site
+python3 components/CardenzaHAL/tools/cardenza_web.py serve build-web/site   # http://localhost:8000/
+203c flash --bin build/my_firmware.bin                    # on a Cardenza, through the 203 Launcher (never idf.py flash)
+203c log --until "my_firmware 0.1.0 ready" --seconds 30   # it started
 ```
 
-Inside the CardenzaHAL repository it builds in place: `idf.py -C examples/template build`,
-`python3 tools/cardenza_web.py build examples/template`.
+Inside the CardenzaHAL repository it builds in place: `python3 tools/cardenza.py build -C examples/template`
+(or `idf.py -C examples/template build`), `python3 tools/cardenza_web.py build examples/template`.
 
 ## Publish
 
