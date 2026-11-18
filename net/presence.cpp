@@ -615,7 +615,15 @@ void Run()
             freeBlock();
             ++g_failed;
             SetWaiting(Wait::Failure);
-            nextAskUs = esp_timer_get_time() + int64_t{std::max(backoff.Next(), audioPause.seconds)} * 1000000;
+            // No answer: the next request goes to the same community at its twin, in 2 s; when the twin
+            // does not answer either, back to the binding's API after the backoff.
+            char twin[sizeof(account.api)];
+            const bool switched = sent != Net::SendStatus::NoMemory && Logic::TwinApi(account.api, twin, sizeof(twin));
+            if (switched) std::memcpy(account.api, twin, sizeof(twin));
+            const bool toTwin = switched && std::strncmp(account.api, Logic::kTwinTo, std::strlen(Logic::kTwinTo)) == 0;
+            if (toTwin) ESP_LOGD(kTag, "no answer: asking the community's twin");
+            nextAskUs = esp_timer_get_time() +
+                        (toTwin ? int64_t{2} * 1000000 : int64_t{std::max(backoff.Next(), audioPause.seconds)} * 1000000);
             continue;
         }
 

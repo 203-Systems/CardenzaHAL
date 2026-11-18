@@ -1,6 +1,8 @@
 // The presence service's decisions (net/presence_logic.h). Pure C++: the host tests compile it too.
 #include "net/presence_logic.h"
 
+#include <cctype>
+
 #include <cstdio>
 #include <cstring>
 
@@ -491,6 +493,22 @@ bool AllowedApi(const char* api, bool localHttp)
     }
     uint8_t address[4];
     return localHttp && Ipv4(parts.host, parts.hostLength, address) && LocalAddress(address);
+}
+
+bool TwinApi(const char* api, char* out, std::size_t capacity)
+{
+    if (api == nullptr || capacity == 0) return false;
+    const std::size_t length = ApiLength(api);
+    const auto same = [&](const char* base) {
+        if (length != std::strlen(base)) return false;
+        for (std::size_t i = 0; i < length; ++i)
+            if (std::tolower(static_cast<unsigned char>(api[i])) != base[i]) return false;
+        return true;
+    };
+    const char* twin = same(kTwinFrom) ? kTwinTo : same(kTwinTo) ? kTwinFrom : nullptr;
+    if (twin == nullptr) return false;
+    const int written = std::snprintf(out, capacity, "%s", twin);
+    return written > 0 && static_cast<std::size_t>(written) < capacity;
 }
 
 bool InboxUrl(const char* api, char* out, std::size_t capacity)

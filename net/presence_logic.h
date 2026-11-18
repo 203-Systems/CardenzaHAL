@@ -13,8 +13,16 @@ namespace CardenzaHAL::Presence::Logic {
 
     // --- Where the device token goes ------------------------------------------------------------------
 
-    // The community hosts the service sends the device token to (https only, port 443).
-    inline constexpr const char* kAllowedHosts[] = {"community.203.io", "cardenza.203.io"};
+    // The community hosts the service sends the device token to (https only, port 443). apps.203.io is the
+    // live community's twin (the same server behind a CDN, as 203-launcher's kCommunityOfficialApis).
+    inline constexpr const char* kAllowedHosts[] = {"community.203.io", "cardenza.203.io", "apps.203.io"};
+
+    // The same community at its twin (either way): a request the binding's API does not answer goes there
+    // next (203-launcher 0.3.3 does the same: from mainland China cardenza.203.io often times out). The
+    // device token goes to the same server. False when the API has no twin.
+    inline constexpr const char* kTwinFrom = "https://cardenza.203.io/community/api";
+    inline constexpr const char* kTwinTo = "https://apps.203.io/community/api";
+    bool TwinApi(const char* api, char* out, std::size_t capacity);
 
     // Whether the community API base from the Launcher's binding (l_account api) may get the device
     // token: https:// on a host of kAllowedHosts (any case, no port or 443) and a path, as

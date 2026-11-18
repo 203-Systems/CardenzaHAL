@@ -39,6 +39,17 @@ bool Parse(const std::string& json, Logic::Inbox& inbox)
 void AllowedApiTests()
 {
     CHECK(Logic::AllowedApi("https://community.203.io/api", false));
+    CHECK(Logic::AllowedApi("https://apps.203.io/community/api", false));  // the live copy's twin
+    {
+        char twin[128];
+        CHECK(Logic::TwinApi("https://cardenza.203.io/community/api", twin, sizeof(twin)) &&
+              std::strcmp(twin, "https://apps.203.io/community/api") == 0);
+        CHECK(Logic::TwinApi("https://apps.203.io/community/api/", twin, sizeof(twin)) &&
+              std::strcmp(twin, "https://cardenza.203.io/community/api") == 0);
+        CHECK(!Logic::TwinApi("https://community.203.io/api", twin, sizeof(twin)));
+        CHECK(!Logic::TwinApi("https://cardenza.203.io/community/api/x", twin, sizeof(twin)));
+        CHECK(!Logic::TwinApi("https://cardenza.203.io/community/api", twin, 8));
+    }
     CHECK(Logic::AllowedApi("https://cardenza.203.io/community/api", false));
     CHECK(Logic::AllowedApi("https://COMMUNITY.203.io/api/", false));
     CHECK(Logic::AllowedApi("https://community.203.io:443/api", false));
