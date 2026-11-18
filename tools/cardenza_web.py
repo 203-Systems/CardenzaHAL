@@ -102,6 +102,10 @@ IDF_DEFAULTS = {
     "CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL": "16384",
     "CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL": "32768",
     "CONFIG_ESPTOOLPY_FLASHSIZE_2MB": "y",
+    # CardenzaHAL's own Kconfig defaults (Kconfig). The presence service is on as on the device; the web
+    # HAL has it absent (web/hal/presence.cpp).
+    "CONFIG_CARDENZA_HAL_PRESENCE": "y",
+    "CONFIG_CARDENZA_HAL_PRESENCE_START_DELAY": "10",
 }
 
 # Kconfig choices: one member is y, the others are not set; some give a value of their own.

@@ -19,6 +19,9 @@ namespace CardenzaHAL::Display {
 // is reported whole every frame, a different one each time (the whole screen every kBands frames,
 // about 0.34 s at 50 fps, for about 1 ms of SPI a frame), so nothing a hash missed or the panel lost
 // stays on screen.
+//
+// FindBand is the same comparison for one band given on its own, for a screen painted a band at a time
+// (the system menu's overlay, Display::detail::PaintOverlay): the rectangle over what changed in it.
 class ChangedRegions {
 public:
     static constexpr int kSegmentPixels = 30;
@@ -48,34 +51,9 @@ public:
         {
             const int top = band * kBandRows;
             const int bottom = top + kBandRows < HEIGHT ? top + kBandRows : HEIGHT;
-            uint32_t changed = 0;
-            int first = -1, last = -1;
-            for (int y = top; y < bottom; ++y)
-            {
-                uint32_t row = 0;
-                for (int segment = 0; segment < kSegments; ++segment)
-                {
-                    const uint32_t hash = HashSegment(framebuffer + y * WIDTH + segment * kSegmentPixels);
-                    uint32_t& previous = hashes_[y * kSegments + segment];
-                    if (hash == previous && !everything_) continue;
-                    previous = hash;
-                    row |= 1u << segment;
-                }
-                if (row == 0) continue;
-                if (first < 0) first = y;
-                last = y;
-                changed |= row;
-            }
-            if (band == refreshBand_)
-            {
-                changed = (1u << kSegments) - 1;
-                first = top;
-                last = bottom - 1;
-            }
-            if (changed == 0) continue;
-            const int left = LowestBit(changed);
-            const int right = HighestBit(changed);
-            const Region region{left * kSegmentPixels, first, (right - left + 1) * kSegmentPixels, last - first + 1};
+            Region region = FindBand(framebuffer + top * WIDTH, WIDTH, top, bottom, everything_);
+            if (band == refreshBand_) region = Region{0, top, WIDTH, bottom - top};
+            if (region.width == 0) continue;
             Region* above = count > 0 ? &regions[count - 1] : nullptr;
             if (above != nullptr && above->x == region.x && above->width == region.width && above->y + above->height == region.y)
                 above->height += region.height;
@@ -85,6 +63,36 @@ public:
         refreshBand_ = (refreshBand_ + 1) % kBands;
         everything_ = false;
         return count;
+    }
+
+    // Rows [top, bottom) of the screen, given on their own: `pixels` is row `top`, `stride` pixels a row
+    // (a multiple of 2, 4-byte aligned). The rectangle over the rows that changed since these rows were
+    // last given and the span of their changed segments (width 0: nothing changed); `everything`: the
+    // whole width and every row (the hashes are taken all the same).
+    Region FindBand(const uint16_t* pixels, int stride, int top, int bottom, bool everything)
+    {
+        uint32_t changed = 0;
+        int first = -1, last = -1;
+        for (int y = top; y < bottom; ++y)
+        {
+            uint32_t row = 0;
+            for (int segment = 0; segment < kSegments; ++segment)
+            {
+                const uint32_t hash = HashSegment(pixels + (y - top) * stride + segment * kSegmentPixels);
+                uint32_t& previous = hashes_[y * kSegments + segment];
+                if (hash == previous && !everything) continue;
+                previous = hash;
+                row |= 1u << segment;
+            }
+            if (row == 0) continue;
+            if (first < 0) first = y;
+            last = y;
+            changed |= row;
+        }
+        if (changed == 0) return Region{0, top, 0, 0};
+        const int left = LowestBit(changed);
+        const int right = HighestBit(changed);
+        return Region{left * kSegmentPixels, first, (right - left + 1) * kSegmentPixels, last - first + 1};
     }
 
 private:

@@ -5,7 +5,8 @@
 #   cardenza_web_add_runtime(<target>)           the runtime library: kernel (FreeRTOS, pthreads),
 #                                                ESP-IDF subset, drivers, entry; PUBLIC include dirs
 #   cardenza_web_add_hal(<target> <sdkconfig dir>) the HAL component: CardenzaHAL's own sources over the
-#                                                runtime, its keyboard and USB replaced by web/hal
+#                                                runtime, its keyboard, USB, presence service and system menu replaced
+#                                                by web/hal (Net is not built: no network)
 #   cardenza_web_link(<executable> <site dir>)   link flags (Asyncify, wraps, exports) and the page
 
 get_filename_component(CARDENZA_WEB_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
@@ -48,6 +49,8 @@ function(cardenza_web_hal_sources out_var)
         ${CARDENZA_WEB_HAL_DIR}/storage/storage.cpp
         ${CARDENZA_WEB_HAL_DIR}/system/system.cpp
         ${CARDENZA_WEB_DIR}/hal/keyboard.cpp
+        ${CARDENZA_WEB_DIR}/hal/presence.cpp
+        ${CARDENZA_WEB_DIR}/hal/system_menu.cpp
         ${CARDENZA_WEB_DIR}/hal/usb.cpp
         PARENT_SCOPE)
 endfunction()

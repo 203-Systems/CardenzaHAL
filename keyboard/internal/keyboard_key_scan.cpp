@@ -163,6 +163,16 @@ uint8_t KeyboardDriver::getKeyNum(Point2D_t keyCoor)
     return static_cast<uint8_t>((keyCoor.y * 14) + (keyCoor.x + 1));
 }
 
+namespace {
+
+// A scan row and input column as the key position the API reports.
+Point2D_t KeyPosition(int row, int column)
+{
+    return {row > 3 ? X_map_chart[column].x_1 : X_map_chart[column].x_2, 3 - (row > 3 ? row - 4 : row)};
+}
+
+}  // namespace
+
 void KeyboardDriver::updateKeyList()
 {
     if (!_mutex) return;
@@ -170,6 +180,14 @@ void KeyboardDriver::updateKeyList()
     xSemaphoreTake(_mutex, portMAX_DELAY);
     memcpy(snapshot, _task_key_scan, sizeof(snapshot));
     xSemaphoreGive(_mutex);
+    // While the system menu is open the firmware sees no key; what is still down when it closes stays
+    // hidden until it is released (the ENTER that closed the menu does not reach the firmware).
+    if (_overlay.load() || _hide_held.exchange(false)) memcpy(_app_hidden, snapshot, sizeof(snapshot));
+    for (int row = 0; row < 8; ++row)
+    {
+        _app_hidden[row] &= snapshot[row];
+        snapshot[row] &= static_cast<uint8_t>(~_app_hidden[row]);
+    }
     if (memcmp(snapshot, _key_list_scan, sizeof(snapshot)) == 0) return;
     memcpy(_key_list_scan, snapshot, sizeof(snapshot));
 
@@ -179,10 +197,23 @@ void KeyboardDriver::updateKeyList()
         for (int column = 0; column < 7; ++column)
         {
             if (!(snapshot[row] & (1u << column))) continue;
-            _key_list_buffer.push_back({row > 3 ? X_map_chart[column].x_1 : X_map_chart[column].x_2,
-                                       3 - (row > 3 ? row - 4 : row)});
+            _key_list_buffer.push_back(KeyPosition(row, column));
         }
     }
+}
+
+std::size_t KeyboardDriver::overlayKeys(Point2D_t* keys, std::size_t capacity)
+{
+    if (!_mutex) return 0;
+    uint8_t snapshot[8];
+    xSemaphoreTake(_mutex, portMAX_DELAY);
+    memcpy(snapshot, _task_key_scan, sizeof(snapshot));
+    xSemaphoreGive(_mutex);
+    std::size_t count = 0;
+    for (int row = 0; row < 8; ++row)
+        for (int column = 0; column < 7; ++column)
+            if ((snapshot[row] & (1u << column)) && count < capacity) keys[count++] = KeyPosition(row, column);
+    return count;
 }
 
 bool KeyboardDriver::isKeyPressing(int keyNum)

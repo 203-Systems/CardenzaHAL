@@ -4,7 +4,7 @@
 
 [官网](https://203.io/products/cardenza-mini-synthsiser) · [教程](https://cardenza.203.io/zh-Hans/) · [固件社区](https://cardenza.203.io/community) · [固件开发说明](https://cardenza.203.io/community/develop) · [203-CLI](https://github.com/203-Systems/203-CLI) · [示例固件：鸣片 CardenzaSynth](https://github.com/203-Systems/CardenzaSynth)
 
-CardenzaHAL 是 Cardenza（ESP32-S3）的 ESP-IDF 硬件层。你可以用它读取 56 键键盘、控制每颗按键灯、向 240 × 135 屏幕绘图、播放 PCM 音频、访问 SD 卡，以及给固件加入 USB MIDI、音频和 HID 功能。
+CardenzaHAL 是 Cardenza（ESP32-S3）的 ESP-IDF 硬件层。你可以用它读取 56 键键盘、控制每颗按键灯、向 240 × 135 屏幕绘图、播放 PCM 音频、访问 SD 卡，给固件加入 USB MIDI、音频和 HID 功能，以及通过 203 Launcher 设置好的 Wi-Fi 上网。
 
 HAL 负责硬件初始化，并提供原生 ESP-IDF 句柄；应用负责界面绘制、键位映射、音频处理、文件格式和主循环。本仓库是组件，需要接入固件工程使用；它的网页目标还能把你的固件编译成浏览器里的模拟器（见[网页模拟器](#网页模拟器)）。
 
@@ -150,16 +150,16 @@ idf.py -p <PORT> flash monitor
 
 | 模块 | 是否影响 `Init()` 成功 | 行为 |
 | --- | --- | --- |
-| System | 是 | 初始化共享 I2C 总线和 Func；失败则立即返回 |
+| System | 是 | 初始化共享 I2C 总线和 HOME 键；失败则立即返回 |
 | Keyboard | 是 | 启动后台按键与 LED 扫描 |
 | Audio | 是 | 配置单声道 TX 并启动 ES8156；新建的 TX 通道保持禁用 |
 | Display | 是 | 准备屏幕，提交一帧后才显示 |
 | Storage | 否 | 尝试挂载 `/sdcard` |
 | IR | 否 | 准备红外发射器 |
 
-`LastInitReport()` 提供上述六个模块的结果和 `overall`。整体初始化成功后会缓存结果，再调用一次不会重新挂载缺失的 SD 卡；需要单独调用 `Storage::Init()` 重试。麦克风和 USB **不在整体初始化范围内**；`cardenzaHAL.h` 也不包含 `usb/usb.h`。
+`LastInitReport()` 提供上述六个模块的结果和 `overall`。整体初始化成功后会缓存结果，再调用一次不会重新挂载缺失的 SD 卡；需要单独调用 `Storage::Init()` 重试。麦克风、USB 和网络（[Net](#网络wi-fi-与-https)）**不在整体初始化范围内**；`cardenzaHAL.h` 也不包含 `usb/usb.h` 和 `net/net.h`。打开 `CONFIG_CARDENZA_HAL_PRESENCE`（默认打开）时，`Init()` 还会启动一次[社区在线服务](#社区在线服务任何固件运行时都能收到)，不论各模块的结果如何。
 
-只需要部分功能时，可以分别初始化各模块。使用共享 I2C 或 Func 前，先调用 `System::Init()`，并检查各模块的返回值。音频编解码器初始化失败后可以再次调用 `Audio::Init()`，重试频率限制约为每秒一次。
+只需要部分功能时，可以分别初始化各模块。使用共享 I2C 或 HOME 键前，先调用 `System::Init()`，并检查各模块的返回值。音频编解码器初始化失败后可以再次调用 `Audio::Init()`，重试频率限制约为每秒一次。
 
 ## 键盘与按键灯
 
@@ -286,12 +286,40 @@ void ReadSettings()
 
 `GetCapacity()` 返回以**字节**为单位的总容量，不是剩余空间。`IsMounted()` 是缓存状态，不是硬件插卡检测。I/O 出错后，先关闭受影响文件，再调用 `CheckAfterIoError()`：卡仍正常响应时保持挂载（例如只是写满），失去响应时标记为不可用，并在下一次 `Init()` 时清理旧挂载。重试前须协调所有文件使用者；HAL 不提供自动热插拔管理。
 
-## Func、I2C 与红外
+## HOME 键、I2C 与红外
 
-- [`System::GetFuncButton()`](system/system.h) 在 **GPIO0 的 Func 按键**被按下时返回 `true`。它是独立按键，与矩阵键盘及其中的 Fn 键分开。
+- [`System::GetHomeButton()`](system/system.h) 在 **GPIO0 的 HOME 键**（屏幕左侧的侧键）被按下时返回 `true`。它是独立按键，与矩阵键盘及其中的 Fn 键分开。**按一下它就打开系统菜单**（见下节）：打开或关闭菜单的那一下按键在这里读作松开。
 - `System::GetI2CBus()` 返回 `System::Init()` 创建的原生 I2C 主总线句柄。用 `i2c_master_bus_add_device()` 添加设备，避免在同一组引脚重复创建总线（SCL GPIO1、SDA GPIO2）。
 - `System::EnterDeepSleep()` 当前**只删除共享 I2C 总线**，并不会让 ESP32 进入深度睡眠，也不会配置唤醒源。调用前需要协调编解码器和其他 I2C 使用者。
 - [`IR::Send(addr, cmd)`](ir/ir.h) 在 GPIO44 上用 38 kHz 载波发出 8 位 NEC 地址/命令及各自反码。必要时会自行初始化发射器，并等待发送结束。没有接收接口，也不返回发送状态。
+
+## 系统菜单（任何固件里按 HOME）
+
+在 HAL 上的任何固件里，按一下 HOME 侧键（GPIO0），弹出[系统菜单](system/menu.h)。它就是 203 Launcher 的列表：用 Launcher 自己的代码画，语言跟随 Launcher 的设置，两者看起来、动起来是同一个东西。
+
+| 项 | 作用 |
+| --- | --- |
+| 继续 | 回到固件（ESC、del 也可以） |
+| 返回启动器 | 打开 Launcher 主页，不管它怎么设置（用它的重启票据：不走“启动上次的软件”倒计时） |
+| 重新启动 | 重新启动这个固件（在 Launcher 下用它的启动票据，不倒计时） |
+| 关机 | 深度睡眠：屏幕、背光和键灯全关；按 HOME 开机，固件重新启动 |
+| 下载模式 | 进入 ROM 下载模式，用 USB 刷机（esptool） |
+
+按键和 Launcher 一样：`;`、`,` 向上，`.`、`/` 向下，ENTER 或单击 HOME 确定，ESC 或 del 返回；菜单打开时这几个键会亮。
+
+屏幕上和 Launcher 一模一样：同样的灰度（只有黑、白、灰：菜单显示的每个像素在面板上红、绿、蓝都相等，背景也一样），同样的亮度（菜单显示期间用 Launcher 的背光设置，它 NVS 里的 `launcher/bright`，按它的占空比曲线和它的 256 Hz PWM，不管固件自己的亮度是多少；关闭后恢复固件的亮度）。
+
+出现方式和动效（这块屏没有防撕裂信号线，任何一帧都可能在扫描中途写进去：会动的东西每帧只变几个像素，盖住整屏的东西一个像素一个像素地换）：
+
+- **按一下就打开。** HOME 按下满 30 ms（过了触点抖动）算一次按键；固件启动时就按着的 HOME、或者菜单关闭时还按着的 HOME，要先松开才算。固件的画面（它的最后一帧）在一帧里变暗、变灰：亮度取五分之二，经 4×4 有序 dither 变成五级暗灰。70 ms 后菜单按 dither 的顺序透出来，每帧换四分之一的像素，背光同时变到 Launcher 的亮度：每个像素要么是背景的、要么是菜单的，从不混色，所以屏上没有任何颜色，一帧在扫描中途写进去也看不出接缝。
+- **菜单里**深色的选中条靠上下两条边滑过去，和 Launcher 的列表一样（它的 `ListSlide`）：朝移动方向的那条边先走（Launcher 的缓出曲线，150 ms），另一条从静止开始跟上（230 ms），所以选中条先朝新的一行拉长，再缩回到这一行的高度；滑动途中再按，从两条边当时的位置接着走。文字在边经过的地方逐像素变白或变黑，一行的说明随选中条盖住它而展开。翻过最后一行时，各行一下子换好，选中条从它在屏上的位置接着滑。滑动时一帧画完，隔一个 tick 就画下一帧（有 PSRAM 时每帧在 PSRAM 里只画一次；没有时每 10 ms 一帧），每 8 行一条带子只发送变了的部分，也就是边和文字扫过的那几行、那几段 30 像素：平均每帧约 1-3 KB，最多 16 KB；以前整条带子发送，平均 3-9 KB，最多 35 KB（`tests/system_menu_test.cpp` 对 `--compare` 的每一段滑动都量了一遍）。
+- **继续**：先显示固件最新一帧的暗灰背景 60 ms，再显示固件的画面，之后固件自己的帧接着画。**其他项**：屏幕像 Launcher 关机时那样渐暗（600 ms）后再执行。
+
+- 屏幕初始化成功后由 `CardenzaHAL::Init` 启动（`CONFIG_CARDENZA_HAL_SYSTEM_MENU`，默认开）：一个 5 KB 栈的任务，每 10 ms 读一次 GPIO0；约占 30 KB flash。菜单打开期间临时借用 2 KB 内存，固件有 PSRAM 时再在 PSRAM 里借 64 KB 存一份固件最新的画面（背景是用它做的；没有 PSRAM，或者按下后 60 ms 内固件没有提交过一帧时，背景是一片暗的 dither 灰），和 32 KB 的菜单画面（每帧画一次；没有 PSRAM 时逐条画）；菜单打开期间再借一张 4 KB 的表，记着已经发出去的画面（有 PSRAM 时放在 PSRAM 里）。
+- 菜单打开期间固件照常运行（任务和声音都不停），但 HAL 会挡住会干扰菜单的东西：`Display::Present*` 不发送并返回 `true`（菜单关闭后的下一帧整屏发送，固件画面自己回来）；`Keyboard::updateKeyList` 不报任何按键（关闭时还按着的键，松开之前都不报）；按键灯显示菜单的键（固件 `setLED*` 设的亮度会保留，关闭后恢复）。直接用面板句柄画屏的固件，应在 `SystemMenu::IsOpen()` 时暂停绘制。
+- `SystemMenu::SetListener` 在菜单打开和关闭时通知；`SystemMenu::SetLeaveHook` 在重启、关机或进入下载模式之前调用（保存需要留下的东西）。菜单开着时 HOME 归菜单：自己要用 HOME 的固件，调用 `SystemMenu::Enable(false)`（或者编译时关掉 `CONFIG_CARDENZA_HAL_SYSTEM_MENU`）。
+- Launcher 的代码在 [system/menu/launcher/](system/menu/launcher/)，由 `tools/launcher_ui.py --launcher <203-launcher 检出目录>` 原样复制（MIT，[licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)）：文字和字形、画布绘制、缓动和选中条的滑动；[system/menu/frame.cpp](system/menu/frame.cpp) 是它在 Cardenza 上的 `menuFrame` 和侧栏，逐行移植。`--check` 检查复制是否最新，`--compare` 再用 Launcher 真正的 `menuFrame` 画每一帧：静止的画面，加上逐帧的滑动（移一行、连按、中途折返、往下和往上翻过一屏，每 4 ms 一帧直到停稳：五种语言共 1910 帧），有任何一个像素不同就失败（主机测试里存着这些帧的哈希）。文字在 `system/menu/strings.json`。
+- 中文、日文和越南文用的是 203 Launcher 里由 **HarmonyOS Sans**（12 像素）生成的点阵，由同一个工具只为菜单的文字从 Launcher 的字形表里取出；点阵是用该字体制作的作品，授权允许分发（[licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)），仓库里不含字体文件。5x7 字体来自 NullPerator（BSD-3-Clause，声明见 [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)）。
 
 ## USB 设备用法
 
@@ -335,6 +363,174 @@ USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包�
 - `keyboard = true` 时，macOS 会请用户识别一次键盘，电脑上的工具也只有在"输入监控"权限下才能打开 HID 接口（包括系统通道）。SysEx 不需要权限。
 - 已在 macOS 上实测（2026-11-02）：MIDI 双向、HID 和 SysEx 系统指令、控制台、44.1 kHz 双向音频。全速下反馈值按 10.14 发 3 字节（TinyUSB 默认的 16.16 会让 macOS 在 128 ms 后停播）；请求 Microsoft OS 字符串的主机收到 16.16（Windows，未测试）。TinyUSB 的 DWC2 驱动不会重启错过帧的同步 OUT 传输；HAL 在 20 ms 收不到数据时重启播放端点。
 
+## 网络（Wi-Fi 与 HTTPS）
+
+公开接口：[`net/net.h`](net/net.h)；纯头文件（不依赖 ESP-IDF，电脑上也能用）[`net/launcher_settings.h`](net/launcher_settings.h)、[`net/http_request.h`](net/http_request.h) 和 [`net/connect_order.h`](net/connect_order.h)。
+
+给偶尔需要上网的固件用（分享一段录音、查点东西），用的是 203 Launcher 设置好的 Wi-Fi 网络和社区账号。不调用就什么都不运行（[在线服务](#社区在线服务任何固件运行时都能收到)打开时会自己使用 Net）：`ReadLauncherSettings` 读出 Launcher 保存的内容，`Connect` 打开 Wi-Fi，`Send` 发 HTTP(S) 请求，`Disconnect` 把一切关掉、把内存还回去。
+
+```cpp
+#include "net/net.h"
+#include <cstdio>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+namespace Net = CardenzaHAL::Net;
+
+// 单独一个任务：每个调用都会阻塞几秒。
+void WhoAmITask(void*)
+{
+    static Net::LauncherSettings settings;  // 1.6 KB：不放在栈上
+    Net::ConnectReport report;
+    if (Net::ReadLauncherSettings(settings) == Net::SettingsResult::Ok && settings.account.Bound() &&
+        Net::Connect(settings, report) == Net::ConnectStatus::Connected)
+    {
+        settings.Forget();  // Wi-Fi 密码用完了
+        char url[160], auth[96];
+        std::snprintf(url, sizeof(url), "%s/me", settings.account.api);
+        std::snprintf(auth, sizeof(auth), "Bearer %s", settings.account.token);
+        const Net::Header headers[] = {{"Authorization", auth}, {"Accept", "application/json"}};
+        Net::Request request;
+        request.url = url;
+        request.headers = headers;
+        request.headerCount = 2;
+        static char body[2048];
+        Net::Response response;
+        response.body = body;
+        response.capacity = sizeof(body);
+        if (Net::Send(request, response) == Net::SendStatus::Ok && response.status == 200) {
+            // body 里是 JSON 回复（response.truncated：原本更长）
+        }
+        Net::Disconnect();
+    }
+    vTaskDelete(nullptr);
+}
+// xTaskCreatePinnedToCore(WhoAmITask, "net", 8192, nullptr, 2, nullptr, 0);
+```
+
+文件从它的文件描述符一块一块地发（`kUploadBlockBytes`，4 KB，读进内部 RAM，因为 SD 卡的 DMA 够不到 PSRAM），每块之后报告进度：
+
+```cpp
+const int fd = open("/sdcard/take.wav", O_RDONLY);
+struct stat info;
+fstat(fd, &info);
+const Net::Header headers[] = {{"Content-Type", "audio/wav"}};
+Net::Request request;
+request.method = "PUT";
+request.url = signedUploadUrl;
+request.headers = headers;
+request.headerCount = 1;
+request.bodyFd = fd;
+request.bodyFileLength = info.st_size;
+Net::Response response;  // 不给缓冲区：只要状态码
+Net::Send(request, response, [](void*, uint64_t sent, uint64_t total) {
+    // 显示 sent / total；返回 false 就停止
+    return true;
+});
+close(fd);
+```
+
+| 调用 | 作用 |
+| --- | --- |
+| `ReadLauncherSettings(settings)` | 读出 Launcher 的账号、保存的网络（密码已解密）和上次连接的网络。返回 `Ok`、`NoPartition`（不是 Launcher 的分区表）或 `Unreadable`（见下文）。不需要 Wi-Fi。 |
+| `Connect(settings, report, timeoutMs = 20000, cancelled, context)` | 先连 Launcher 上次连过的网络，在它的信道上直接连、不扫描；不行就扫描（约 1.5 秒），按信号从强到弱试范围内保存过的网络（每个最多 15 秒，期间重连两次）。返回 `Connected`、`NoNetworks`、`NotFound`、`AuthFailed`（密码被拒，或握手超时）、`Failed`、`NoMemory`、`Cancelled`；`report` 里有网络名、信号、耗时和错误码。失败时把打开的东西全部关掉。 |
+| `Connected()` | 拿到了 IP 地址。连接断了不会自动重连：再调用 `Connect`。 |
+| `Disconnect()` | 停止并反初始化 Wi-Fi，删掉它的 netif，以及（如果是 Net 建的）默认事件循环。在线服务占用着连接时，连接为它保留（固件只是放手，省电模式回到调制解调器睡眠）。 |
+| `Send(request, response, progress, cancelled, context)` | 一个请求，每次新建连接。`https` 用 ESP-IDF 的证书包校验；不跟随重定向。回复正文写进调用者的缓冲区（以零结尾，更长时 `truncated`）。`Ok` 表示收到了回复，不论 HTTP 状态码是多少。 |
+| `RunningImageDigest(hex)` | 正在运行的镜像末尾附带的 SHA-256，社区用它认出一个构建（64 位十六进制，即 `esp_partition_get_sha256` 的结果）。只读镜像的各个头部就能找到（第一次调用时十几次小的闪存读取，结果会保存下来）：bootloader 启动它时已经校验过镜像。 |
+
+`ValidRequest`（`net/http_request.h`）是 `Send` 先做的检查：方法是 GET、POST、PUT、DELETE、HEAD 或 PATCH；`http://` 或 `https://` 的 URL，没有用户信息和片段，路径和查询是可打印 ASCII；头的名字是 token，值里没有控制字符（没有 CR 或 LF）；不能有 `Host`、`Content-Length`、`Transfer-Encoding`、`Connection` 头（由 Net 设置）；正文来自内存或文件，不能两者都给，最多 `INT_MAX` 字节。
+
+**线程。** 在固件自己的一个任务里调用 Net，一次一个调用，绝不在界面或音频任务里调用。给它 6-8 KB 的栈（TLS 握手在上面运行；[`examples/launcher_net`](examples/launcher_net) 会打印实际用了多少），优先级低于界面。连接时大约每 100 ms 检查一次 `cancelled`，上传时每块之间检查一次；单个网络操作（建立连接、一次读或写）仍可能阻塞到 `Request::timeoutMs`。按下面的配置，Wi-Fi 任务（优先级 23）、lwIP 任务（18）和事件循环任务（20，总在核 0）都在核 0 上运行。固件自己已经在用 Wi-Fi 时，Net 拒绝启动 Wi-Fi。
+
+**Launcher 的设置**保存在设备上所有固件共用的 NVS 分区里（`nvs`，0x9000）。Net 读 Launcher 的三个命名空间，**从不往里写任何东西**（Net 唯一一次写共享 NVS 是在线服务交接时写 `l_pending`，见下文）：
+
+| 命名空间 | 键 | Net 中的对应 |
+| --- | --- | --- |
+| `l_account` | `token`（`ccd_` + 64 位十六进制）、`api`（社区 API 地址，`https://community.203.io/api`）、`user_id`、`user_name`、`device_id`（芯片的 12 位十六进制 MAC） | `LauncherAccount`；和 Launcher 一样，token 不合法或没有 api 的记录不算绑定（`Bound()` 为假）；超过 63 字节的名字在字符边界截断 |
+| `l_wifi` | 每个保存的网络，用 SSID 的 CRC-32 作键：`s_<CRC>` 是 SSID，`p_<CRC>` 是密码（用所有 Launcher 共用的密钥和 IV 做 AES-128-CBC 加 PKCS#7 填充，再 base64：只是混淆，不是加密；开放网络为空），`b_<CRC>` = 1 | `networks[]`，最多 16 个；缺了某一项或解不开的条目和 Launcher 一样跳过 |
+| `launcher` | `wifi_last`（上次连接的 SSID）、`wifi_ch`（它的信道）、`remote_install`（设置 › 账号 › 接收固件；0 为关，没有这一项为开） | `lastSsid`、`lastChannel`、`receiveFirmware` |
+
+**这些对板子上的固件都不是秘密。** 设备运行的任何固件都能读到设备令牌，Wi-Fi 密码也只是混淆过：每个 Launcher 的密钥和 IV 都相同（`net/launcher_settings.h` 里也有），所以能在板子上运行固件、或者读出闪存的人都能拿到密码。正因为如此，社区把设备令牌设计成最小权限（只能访问这台设备自己的接口和公开页面，碰不到账号设置、其他凭据或个人数据）。真正的保护需要每台设备不同的密钥（eFuse HMAC 密钥，或闪存加密加 NVS 加密），Launcher 目前没有使用。
+
+分区通过一份标成只读的分区表项副本打开：NVS 可能做的每次写入或擦除都经过 `esp_partition_write` / `write_raw` / `erase_range`，它们在碰到闪存之前就拒绝只读表项（`ESP_ERR_NOT_ALLOWED`），NVS 也不允许在上面打开读写句柄。ESP-IDF 的 NVS 在打开分区时，遇到几种状态会写入：空白分区（新建一页）、被断电打断的换页（把它做完）、写了一半的条目或被打断的写入留下的重复值、对不上的 blob 片段。在只读副本上，这时打开会失败，或者（其中几种）只在内存里丢掉受影响的条目；Net 把 NVS 统计的已写条目数和闪存上各页的实际数目对比，有出入就报告 `Unreadable`。它从不修复：Launcher 下次启动时会修好自己的分区。用更新的 NVS 格式写的分区、没有空闲页的分区也是 `Unreadable`。固件自己已经打开 `nvs` 时，Net 直接通过它读，并保持打开。Net 的其他部分不碰 NVS：Wi-Fi 以 `nvs_enable = 0` 和 `WIFI_STORAGE_RAM` 启动，固件关掉 PHY 的校准数据存储（见下文）。
+
+**内存。**
+
+- 链接进来时（固件只要调用了任何一个 Net 函数）：约 36 KB 静态内部 RAM（Wi-Fi、PHY 和 lwIP 的数据，以及即使关掉 IRAM 选项也必须留在 IRAM 里的 13 KB Wi-Fi、PHY 和系统代码）和约 610 KB 闪存，这是在一个已经运行 HAL 和 USB、使用下面这些选项的固件上测得的。从不调用 Net 的固件不受影响，各个内存段大小完全不变。打开 `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY`（见下表）后，其中约 14 KB，即 Wi-Fi（`net80211`、`pp`）、lwIP 和 supplicant 的 `.bss`，会移到 PSRAM：CardenzaSynth 的静态内部 RAM 因此只增加 21.3 KB，而不是 34 KB（2026-11-17）。
+- 连接期间：Wi-Fi 的接收缓冲区（6 个 1.6 KB 的静态缓冲区，从 `esp_wifi_init` 到 `esp_wifi_deinit`；动态缓冲区只在收发帧时占用），以及 Wi-Fi、lwIP 和事件任务：大约 40-60 KB 内部 RAM，实际数字由示例在板子上测出。
+- 请求期间：esp_http_client 的缓冲区（1 KB，以及请求行）、上传块（4 KB，内部 RAM，只在发文件时）和 TCP 发送缓冲（上传时最多 16 KB），都在内部 RAM；TLS 30-50 KB（16 KB 接收和 4 KB 发送的记录缓冲、服务器证书、握手），在设置了 `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC` 时放在 PSRAM。
+- `Disconnect` 之后：lwIP 自己的任务会留下来（ESP-IDF 5.3 不能反初始化 lwIP：连同 3 KB 的栈约 4 KB），NVS 保留一个很小的管理对象；ESP-IDF 每次 `ReadLauncherSettings` 还会漏掉 8 字节（`nvs_flash_init_partition_ptr` 创建的分区对象）。
+- PSRAM：按 [`examples/psram_heap`](examples/psram_heap) 的方式把 PSRAM 只给明确申请的代码（`CONFIG_SPIRAM_USE_MEMMAP`）时，Wi-Fi 和 lwIP 留在内部 RAM：ESP-IDF 的 `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` 需要 `SPIRAM_USE_CAPS_ALLOC` 或 `SPIRAM_USE_MALLOC`，而且申请的是 `MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM`，这种区域没有这个能力；`CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC` 的条件也一样。所以 mbedTLS 通过 Net 自己的分配器进 PSRAM：设置 `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC` 后，Net 在第一次连接之前安装它（`mbedtls_platform_set_calloc_free`），优先 PSRAM，没有 PSRAM 时用内部 RAM；在这个模式下 ESP-IDF 自己只会让 mbedTLS 用普通的 `calloc`。ESP32-S3 的硬件 AES 和 SHA 可以用 PSRAM 里的缓冲区：它们的 DMA 能访问 PSRAM，ESP-IDF 的驱动会在前后回写缓存，或者经过内部 RAM 的小块中转。把 PSRAM 放进 malloc 的固件（`SPIRAM_USE_CAPS_ALLOC` / `SPIRAM_USE_MALLOC`）也可以改用 ESP-IDF 自带的选项。
+
+**sdkconfig。** [`examples/launcher_net/sdkconfig.defaults`](examples/launcher_net/sdkconfig.defaults) 是参考配置，放在板子的默认配置之后：
+
+| 选项 | 原因 |
+| --- | --- |
+| `CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE=n` | 打开时，PHY 在 Wi-Fi 启动时从 NVS 命名空间 `phy` 读校准数据，完整校准后写回去：固件以读写方式打开了 NVS 时会写进 Launcher 的分区，没打开时每次启动都打印一行错误。关掉后每次都完整校准。 |
+| `CONFIG_ESP_WIFI_NVS_ENABLED=n` | Wi-Fi 自己把设置存进 NVS 的默认值（Net 初始化时本来也会关掉）。 |
+| `CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC=y` | 通过 Net 的分配器把 TLS 内存放进 PSRAM（见上文）。不设置的话，每个连接 mbedTLS 要占 30-50 KB 内部 RAM。 |
+| `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y`、`CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y` | ESP-IDF 证书包里常用的一半（42 个根证书，17 KB）就有社区需要的：ISRG Root X1（Let's Encrypt，Vercel 给自己托管的域名用它，比如 `cardenza.203.io`）、GTS Root R1 和 GlobalSign Root CA（`*.vercel.app`）、GTS Root R4（`*.supabase.co`，社区的存储）。 |
+| `CONFIG_ESP_WIFI_IRAM_OPT=n`、`CONFIG_ESP_WIFI_RX_IRAM_OPT=n`、`CONFIG_LWIP_IRAM_OPTIMIZATION=n` | IRAM 留给固件的热点代码（音频）。Wi-Fi 和 lwIP 在闪存里运行，吞吐量会低一些。 |
+| `CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n`、`CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n` | 只作为站点连接用密码保护的网络：代码更少。 |
+| `CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4`、`DYNAMIC_RX_BUFFER_NUM=16`、`DYNAMIC_TX_BUFFER_NUM=16`、`RX_BA_WIN=6` | Wi-Fi 的缓冲区在内部 RAM（每个 1.6 KB；静态 4 个，和 203 Launcher 一样）。块确认窗口不能超过动态接收缓冲区数，也不能超过静态接收缓冲区数的两倍。 |
+| `CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384`、`CONFIG_LWIP_TCP_WND_DEFAULT=5760` | 上传：TCP 在收到确认前能发出去的量决定了长往返时间下的速度（16 KB、往返 200 ms 约 80 KB/s，ESP-IDF 默认的 5.7 KB 不到 30 KB/s）。回复都很小。 |
+| `CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y`、`CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y`、`CONFIG_LWIP_TCPIP_TASK_PRIO=4` | 网络任务放在核 0，核 1 留给固件；lwIP 任务的优先级低于固件的界面和音频（ESP-IDF 默认的 18 会抢占它们；Wi-Fi 自己的任务仍是 23）。 |
+| `CONFIG_LWIP_IPV6=n` | 只用 IPv4，和 203 Launcher 一样：代码更少，没有 IPv6 的表。 |
+| `CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS=y` | 在线服务的 TLS 会话在两次请求之间复用：第一次之后，空中不再传证书链，CPU 也不再做密钥交换和证书校验。 |
+| `CONFIG_SPIRAM_USE_MEMMAP=y` | PSRAM 只给明确申请的代码（examples/psram_heap）。 |
+| `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y` | Wi-Fi、lwIP 和 supplicant 的 `.bss`（约 14 KB）放到 PSRAM，只在联网时使用。它可以和 `SPIRAM_USE_MEMMAP` 一起用，但 ESP-IDF 把它放在 PSRAM 的开头：自己把 PSRAM 加进堆的固件必须从 `_ext_ram_bss_end` 之后开始加（两个示例都这样做），否则堆会把这些变量的内存再分出去。ESP-IDF 随之去掉 `SPIRAM_IGNORE_NOTFOUND`：PSRAM 起不来时板子不再启动。 |
+
+不检查证书的有效期（`CONFIG_MBEDTLS_HAVE_TIME_DATE` 保持关闭：设备没有时钟）。
+
+**限制。** 2.4 GHz 网络，有密码（WPA、WPA2、WPA3 个人版）或开放；不支持企业网络；隐藏网络只能作为上次连接的网络连上（扫描看不到它的名字）。不跟随重定向，不保持连接（每个请求一个连接），不支持代理和 HTTP/2。只信任 ESP-IDF 5.3 证书包里的根证书：Let's Encrypt 较新的根证书（YR、YE）不在里面，用它们的网站只要还发送由 ISRG Root X1 交叉签名的证书链（2026 年仍然如此）就能连上。回复正文只保留调用者缓冲区放得下的部分。
+
+## 社区在线服务（任何固件运行时都能收到）
+
+公开接口：[`net/presence.h`](net/presence.h)；它的判断逻辑写成纯函数、在电脑上测试：[`net/presence_logic.h`](net/presence_logic.h)。
+
+在 203 社区网站上，固件页面可以把这个固件发到登录用户已绑定的设备上，只安装，或安装后启动；「我的设备」还可以升级设备的 Launcher。203 Launcher 在它的菜单里接收这些命令；在线服务让设备在**任何基于 HAL 的固件**运行时也能收到（社区也能看到它在线、正在运行固件），不论设备正在做什么。打开 `CONFIG_CARDENZA_HAL_PRESENCE`（menuconfig › CardenzaHAL；**默认打开**）时由 `CardenzaHAL::Init()` 启动，什么都不做的固件也会在线：
+
+1. `Init()` 之后 `CONFIG_CARDENZA_HAL_PRESENCE_START_DELAY` 秒（10 秒），一个任务（优先级 1，核 0，8 KB 栈）读取 Launcher 的设置。只有 Launcher 把设备绑定到了社区（`l_account`，并且是社区自己的域名）、保存了 Wi-Fi 网络、并且 **设置 › 账号 › 接收固件** 是打开的，它才继续；否则任务结束（`State::Idle`），这次运行中不再占用任何资源。
+2. 它通过 [Net](#网络wi-fi-与-https) 连上 Wi-Fi（固件可以共用这个连接：`Net::Connect` 直接加入，`Net::Disconnect` 只是自己放手，不会把连接从服务手里拿走），在固件允许的时候保持连接（见下），两次信标之间进入调制解调器睡眠。
+3. 每 15 秒（以回复里的 `poll` 为准）用设备令牌请求一次 `GET <api>/launcher/inbox?from=firmware`，同时带上 `X-Firmware-Name`、`X-Firmware-Version`（应用描述里的项目名和版本）和 `X-Image-Digest`（镜像末尾的 SHA-256，`Net::RunningImageDigest`），让社区知道正在运行什么。这个请求就是设备的在线状态：网站只允许发给 40 秒内请求过的设备，否则显示“设备没开机或没联网”。
+4. 收到的命令会**交给 Launcher**：先调用固件的钩子（`SetHandoverHook`：保存不能丢的东西，或者拒绝）；把命令（编号、动作 `install`、`install_start` 或 `update_launcher`、社区为私有固件发来的解锁令牌、社区地址）写进共享 NVS 的 `l_pending` 命名空间；告诉社区（`POST <api>/launcher/commands/<id>` `{"status":"handover"}`）；然后重启进入 Launcher（`System::RestartIntoLauncher`，见下）。Launcher 先清掉 `l_pending`，再向社区要这条命令（`GET <api>/launcher/commands/<id>`，其中的 Item 带着构建的签名声明），像处理自己收件箱里的命令一样执行并逐步汇报。格式由 Launcher 定义：203-launcher `docs/SHARED_SETTINGS.md`。同一个回复里的其他命令立即拒绝（`failed`，“Unsupported command” 或 “Device busy”），网站不用一直等。
+
+| 调用 | 作用 |
+| --- | --- |
+| `Start()` | 启动服务，只启动一次（打开选项时由 `Init()` 调用）。 |
+| `Enable(bool)` | 默认打开。关闭后不再请求，并放开 Wi-Fi（固件没有通过 Net 占用时 Wi-Fi 会关掉）；服务停下后才返回，所以要在可以等待的任务里调用。在 `Init()` 之前调用可以让服务根本不启动。固件要自己运行 Wi-Fi 之前先关掉它（Wi-Fi 只能有一个主人：服务开着时，固件自己的 `esp_wifi_init` 会失败）。 |
+| `Planned()` | 这次运行中服务会不会上线（打开了、绑定到允许的社区、保存了网络、接收固件打开）。只读一次设置（只读，几毫秒）；固件可以在启动时问一下，给 Wi-Fi 留出空间。 |
+| `SetActivity(Activity)` | 固件正在做什么；立即返回，任何任务都可以调用。`Idle`（默认）：Wi-Fi 可以连上，请求照常。`RealTime`（正在出声）：不启动 Wi-Fi（一次运行里第一次启动会校准射频，让核 0 忙一阵），已经连上的照常请求。`Quiet`：服务放开 Wi-Fi（内存还给固件，正在进行的请求取消），活动改变之前不再请求。 |
+| `SetRamFloor(bytes)` | 固件给自己留的内部内存（默认 24 KB）：只有在留出这么多之外还放得下 Wi-Fi（第一次连上时实测，之前按 40 KB 算）才启动 Wi-Fi；空闲内部内存低于它时放开 Wi-Fi（之后 60 秒内不再连，固件一直需要时翻倍，最多 10 分钟）。 |
+| `GetState()` | `Off`、`Idle`（这次运行中无事可做）、`Connecting`、`Online`、`Waiting`（失败后或正在让路）、`SignedOut`（社区拒绝了令牌）、`HandingOver`。 |
+| `GetReport()` | 用于诊断：状态、在等什么（`Activity`、`AudioLate`、`Ram`、`FirmwareRequest`、`Failure`）、成功和失败的请求数、Wi-Fi 启动和放开的次数、Wi-Fi 占用的内部内存（`wifiBytes`）、上一次请求的耗时、它看到的空闲内部内存。 |
+| `SetHandoverHook(hook, context)` | `bool hook(const Handover&, void*)` 在重启前、在服务的任务里运行：命令编号和动作、是否启动或升级 Launcher、固件名称和版本（用来显示提示）。返回 `false` 表示拒绝（网站显示 “Refused by the running firmware”）。 |
+
+**它会让路**（`Logic::Decide`，按顺序）。`Quiet` 时放开 Wi-Fi。空闲内存低于固件的下限时，把 Wi-Fi 的内存还给固件。扬声器 DMA 跟不上时（`Audio::GetTxCounters()`：发出时没有新数据的块），什么也不开始。没连 Wi-Fi 时，`RealTime` 就等着；只有下限加上 Wi-Fi 的开销（和它任务栈的一整块）放得下时才启动 Wi-Fi。连着 Wi-Fi 时，固件自己的 Net 请求优先；只有下限加上一次请求的内存放得下时才发请求（TLS 在 PSRAM 时 12 KB、最大块 8 KB，否则 48 KB、20 KB）。某次请求期间音频断了流，之后 60 秒内不发请求，每次翻倍、最多 5 分钟；失败后等 5 秒，每次翻倍、最多 5 分钟。它**不会**因为扬声器在播放就停：一直在写音频的固件（合成器连静音也在渲染）那样就永远收不到命令了，这种固件应当说 `RealTime` 或 `Quiet`。任务优先级是 1、在核 0 上运行，只用别的任务不用的时间；按参考 sdkconfig，Wi-Fi 的任务（23）和 lwIP 的任务（4，低于固件的界面和音频）也在核 0，Wi-Fi 和 lwIP 从闪存运行，IRAM 留给固件。服务不写闪存（交接那一次除外），也没有长时间的临界区。
+
+**有实时音频的固件怎么做。** 出声时说 `RealTime`（Wi-Fi 不会在声音中间启动，已经连着的保持连接），需要每个字节、每个周期的时段（录音、大的载入）说 `Quiet`，其余时候 `Idle`；内存下限设成运行时需要分配的量（CardenzaSynth 留 32 KB：它的效果器和引擎要检查 16-20 KB 空闲）。从不调用这些的固件是 `Idle`、下限 24 KB。
+
+**令牌发到哪里。** 设备上的每个固件都能读到设备令牌（见 Net），所以把它当作半公开的：服务只通过 https 把它发给 `presence_logic.h` 里的域名（`community.203.io`、`cardenza.203.io`，端口 443），绑定里写的是别的地址时根本不发请求（SD 卡或测试设置都不能把它引到别处）。它只用来请求收件箱和汇报命令（社区的设备凭据是最小权限的）。`CONFIG_CARDENZA_HAL_PRESENCE_LOCAL_HTTP`（仅调试版本，默认关闭）额外允许用 http:// 连环回或私有 IPv4 地址上的测试社区。日志里从不出现令牌、解锁令牌或 URL 的路径。收到 401 `signin_required`（或 403 `banned`）时，先再读一次 `l_account`（也许 Launcher 换了令牌：它每天轮换一次，但从不在固件运行时轮换），仍然不行就停到下次启动；`l_account` 本身从不改动。每次连上 Wi-Fi 时读取绑定。
+
+**回到 Launcher。** [`system/launcher.h`](system/launcher.h) 的 `System::RestartIntoLauncher()` 写入 Launcher 的重启票据（RTC 快速内存里的两个字，Launcher 的 bootloader 读取后清除：进入 Launcher 首页，即使打开了“Resume after reset”，也不显示“Boot last app”倒计时），把 USB PHY 交还给 USB-Serial-JTAG，然后重启。`USB::RestartIntoLauncher()`（0x40 命令）现在通知 USB 主机后也这样做。没有 Launcher 时就是重启固件。
+
+**唯一一次写 NVS。** 交接时只往共享 NVS 分区写 `l_pending`（不写别的），在重启前写一次：固件自己打开了分区就用它，否则像 Launcher 启动时那样以读写方式打开 NVS（它会修复断电留下的半截写入，Launcher 片刻之后本来也会这样做）。只有擦除才能打开的分区不去动它，交接失败（“Could not hand over to the Launcher”）。写闪存会让缓存停几毫秒：重启前按键灯可能闪一下。
+
+**开销**（ESP-IDF 5.3.5，2026-11-17，[`examples/launcher_net`](examples/launcher_net/sdkconfig.defaults) 的参考 sdkconfig）。
+
+| | 实测 | 怎么测的 |
+| --- | --- | --- |
+| 静态内部内存 | **+22.6 KB**（IRAM 代码 +13.1 KB：Wi-Fi、PHY 和系统必须留在 IRAM 的代码；.data +8.1 KB；.bss +1.4 KB）；另有约 12 KB 的 Wi-Fi 和 lwIP .bss 放在 PSRAM | `examples/community_presence` 打开与关闭选项对比（`esp_idf_size --diff`）；CardenzaSynth：+21.3 KB |
+| 闪存 | **+610 KB**（Wi-Fi、lwIP、supplicant、mbedTLS、证书包） | 同上 |
+| Wi-Fi 连着时的内部内存 | 在板子上实测：`GetReport().wifiBytes`，以及日志里的 `Wi-Fi up: it took … of internal RAM`；预计 30-45 KB（4 个静态接收缓冲区，Wi-Fi、lwIP 和事件循环的任务，驱动，supplicant），另加本任务的 8 KB 栈 | Net 以前在板子上的实测：6 个静态缓冲区时 40-60 KB |
+| 每次请求 | 复用 TLS 会话：约 2 KB 流量，lwIP 和 Wi-Fi 任务里几毫秒的 CPU；一次连接的第一个请求是完整握手（约 6 KB，P-256 的 ECDHE 是软件算的：优先级 1 上几十毫秒，另有片刻 30-50 KB 的 TLS 内存，在 PSRAM）。16 KB 的回复和其中的命令在 PSRAM；两次请求之间保留一个 2 KB（内部内存）的客户端 | 日志里第一次请求那一行，`GetReport().lastAskMs` |
+| 两次请求之间 | 调制解调器睡眠：Wi-Fi 为接入点的信标醒来（每秒几次，每次核 0 上不到一毫秒） | |
+
+成功的请求只在调试级别记录，固件放开 Wi-Fi 之后重新连上的例行步骤也是：只有发生了能解释问题的事情时（第一次上线、为什么等内存、因为内存放开 Wi-Fi、失败、令牌被拒、交接），服务才往固件的日志里加一行。
+
+**关闭。** `CONFIG_CARDENZA_HAL_PRESENCE=n`：服务和 Net 都不会被链接，接口什么也不做（`GetState()` 是 `Off`，`Planned()` 是 false）。网页目标没有网络：接口存在，服务不存在。
+
 ## 硬件资源归属
 
 GPIO 以 [`board/pins.h`](board/pins.h) 为准。应用应避免重新配置 HAL 占用的资源：
@@ -347,8 +543,9 @@ GPIO 以 [`board/pins.h`](board/pins.h) 为准。应用应避免重新配置 HAL
 | LEDC timer 0 / channel 7 | 屏幕背光，APB 时钟 |
 | LEDC timer 1 / channel 6 | 按键灯全局亮度，APB 时钟 |
 | GPIO47/48/21 | 按键灯使能、时钟、数据 |
-| GPIO0 | Func 按键与 ROM 启动选择 |
+| GPIO0 | HOME 键（HOME；按一下打开系统菜单）与 ROM 启动选择 |
 | 内部 USB PHY | USB 设备或 USB-Serial-JTAG |
+| Wi-Fi 射频 | Net：固件在 `Connect` 和 `Disconnect` 之间，以及在线服务运行期间（固件自己运行 Wi-Fi 之前先 `Presence::Enable(false)`） |
 
 ## 板子默认配置、分区表与刷机
 
@@ -393,9 +590,12 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md)：基于 HAL 的固件工程规则，以及怎样用 `203c` 发布到 203 社区（社区在 `/develop.md` 提供同一个文件）。
 - [`examples/template`](examples/template)：做新固件的起点：HAL 作为子模块、板子默认配置、保留 Launcher 的分区表、`version.txt`、`CHANGELOG.md` 和 `203.json`；同时能编译到板子和网页。
 - [`examples/psram_heap`](examples/psram_heap)：一个小固件，把 PSRAM 加进堆、只给明确申请的代码用，并替换 `new`，让申请失败变成空指针而不是重启。`idf.py -C examples/psram_heap build`。
+- [`examples/launcher_net`](examples/launcher_net)：读出 Launcher 的设置，连上它的 Wi-Fi，发一个 HTTPS 请求再把一切关掉，每一步都打印耗时和内存；它的 `sdkconfig.defaults` 是使用 Net 的固件的参考配置。`idf.py -C examples/launcher_net build`。
+- [`examples/community_presence`](examples/community_presence)：带在线服务的 `CardenzaHAL::Init()`、交接钩子、在日志里打印服务的状态。`idf.py -C examples/community_presence build`。
 - [`examples/hal_check`](examples/hal_check)：通过 HAL 逐个检查板子：每个键的格子和按键灯、音频任务为每个按住的键发一个音、HOME。同一份源码既能编译到板子上，也能编译成网页版。
 - [`.github/actions/community-publish`](.github/actions/community-publish/action.yml)：每个固件的标准发布，用 `203c` 和受信任发布把版本发到 203 社区的 GitHub Action（推送到 main 是 dev，`vX.Y.Z-beta.N` 和 `vX.Y.Z` 标签是 beta 和 stable；见[发布](#发布)）。
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：旧的 Launcher hub，只用于过渡期：还有人在用只读 hub 目录的 203 Launcher 0.2.0，所以 203 Systems 的官方固件把正式版同时镜像到那里。新固件不要用它。
+- **AI 代理与 203 社区**：要发布固件版本、读取用户需求、查看检查报告或把固件发到设备，先装一次 203 社区 skill：`curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh`（装到 `~/.claude/skills/203-community`；说明见 https://community.203.io/agents）。
 
 ## 网页模拟器
 
@@ -428,7 +628,7 @@ python3 components/CardenzaHAL/tools/cardenza_web.py serve build-web/site   # ht
 | 时间 | `esp_timer`（任务和 ISR 两种派发）、`esp_timer_get_time`、`xTaskGetTickCount` 跟随真实时间。 |
 | 内存 | 内部 RAM（`app_main` 开始时约 300 KB 可用）和 2 MB PSRAM 是两个独立的堆，容量与设备相同；`malloc`、`new`、任务栈和 DMA 缓冲都像在板子上一样从中分配；`heap_caps_*`、`CONFIG_SPIRAM_USE_MALLOC / CAPS_ALLOC / MEMMAP`、`esp_ptr_external_ram` 都可用。在板子上内部 RAM 不够的固件，在这里也会在差不多的地方不够。 |
 | 屏幕 | `Display::*` 就是 HAL 自己的代码；panel 和 panel IO 句柄驱动一个 ST7789 模型（窗口、MADCTL、反色、睡眠、字节序），带 SPI 总线的耗时（整屏 17 ms）和 `on_color_trans_done`。GPIO38 上的 LEDC 就是背光。 |
-| 按键、按键灯、HOME | `Keyboard::*` 把页面的按键交给 HAL 自己的去抖和四键上限；按键灯显示扫描会输出的亮度和总亮度。`System::GetFuncButton()` 和 GPIO0 就是 HOME。 |
+| 按键、按键灯、HOME | `Keyboard::*` 把页面的按键交给 HAL 自己的去抖和四键上限；按键灯显示扫描会输出的亮度和总亮度。`System::GetHomeButton()` 和 GPIO0 就是 HOME。 |
 | 音频 | `Audio::*`，以及经 I2C 访问的 ES8156 编解码器寄存器（启动耗时、音量）；TX 通道的 DMA（描述符 × 帧数）由页面的音频时钟按 44.1 kHz 取走，所以 `i2s_channel_write` 会像在板子上一样阻塞；有 `on_sent` / `on_send_q_ovf`。麦克风（`Mic::*`，PDM RX）在页面被允许时使用电脑的麦克风；GPIO43 归最后配置它的一方。 |
 | 存储 | `Storage::*` 挂载 `/sdcard`（页面说没有卡时 `?sd=0` 就没有）；C 和 C++ 的文件操作都可用；`esp_vfs_fat_info`；NVS 随页面保存。 |
 | USB | `USB::*`：MIDI 与电脑的 MIDI 端口互通（Web MIDI，在被允许时），系统 SysEx 命令，应用通道（也通向外层页面）；USB 音频和 HID 没有主机。 |
@@ -442,7 +642,7 @@ HAL 对网页目标的测试：`tests/web`（内核和各个模型，在电脑�
 
 ## 主机测试
 
-[`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线）、驱动源码在故意出错的假 ESP-IDF 驱动下运行（让每条出错路径都走一遍），以及网页目标的内核和各个模型（`tests/web`）。CI 在每次推送和每个 PR 上运行它们。
+[`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线，以及 Net 的：Launcher 保存网络的格式（用 Launcher 自己的代码生成的数据检验）、请求检查、尝试网络的顺序；在线服务的判断逻辑和 Launcher 的重启票据）、驱动源码在故意出错的假 ESP-IDF 驱动下运行（让每条出错路径都走一遍），以及网页目标的内核和各个模型（`tests/web`）。CI 在每次推送和每个 PR 上运行它们。
 
 ```sh
 cmake -S tests -B build-tests
@@ -474,3 +674,5 @@ ctest --test-dir build-tests --output-on-failure
 - **[M5Stack Cardputer](https://docs.m5stack.com/en/core/Cardputer)**：一个很棒的项目。它是鸣片（Cardenza）的灵感来源，也是我们动手做鸣片的初衷，谢谢 M5Stack 团队。鸣片和这个 HAL 不兼容 M5Stack 的设备。
 - **[ESP-IDF](https://github.com/espressif/esp-idf)**（Espressif）与 **[TinyUSB](https://github.com/hathach/tinyusb)**：这里每个模块所基于的框架，以及 `usb/usb.h` 背后的 USB 协议栈。
 - **[Emscripten](https://emscripten.org)**：网页目标靠它把同一份固件源码跑在浏览器里。
+- **[203 Launcher](https://github.com/203-Systems/203-launcher)**（MIT，源自 [bmorcelli/Launcher](https://github.com/bmorcelli/Launcher)）：系统菜单运行它的绘制、文字和动效代码，授权见 [licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)。
+- **HarmonyOS Sans**（华为终端有限公司）：系统菜单的中文、日文和越南文用由它生成的点阵（取自 203 Launcher），授权见 [licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)。

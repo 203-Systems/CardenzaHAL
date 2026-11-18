@@ -1,6 +1,7 @@
 #include "keyboard.h"
 
 #include "internal/keyboard_driver.h"
+#include "internal/overlay.h"
 
 namespace CardenzaHAL::Keyboard {
 
@@ -86,3 +87,27 @@ uint8_t ledGlobalBrightness()
 }
 
 }  // namespace CardenzaHAL::Keyboard
+
+namespace CardenzaHAL::Keyboard::detail {
+
+void BeginOverlay(const LedFrame& lights)
+{
+    keyboard.beginOverlay(lights);
+}
+
+void EndOverlay()
+{
+    keyboard.endOverlay();
+}
+
+std::size_t OverlayKeys(Point2D_t* keys, std::size_t capacity)
+{
+    return keyboard.overlayKeys(keys, capacity);
+}
+
+void LightsOffForSleep()
+{
+    keyboard.lightsOffForSleep();
+}
+
+}  // namespace CardenzaHAL::Keyboard::detail

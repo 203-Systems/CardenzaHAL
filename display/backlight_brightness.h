@@ -26,6 +26,9 @@ inline constexpr std::array<uint16_t, 256> kBacklightDuty{{
     3584, 3617, 3650, 3683, 3716, 3750, 3784, 3818, 3852, 3886, 3920, 3955, 3990, 4025, 4060, 4095
 }};
 
+// The PWM's full duty (12 bits): always on.
+inline constexpr uint16_t kBacklightFullDuty = 4095;
+
 constexpr uint16_t BacklightDuty(uint8_t brightness)
 {
     return kBacklightDuty[brightness];

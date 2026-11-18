@@ -34,6 +34,13 @@ class KeyboardDriver
     bool _led_enabled;
     bool _scan_led_enabled;
     detail::LedFrameState _led_frame;
+    // The system menu (system/menu.h) holds the keys and the lights while it is open: the firmware's
+    // keys read as released (and keys still down when it closes stay hidden until they are let go), the
+    // lights show _overlay_frame. The firmware's own levels stay in _led_frame.
+    std::atomic<bool> _overlay{false};
+    std::atomic<bool> _hide_held{false};
+    uint8_t _app_hidden[8]{};
+    detail::LedFrameState _overlay_frame;
     uint8_t _scan_led_col_mask[4][8];
     uint8_t _scan_led_shifted_columns;
     uint8_t _global_brightness;
@@ -84,6 +91,14 @@ class KeyboardDriver
     void setLEDGlobalBrightness(uint8_t level);
     uint8_t ledGlobalBrightness() const { return _global_brightness; }
     bool handleTimerTickFromIsr();
+
+    // The system menu's hold on the keys and lights (keyboard/internal/overlay.h).
+    void beginOverlay(const LedFrame& lights);
+    void endOverlay();
+    // The keys down now (debounced), whatever the overlay hides from the firmware.
+    std::size_t overlayKeys(Point2D_t* keys, std::size_t capacity);
+    // Every light off and the LED enable held off, before deep sleep.
+    void lightsOffForSleep();
     uint32_t nextTimerTicks() const;
 };
 

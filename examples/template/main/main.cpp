@@ -2,7 +2,7 @@
 //
 // - The screen shows the firmware's name and version and the 4 x 14 keys; a held key fills its cell and
 //   lights its LED, the others glow faintly.
-// - HOME (the Func button) inverts the screen.
+// - HOME (the side key) inverts the screen.
 //
 // It reaches the hardware only through the HAL's public headers, so the same source builds for the board
 // (idf.py build) and for the browser (CardenzaHAL tools/cardenza_web.py build). Keep CardenzaHAL::Init()
@@ -104,7 +104,7 @@ extern "C" void app_main()
     {
         Keyboard::updateKeyList();
         const auto& keys = Keyboard::keyList();
-        const bool home = System::GetFuncButton();
+        const bool home = System::GetHomeButton();
         if (home && !homeBefore) inverted = !inverted;
         homeBefore = home;
 

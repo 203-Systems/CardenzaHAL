@@ -1,0 +1,59 @@
+menu "CardenzaHAL"
+
+    config CARDENZA_HAL_SYSTEM_MENU
+        bool "System menu: press HOME (back to the Launcher, restart, turn off)"
+        default y
+        help
+            CardenzaHAL::Init starts the system menu (system/menu.h): a press of the side key (HOME,
+            GPIO0) opens a menu drawn like the 203 Launcher's over the firmware, with Continue, Back
+            to Launcher, Restart, Turn off and Download mode. While it is open the firmware keeps running,
+            but its frames are not sent, it sees no key and the key lights show the menu's keys.
+
+            Costs: a task with a 3 KB stack that reads GPIO0 every 10 ms, about 10 KB of flash (words and
+            glyphs); nothing else until the menu opens. At run time CardenzaHAL::SystemMenu::Enable(false)
+            switches it off, for a firmware that needs HOME itself.
+
+    config CARDENZA_HAL_PRESENCE
+        bool "Reachable from the 203 community while this firmware runs (presence service)"
+        default y
+        help
+            CardenzaHAL::Init starts the community presence service (net/presence.h): on a board the
+            203 Launcher bound to the community and connected to Wi-Fi, a task of priority 1 keeps Wi-Fi
+            up and asks the community's inbox every 15 seconds with the device token (and the firmware's
+            name, version and image digest), so the community shows the device online and what it runs,
+            and firmware sent from the website (or the Launcher's own update) installs whatever this
+            firmware is doing: the command is handed over to the Launcher (NVS l_pending) and the device
+            restarts into it.
+
+            It gives way to the firmware: Wi-Fi comes up only while the firmware's activity is Idle and
+            its internal RAM floor stays free beside Wi-Fi (Presence::SetActivity, SetRamFloor), and is
+            let go when the firmware says Quiet or runs short of RAM; no request starts while the
+            speaker's DMA runs late.
+
+            Costs, with it on (README.md, "Community presence", measured): Net is linked (about 22 KB of
+            static internal RAM with the reference sdkconfig, examples/launcher_net/sdkconfig.defaults,
+            about 34 KB without its .bss in PSRAM; about 610 KB of flash); on a bound board an 8 KB task
+            stack and Wi-Fi's internal RAM while it is up (Presence::GetReport().wifiBytes), and per
+            request a TLS connection (resumed after the first with CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS).
+            Off, nothing of it is linked. At run time CardenzaHAL::Presence::Enable(false) switches it off;
+            a firmware that runs Wi-Fi itself must do that first (or turn this off).
+
+    config CARDENZA_HAL_PRESENCE_START_DELAY
+        int "Seconds after CardenzaHAL::Init before the presence service looks at the settings"
+        depends on CARDENZA_HAL_PRESENCE
+        range 0 600
+        default 10
+        help
+            The firmware's own start (its RAM, its first screens) comes first.
+
+    config CARDENZA_HAL_PRESENCE_LOCAL_HTTP
+        bool "Debug only: let a test community on a loopback or private IPv4 address use http://"
+        depends on CARDENZA_HAL_PRESENCE
+        default n
+        help
+            The device token goes only over https to the community's own hosts (community.203.io,
+            cardenza.203.io). This also allows http:// to 127.x, 10.x, 172.16-31.x and 192.168.x
+            addresses, for a test community on the developer's network. Never in a build given to
+            anyone: the token would cross the network in clear text.
+
+endmenu

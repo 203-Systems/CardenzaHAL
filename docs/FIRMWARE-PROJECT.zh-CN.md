@@ -18,6 +18,7 @@
    ```
    改别人的固件：`203c fork <代码> [目录]`（克隆源码、建 Fork、写好 `203.json` 的 `forked_from`）。
 3. 写固件：只用 HAL 的公开头文件（`cardenzaHAL.h`、`keyboard/keyboard.h`、`display/display.h`、`audio/audio.h`、`mic/mic.h`、`storage/storage.h`、`system/system.h`、`ir/ir.h`、`usb/usb.h` 等）；HAL 已有的驱动不要自己再写；只用 ESP-IDF；不引入传染性许可（copyleft）的代码；先调用 `CardenzaHAL::Init()`，缺硬件时报错但不要 abort 或重启。
+   - **HOME 的长按归系统**：按住 HOME 一秒弹出系统菜单（`system/menu.h`：继续、返回启动器、重新启动、关机、下载模式），是从任何固件回到 Launcher 的路。HOME 的短按随你用，长按不要另作他用，给用户的固件也不要关掉菜单（`SystemMenu::Enable(false)`、`CONFIG_CARDENZA_HAL_SYSTEM_MENU`）。菜单打开期间固件的画面不发送、按键读作松开：不能在看不见时继续的事情先暂停（`SystemMenu::SetListener`），离开前要保存的在 `SystemMenu::SetLeaveHook` 里保存。
 4. 编译：
    ```sh
    idf.py set-target esp32s3 && idf.py build                                   # build/<工程名>.bin

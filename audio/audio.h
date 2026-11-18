@@ -22,4 +22,17 @@ namespace CardenzaHAL::Audio {
     // is not ready or the write failed. Init() applies the cached level on retry.
     bool SetVolume(uint8_t volume);
     uint8_t GetVolume();
+
+    // What the TX DMA did since the channel was made: blocks sent (one DMA buffer,
+    // 256 frames, about 5.8 ms each) and, of those, blocks that went out with
+    // nothing new written in time (silence from auto-clear): the channel idles
+    // with nobody writing, or the writer fell behind (an underrun, a click).
+    // Counted by the HAL's TX callbacks (on_sent, on_send_q_ovf); a firmware that
+    // registers its own TX callbacks replaces them and these stop. Both wrap at
+    // 2^32. The presence service (net/presence.h) reads them to give way to audio.
+    struct TxCounters {
+        uint32_t sent = 0;
+        uint32_t empty = 0;
+    };
+    TxCounters GetTxCounters();
 }  // namespace CardenzaHAL::Audio

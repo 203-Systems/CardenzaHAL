@@ -2,6 +2,10 @@ build-tests/
 .venv/
 __pycache__/
 *.py[cod]
+examples/*/managed_components/
+examples/*/dependencies.lock
+examples/*/sdkconfig
+examples/*/sdkconfig.old
 build-web/
 web-sites/
 # The examples built in place (idf.py -C examples/<name> build)

@@ -1,0 +1,4 @@
+# After the board's defaults and Net's reference set (../launcher_net/sdkconfig.defaults).
+CONFIG_CARDENZA_HAL_PRESENCE=y
+# The example has nothing else to start first.
+CONFIG_CARDENZA_HAL_PRESENCE_START_DELAY=3

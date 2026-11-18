@@ -1,7 +1,10 @@
 #include "system.h"
+#include "internal/hooks.h"
 #include "../board/pins.h"
 
 #include <driver/i2c_master.h>
+#include <atomic>
+
 #include <driver/gpio.h>
 
 namespace CardenzaHAL::System {
@@ -28,10 +31,10 @@ bool InitializeI2CBus()
     return i2c_new_master_bus(&busConfig, &i2cBus) == ESP_OK;
 }
 
-bool ConfigureFuncButton()
+bool ConfigureHomeButton()
 {
     gpio_config_t config = {};
-    config.pin_bit_mask = 1ULL << Pins::kFuncButton;
+    config.pin_bit_mask = 1ULL << Pins::kHomeButton;
     config.mode = GPIO_MODE_INPUT;
     config.pull_up_en = GPIO_PULLUP_ENABLE;
     config.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -43,7 +46,7 @@ bool ConfigureFuncButton()
 
 bool Init()
 {
-    return InitializeI2CBus() && ConfigureFuncButton();
+    return InitializeI2CBus() && ConfigureHomeButton();
 }
 
 void EnterDeepSleep()
@@ -60,9 +63,56 @@ i2c_master_bus_handle_t GetI2CBus()
     return i2cBus;
 }
 
+namespace {
+
+// The system menu's hold on the side key (system/menu.h): 0 none, 1 the menu has it (the firmware reads
+// it released), 2 hidden until it is let go (the press that opened or closed the menu).
+std::atomic<uint8_t> funcHold{0};
+std::atomic<void (*)()> usbStop{nullptr};
+
+}  // namespace
+
 bool GetFuncButton()
 {
-    return gpio_get_level(static_cast<gpio_num_t>(Pins::kFuncButton)) == 0;
+    const bool down = detail::HomeButtonRaw();
+    const uint8_t hold = funcHold.load();
+    if (hold == 1) return false;
+    if (hold == 2)
+    {
+        if (down) return false;
+        uint8_t expected = 2;
+        funcHold.compare_exchange_strong(expected, 0);
+    }
+    return down;
 }
+
+namespace detail {
+
+bool HomeButtonRaw()
+{
+    return gpio_get_level(static_cast<gpio_num_t>(Pins::kHomeButton)) == 0;
+}
+
+void RestoreHomeButton()
+{
+    (void)ConfigureHomeButton();
+}
+
+void HoldHomeButton(bool held)
+{
+    funcHold.store(held ? 1 : 2);
+}
+
+void SetUsbStop(void (*stop)())
+{
+    usbStop.store(stop);
+}
+
+void StopUsb()
+{
+    if (auto stop = usbStop.exchange(nullptr)) stop();
+}
+
+}  // namespace detail
 
 }  // namespace CardenzaHAL::System

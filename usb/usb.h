@@ -107,9 +107,9 @@ namespace CardenzaHAL::USB {
 
     // Restarts into the ROM download mode: USB-Serial-JTAG is back and esptool can write the flash.
     [[noreturn]] void RestartIntoDownloadMode();
-    // Restarts into the Launcher: a plain restart, which the Launcher's bootloader routes to the
-    // Launcher (unless its "resume after reset" option is on). It brings USB-Serial-JTAG back. Without
-    // a Launcher this simply restarts the firmware.
+    // Restarts into the Launcher's home screen, also when its "Resume after reset" option is on (the
+    // Launcher's restart ticket, system/launcher.h). It brings USB-Serial-JTAG back. Without a Launcher
+    // this simply restarts the firmware.
     [[noreturn]] void RestartIntoLauncher();
 
 }  // namespace CardenzaHAL::USB

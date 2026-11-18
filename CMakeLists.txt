@@ -16,7 +16,19 @@ if(COMMAND idf_component_register)
             keyboard/internal/keyboard_key_scan.cpp
             keyboard/internal/keyboard_led_scan.cpp
             mic/mic.cpp
+            net/connect_order.cpp
+            net/http_request.cpp
+            net/launcher_settings.cpp
+            net/net.cpp
+            net/presence.cpp
+            net/presence_logic.cpp
             storage/storage.cpp
+            system/launcher.cpp
+            system/menu.cpp
+            system/menu/frame.cpp
+            system/menu/launcher/glyphs.cpp
+            system/menu/launcher/lcd.cpp
+            system/menu/logic.cpp
             system/system.cpp
             usb/usb.cpp
         INCLUDE_DIRS
@@ -31,10 +43,22 @@ if(COMMAND idf_component_register)
             vfs
             espressif__tinyusb
         PRIV_REQUIRES
+            esp_app_format
             esp_hw_support
             esp_rom
             log
             usb
+            # Net (net/net.h): linked only into a firmware that calls it, or that has the presence service
+            # (CONFIG_CARDENZA_HAL_PRESENCE, Kconfig) started by Init.
+            app_update
+            esp-tls
+            esp_event
+            esp_http_client
+            esp_netif
+            esp_partition
+            esp_wifi
+            mbedtls
+            nvs_flash
     )
     target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
     # Two TinyUSB calls are wrapped for the audio feedback endpoint (usb/usb.cpp): its TX FIFO size and the
@@ -62,6 +86,18 @@ set(cardenza_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/display/display.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ir/ir.cpp
     ${CMAKE_CURRENT_LIST_DIR}/mic/mic.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/net/connect_order.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/net/http_request.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/net/launcher_settings.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/net/net.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/net/presence.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/net/presence_logic.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/launcher.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/menu.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/menu/frame.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/menu/launcher/glyphs.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/menu/launcher/lcd.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/menu/logic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/system.cpp
     ${CMAKE_CURRENT_LIST_DIR}/usb/usb.cpp
 )

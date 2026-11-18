@@ -24,6 +24,8 @@ What the ESP32-S3 on this board does that is easy to miss, learnt the hard way i
 
 Writing the internal flash stops the cache on both cores for the length of the write (an NVS write took about 45 ms): code in flash and interrupts that are not in IRAM stop with it (the key LED scan stood still on one row, which lit up). Keep your data on the SD card. If you must use NVS, use your own namespace and never erase the partition: it holds the 203 Launcher's registry of installed software.
 
+Reading the Launcher's Wi-Fi networks and community account needs no write access: [`Net::ReadLauncherSettings`](../net/net.h) opens the partition through a read-only partition entry and never repairs it. Wi-Fi writes to NVS unless told not to: Net starts it with RAM storage, and a firmware that uses Wi-Fi sets `CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE=n` (the PHY otherwise stores its calibration in NVS). The README's "Network" section has the details.
+
 ## Files on the SD card
 
 - **Never read through an unbuffered `FILE`**: newlib then reads a byte at a time (a 2 KB block took 33 ms and held a core). Use `read()` on the file's descriptor, or give the `FILE` a buffer.
@@ -49,10 +51,11 @@ A firmware that starts USB (`USB::Init`) takes the PHY from USB-Serial-JTAG: it 
 A Cardenza normally runs the 203 Launcher, which installs and starts firmwares. A firmware it starts:
 
 - is installed into a slot the Launcher makes: it never changes the partition table, the otadata, or the Launcher's slot. From a computer, [`tools/uploader`](../tools/uploader/README.md) sends a build to the Launcher (`serial_flasher.py`) and registers its name, UUID and version (`register_app.py`). A board is flashed directly only when it has no Launcher ([`board/partitions.csv`](../board/partitions.csv) keeps the Launcher's regions even then, and [`tools/cardenza_flash.py`](../tools/cardenza_flash.py) refuses to erase a Launcher);
-- keeps its data on the SD card, in its own folder, and leaves the Launcher's NVS records alone (above);
+- keeps its data on the SD card, in its own folder, and leaves the Launcher's NVS records alone (above); it may read the Wi-Fi networks and community account the Launcher saved, through `net/net.h`;
 - runs with the Launcher's bootloader, which sets the flash to QIO: build it so;
 - carries its version in its app description: `PROJECT_VER` (`cardenza_read_version`) is the version the Launcher shows under it. Its name in the list is not the project name: it is the name it was registered or installed under, and a directly flashed firmware shows its partition label;
-- goes back to the Launcher with a plain restart (`esp_restart()`; `command launcher` over USB does it from a computer);
+- goes back to the Launcher with [`System::RestartIntoLauncher()`](../system/launcher.h) (the Launcher's restart ticket: its home screen even when "Resume after reset" is on, where a plain `esp_restart()` starts the firmware again; `command launcher` over USB does the same from a computer);
+- stays reachable from the 203 community while it runs: the presence service ([`net/presence.h`](../net/presence.h), on by default) keeps the device online and hands firmware sent from the website (and the Launcher's own update) over to the Launcher. Give it a hook to save your work first (or refuse); tell it what you do (`Presence::SetActivity`: `RealTime` while sound plays, `Quiet` when you need Wi-Fi's RAM and time back) and how much internal RAM you keep (`SetRamFloor`); switch it off (`Presence::Enable(false)`, or Kconfig) before running Wi-Fi yourself;
 - is released on the 203 community, like every firmware including 203 Systems' own: from CI with [`.github/actions/community-publish`](../.github/actions/community-publish/action.yml) and trusted publishing (dev for a push to main, stable for a tag `vX.Y.Z` equal to its version, beta for `vX.Y.Z-beta.N`), the first version by hand with `203c` ([FIRMWARE-PROJECT.md](FIRMWARE-PROJECT.md#8-publish): the files a project needs, what the community checks, versions and channels). The old Launcher hub ([`launcher-publish`](../.github/actions/launcher-publish/action.yml)) only receives a mirror of 203's official releases while Launchers 0.2.0 are in use.
 
 The Launcher's own documentation has the full rules (registration, metadata, installation).

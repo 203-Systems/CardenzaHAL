@@ -86,6 +86,16 @@ void Storage(bool unmountFailure)
   }
   Require(Init() && IsMounted() && Fake::mounts == 2 && Fake::unmounts == 1,
           "card replacement did not release the old card exactly once and mount again");
+  // ESP-IDF's SD driver resets GPIO0 (HOME) when it lets the slot go: after an unmount and after a failed
+  // mount the HAL gives the side key its input back.
+  const int restores = Fake::funcButtonRestores;
+  Fake::cardResponds = false;
+  Require(!CheckAfterIoError(), "lost card remained mounted");
+  Fake::cardResponds = true;
+  Fake::fail = "mount";
+  Require(!Init() && !IsMounted(), "a failed mount reported a card");
+  Fake::fail.clear();
+  Require(Fake::funcButtonRestores == restores + 2, "HOME (GPIO0) not restored after the SD driver let the slot go");
 }
 
 void Infrared()

@@ -20,6 +20,8 @@
 #include <soc/rtc_cntl_reg.h>
 #include <soc/rtc_cntl_struct.h>
 
+#include "system/internal/hooks.h"
+#include "system/launcher.h"
 #include "tusb.h"
 #include "device/usbd_pvt.h"
 
@@ -509,6 +511,11 @@ bool Init(const Config& config)
         return false;
     }
     g_started.store(true);
+    // The system menu (system/menu.h) restarts the board too: it leaves the host first, as Restart does.
+    System::detail::SetUsbStop([] {
+        tud_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(50));
+    });
     ESP_LOGI(kTag, "started %04x:%04x audio=%d midi=%d keyboard=%d consumer=%d", g_config.vendorId, g_config.productId,
              g_config.audio, g_config.midi, g_config.keyboard, g_config.consumer);
     return true;
@@ -614,8 +621,13 @@ void RestartIntoDownloadMode()
 
 void RestartIntoLauncher()
 {
-    ESP_LOGW(kTag, "restarting into the Launcher");
-    Restart();
+    if (g_started.load())
+    {
+        tud_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    // With the Launcher's restart ticket: its home screen even when "Resume after reset" is on.
+    System::RestartIntoLauncher();
 }
 
 }  // namespace CardenzaHAL::USB

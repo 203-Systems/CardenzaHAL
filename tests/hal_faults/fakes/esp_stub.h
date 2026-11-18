@@ -34,6 +34,7 @@ inline int panelResets = 0, panelResetPin = -2, resetReason = 1;
 inline bool panelOn = false;
 inline int binarySemaphores = 0, callbackRegistrations = 0;
 inline int backlightConfigurations = 0, backlightWrites = 0, backlightHoldReleases = 0;
+inline int funcButtonRestores = 0;  // System::detail::RestoreHomeButton (hardware_boundary.cpp)
 inline unsigned backlightDuty = 0, backlightPendingDuty = 0;
 inline std::size_t transferredPixels = 0, backlightRevealedAt = 0;
 inline std::array<std::uint16_t, 240 * 135> displayPixels{};
@@ -136,6 +137,7 @@ inline int gpio_hold_dis(int pin) {
   if (pin == 38) ++Fake::backlightHoldReleases;
   return Fake::Result("gpio");
 }
+inline int gpio_hold_en(int) { return Fake::Result("gpio"); }
 struct FakeGpioRegisters { std::uint32_t in = ~0u; };
 inline FakeGpioRegisters GPIO;
 struct spi_dev_t {};
@@ -185,7 +187,7 @@ struct i2s_pdm_rx_config_t { int clk_cfg = 0, slot_cfg = 0; i2s_pdm_rx_gpio_conf
 #define I2S_PDM_RX_CLK_DEFAULT_CONFIG(rate) (rate)
 #define I2S_PDM_RX_SLOT_DEFAULT_CONFIG(bits, mode) (bits)
 struct i2s_event_data_t {};
-struct i2s_event_callbacks_t { bool (*on_recv_q_ovf)(i2s_chan_handle_t, i2s_event_data_t*, void*) = nullptr; bool (*on_send_q_ovf)(i2s_chan_handle_t, i2s_event_data_t*, void*) = nullptr; };
+struct i2s_event_callbacks_t { bool (*on_recv)(i2s_chan_handle_t, i2s_event_data_t*, void*) = nullptr; bool (*on_recv_q_ovf)(i2s_chan_handle_t, i2s_event_data_t*, void*) = nullptr; bool (*on_sent)(i2s_chan_handle_t, i2s_event_data_t*, void*) = nullptr; bool (*on_send_q_ovf)(i2s_chan_handle_t, i2s_event_data_t*, void*) = nullptr; };
 struct i2s_chan_info_t { unsigned total_dma_buf_size = 3072; };
 inline int i2s_new_channel(const i2s_chan_config_t* cfg, i2s_chan_handle_t* tx, i2s_chan_handle_t* rx) {
   if (tx) *tx = new I2sChannel{false, false, cfg->id};
@@ -274,6 +276,7 @@ inline int esp_lcd_panel_swap_xy(void*, bool) { return ESP_OK; }
 inline int esp_lcd_panel_mirror(void*, bool, bool) { return ESP_OK; }
 inline int esp_lcd_panel_set_gap(void*, int, int) { return ESP_OK; }
 inline int esp_lcd_panel_disp_on_off(void*, bool on) { Fake::panelOn = on; return ESP_OK; }
+inline int esp_lcd_panel_disp_sleep(void*, bool sleep) { if (sleep) Fake::panelOn = false; return ESP_OK; }
 inline int esp_lcd_panel_io_register_event_callbacks(void*, const esp_lcd_panel_io_callbacks_t* callbacks, void* context) {
   ++Fake::callbackRegistrations;
   if (Fake::Bad("display_callback")) return ESP_FAIL;
@@ -303,6 +306,7 @@ constexpr int LEDC_USE_APB_CLK = 0, LEDC_INTR_DISABLE = 0;
 struct ledc_timer_config_t { int speed_mode = 0, duty_resolution = 0, timer_num = 0; unsigned freq_hz = 0; int clk_cfg = 0; };
 struct ledc_channel_config_t { int gpio_num = 0, speed_mode = 0, channel = 0, intr_type = 0, timer_sel = 0, duty = 0, hpoint = 0; };
 inline int ledc_timer_config(const ledc_timer_config_t*) { return ESP_OK; }
+inline int ledc_set_freq(int, int, unsigned) { return ESP_OK; }
 inline int ledc_channel_config(const ledc_channel_config_t* config) {
   if (config->channel == LEDC_CHANNEL_7) {
     if (Fake::Bad("display_pwm")) return ESP_FAIL;
@@ -316,6 +320,10 @@ inline int ledc_set_duty(int, int channel, unsigned duty) {
     if (Fake::Bad("display_brightness")) return ESP_FAIL;
     ++Fake::backlightWrites; Fake::backlightPendingDuty = duty;
   }
+  return ESP_OK;
+}
+inline int ledc_stop(int, int channel, unsigned) {
+  if (channel == LEDC_CHANNEL_7) Fake::backlightDuty = Fake::backlightPendingDuty = 0;
   return ESP_OK;
 }
 inline int ledc_update_duty(int, int channel) {

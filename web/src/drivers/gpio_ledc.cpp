@@ -17,7 +17,7 @@ namespace k = cardenza_web::kernel;
 namespace {
 
 constexpr int kPins = GPIO_NUM_MAX;
-constexpr int kFuncButton = 0;
+constexpr int kHomeButton = 0;
 constexpr int kDisplayReset = 33;
 constexpr int kBacklight = 38;
 
@@ -49,7 +49,7 @@ void BacklightFromPin()
 
 int Level(int pin)
 {
-    if (pin == kFuncButton) return g_home ? 0 : 1;
+    if (pin == kHomeButton) return g_home ? 0 : 1;
     const Pin& state = g_pins[pin];
     if (state.mode & GPIO_MODE_DEF_OUTPUT) return state.level ? 1 : 0;
     if (state.pullUp) return 1;
@@ -117,7 +117,7 @@ namespace cardenza_web::board {
 void SetHome(bool pressed)
 {
     if (pressed == g_home) return;
-    EdgeEvent event{kFuncButton, g_home ? 0 : 1, pressed ? 0 : 1};
+    EdgeEvent event{kHomeButton, g_home ? 0 : 1, pressed ? 0 : 1};
     g_home = pressed;
     k::RunIsr(RaiseIsr, &event);
 }
