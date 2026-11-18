@@ -79,30 +79,114 @@ int LanguageIndex(int launcherLang)
     }
 }
 
+namespace {
+
+// The Launcher's hold-to-act curve (powerHoldFill, a cubic in and out) over [0, 1], and its slope.
+float InOut(float p)
+{
+    return launcher::powerHoldFill(uint32_t(std::clamp(p, 0.f, 1.f) * launcher::kPowerHoldMs + 0.5f));
+}
+float InOutSlope(float p)
+{
+    if (p <= 0 || p >= 1) return 0;
+    const float q = p < .5f ? p : 1 - p;
+    return 12 * q * q;
+}
+
+}  // namespace
+
 float PullEdge(uint32_t heldMs)
 {
     if (heldMs <= kPullDelayMs) return 0;
-    const float p = std::min(1.f, float(heldMs - kPullDelayMs) / float(kHoldMs - kPullDelayMs));
-    return kWidth * launcher::powerHoldFill(uint32_t(p * launcher::kPowerHoldMs));
+    if (heldMs <= kPullOutMs)
+        return kPullOutPixels * InOut(float(heldMs - kPullDelayMs) / float(kPullOutMs - kPullDelayMs));
+    if (heldMs >= kHoldMs) return kPullRestPixels;
+    return kPullOutPixels - kPullBackPixels * InOut(float(heldMs - kPullOutMs) / float(kHoldMs - kPullOutMs));
+}
+
+float PullSpeed(uint32_t heldMs)
+{
+    if (heldMs <= kPullDelayMs || heldMs >= kHoldMs) return 0;
+    if (heldMs <= kPullOutMs)
+    {
+        const float span = float(kPullOutMs - kPullDelayMs);
+        return kPullOutPixels * InOutSlope(float(heldMs - kPullDelayMs) / span) / span;
+    }
+    const float span = float(kHoldMs - kPullOutMs);
+    return -kPullBackPixels * InOutSlope(float(heldMs - kPullOutMs) / span) / span;
+}
+
+// The way back is the Launcher's ListSlide::Edge (launcher/motion.inc): a cubic from `from` at `speed` to 0,
+// at rest after `ms`.
+float Curtain::Back(uint32_t nowMs) const
+{
+    launcher::ListSlide::Edge edge{backFrom_, 0, backSpeed_, backSince_, backMs_};
+    return backMs_ != 0 ? edge.at(nowMs) : 0.f;
+}
+
+float Curtain::BackSpeed(uint32_t nowMs) const
+{
+    launcher::ListSlide::Edge edge{backFrom_, 0, backSpeed_, backSince_, backMs_};
+    return backMs_ != 0 ? edge.velocity(nowMs) : 0.f;
+}
+
+void Curtain::ReturnFrom(float edge, uint32_t nowMs)
+{
+    pulling_ = false;
+    heldMs_ = 0;
+    backFrom_ = std::clamp(edge, 0.f, float(kWidth));
+    backSpeed_ = 0;
+    backSince_ = nowMs;
+    backMs_ = backFrom_ > 0 ? kReturnMs : 0;
+}
+
+float Curtain::Update(bool pulling, uint32_t heldMs, uint32_t nowMs)
+{
+    if (pulling_ && !pulling)
+    {
+        // Let go: back from where the edge was last drawn. The speed it has is kept when it is already toward
+        // the left (never faster than the Launcher's ease-out would start); an edge still going out starts
+        // back from rest (ListSlide::Edge::go's rule for an edge that turns round).
+        const float from = std::clamp(PullEdge(heldMs_) + Back(nowMs), 0.f, float(kWidth));
+        const float speed = PullSpeed(heldMs_) + BackSpeed(nowMs);
+        ReturnFrom(from, nowMs);
+        backSpeed_ = std::clamp(speed, -3 * from / float(kReturnMs), 0.f);
+    }
+    pulling_ = pulling;
+    heldMs_ = pulling ? heldMs : 0;
+    if (!pulling && nowMs - backSince_ >= backMs_) backMs_ = 0;  // at rest: nothing left (the clock may wrap)
+    return std::clamp((pulling ? PullEdge(heldMs) : 0.f) + Back(nowMs), 0.f, float(kWidth));
 }
 
 uint16_t PanelGrey(uint8_t grey)
 {
-    const uint16_t c = launcher::Lcd::rgb(grey);
-    return static_cast<uint16_t>((c >> 8) | (c << 8));
+    return launcher::Lcd::rgb(grey);
 }
 
 uint16_t PanelMix(uint16_t a, uint16_t b, int weight)
 {
     if (weight <= 0) return a;
     if (weight >= 256) return b;
-    const uint16_t ca = static_cast<uint16_t>((a >> 8) | (a << 8)), cb = static_cast<uint16_t>((b >> 8) | (b << 8));
     const auto mix = [&](int shift, int mask) {
-        const int x = (ca >> shift) & mask, y = (cb >> shift) & mask;
+        const int x = (a >> shift) & mask, y = (b >> shift) & mask;
         return ((x * (256 - weight) + y * weight + 128) >> 8) << shift;
     };
-    const uint16_t c = static_cast<uint16_t>(mix(11, 31) | mix(5, 63) | mix(0, 31));
-    return static_cast<uint16_t>((c >> 8) | (c << 8));
+    return static_cast<uint16_t>(mix(11, 31) | mix(5, 63) | mix(0, 31));
+}
+
+int LauncherBrightness(bool found, int32_t stored)
+{
+    // Its savedBrightness (src/settings.cpp): never dark by a stored 0, never under 10.
+    if (!found || stored == 0) return 100;
+    return int(std::clamp<int32_t>(stored, 10, 100));
+}
+
+int LauncherBacklightDuty(int percent, int full)
+{
+    // Its backlightDuty: 1023 * (1100 + 89 * p) / 10000 of 1023, so 20 % of the time at 10 and always on at
+    // 100 (the backlight's driver needs a pulse long enough to rise).
+    percent = std::clamp(percent, 0, 100);
+    return percent == 0 ? 0 : (full * (1100 + 89 * percent) + 5000) / 10000;
 }
 
 // ---- NVS ----------------------------------------------------------------------------------------------
@@ -118,6 +202,7 @@ constexpr std::size_t kEntryBytes = 32;
 constexpr int kEntries = 126;
 constexpr uint8_t kEntryWritten = 2;
 constexpr uint8_t kTypeU8 = 0x01;
+constexpr uint8_t kTypeI32 = 0x14;
 
 uint32_t ReadU32(const uint8_t* p)
 {
@@ -173,6 +258,16 @@ uint8_t NvsNamespaceIndex(const uint8_t* page, const char* name)
         return index != 0;
     });
     return index;
+}
+
+bool NvsFindI32(const uint8_t* page, uint8_t index, const char* key, int32_t& value)
+{
+    if (index == 0) return false;
+    return EachItem(page, [&](const uint8_t* entry) {
+        if (entry[0] != index || entry[1] != kTypeI32 || !KeyIs(entry, key)) return false;
+        value = static_cast<int32_t>(ReadU32(entry + 24));
+        return true;
+    });
 }
 
 bool NvsFindU8(const uint8_t* page, uint8_t index, const char* key, uint8_t& value)

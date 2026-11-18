@@ -3,9 +3,11 @@
 #include <cstdint>
 
 // The system menu: in every firmware on CardenzaHAL, holding the side key (HOME, GPIO0) for a second opens
-// the 203 Launcher's list (drawn by the Launcher's own code, system/menu/launcher/), over whatever the
-// firmware shows. While HOME is held it is pulled out from the left over the screen and covers it at one
-// second (let go before that, the firmware's picture is back at once). Its items:
+// the 203 Launcher's list (drawn by the Launcher's own code, system/menu/launcher/; the same greys on the
+// panel and the Launcher's own backlight setting), over whatever the firmware shows. While HOME is held the
+// Launcher comes out from the left like a curtain (to 112 pixels, then back a little), and at one second it
+// pops open: the rest fades in. Let go before that and it goes back to the left, eased, from where it is;
+// Continue closes the same way round (system/menu/logic.h has the curve). Its items:
 //
 //   Continue           back to the firmware (also ESC or del)
 //   Back to Launcher   the Launcher's home screen, whatever its settings (the restart ticket,
@@ -26,7 +28,10 @@
 // the panel handles itself (Display::GetPanel, Present() without a framebuffer) should stop while IsOpen().
 //
 // CardenzaHAL::Init starts it (CONFIG_CARDENZA_HAL_SYSTEM_MENU, on by default): a task of 5 KB that reads
-// the side key every 20 ms. While HOME is held, Display::Present* send only the columns right of the curtain. A firmware that needs HOME's long press for itself turns it off with
+// the side key every 20 ms. While the curtain is out (HOME held, or on its way back), Display::Present* send
+// only the columns right of it; it gives columns back from a copy of the firmware's latest frame (PSRAM;
+// without one, or before the firmware presented a frame since the press, the curtain only goes out and is
+// gone at once when HOME is let go). A firmware that needs HOME's long press for itself turns it off with
 // Enable(false) (or the Kconfig option); short presses of HOME are always the firmware's.
 namespace CardenzaHAL::SystemMenu {
 

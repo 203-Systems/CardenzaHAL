@@ -120,25 +120,81 @@ namespace CardenzaHAL::SystemMenu::detail {
     inline constexpr int kHeight = 135;
 
     // ---- How it comes and goes (system/menu.cpp) ---------------------------------------------------------
-    // While HOME is held the menu is pulled out from the left over the whole screen (the user, 2026-11-18:
-    // "直接使用拉出的方式，不要使用那种收回的方式"): after a tap's length its edge moves right with the hold (the
-    // Launcher's hold-to-act easing, power_state.h there) and reaches the right edge when the hold is complete;
-    // the menu is open. It stays in place and is uncovered column by column, so a frame sends only the few new
-    // columns (the panel has no tearing-effect line). Let go before that and the firmware's picture is back at
-    // once: nothing slides back. In the menu, the selection bar's edges move a few pixels a frame (the
-    // Launcher's ListSlide); what covers the screen fades.
+    // The menu is the Launcher, pulled out from the left like a curtain (the user, 2026-11-18: "从左侧慢慢拉
+    // 出来一点，又慢慢缩回去一点点，直到达到弹出时间的时候，快速渐变动画弹出来 ... 如果中途放手了，也会慢慢的用
+    // 一定的非线性速度回去", and again that day after a straight pull was tried: "出来一些，然后缩回去一点点，
+    // 超过触发时间就弹出来 ... 保持收回去，动画连贯性好").
+    //
+    // HOME held past a tap's length (kPullDelayMs): the menu's left part is uncovered up to an edge that
+    // goes out to kPullOutPixels (enough to read what it is: the Launcher's black rail with the page's name,
+    // the selection bar and the first words of the rows), then eases back kPullBackPixels, both on the
+    // Launcher's hold-to-act curve (powerHoldFill: a cubic in and out, at rest at each end), and is at rest
+    // when the hold is complete (kHoldMs). Then it pops: the rest of the menu fades in over the firmware's
+    // picture (kPopMs, the Launcher's ease) while the backlight goes to the Launcher's.
+    // Let go before that: the edge goes back to the left from where it is (kReturnMs, the Launcher's
+    // kPowerReturnMs), on the cubic the Launcher's lists move their selection bar's edges with
+    // (ListSlide::Edge: from where it is, at the speed it has when that is already toward the left, from rest
+    // when it was still going out). A new press while it goes back adds its pull to what is left of the way
+    // back: the edge never jumps. Continue closes the same way round: the right part fades back to the
+    // firmware's picture (kCloseMs), then the curtain goes back to the left.
+    //
+    // The menu stays in place and is uncovered, never slid: the panel has no tearing-effect line, so a frame
+    // sends only the columns the edge passed since the last one (a strip a few columns wide, one write along
+    // the panel's scan), and what covers a large area fades.
     inline constexpr uint32_t kPullDelayMs = 120;  // a tap on HOME shows nothing
-    inline constexpr uint32_t kPopMs = 180;        // the backlight comes up to the menu's
-    inline constexpr uint32_t kCloseMs = 150;      // Continue: the firmware's picture fades back
-    // The curtain's edge (pixels from the left) when HOME has been held `heldMs`: 0 to kWidth, never back.
+    inline constexpr uint32_t kPullOutMs = 620;    // held this long, the edge is furthest out
+    inline constexpr int kPullOutPixels = 112;
+    inline constexpr int kPullBackPixels = 16;     // and back by this at kHoldMs
+    inline constexpr int kPullRestPixels = kPullOutPixels - kPullBackPixels;
+    inline constexpr uint32_t kReturnMs = 300;     // let go: back to the left
+    inline constexpr uint32_t kPopMs = 180;        // the rest of the menu fades in, the backlight to the Launcher's
+    inline constexpr uint32_t kCloseMs = 150;      // Continue: the right part fades back to the firmware's picture
+    // The curtain's edge (pixels from the left) when HOME has been held `heldMs`: 0 until kPullDelayMs, out to
+    // kPullOutPixels at kPullOutMs, back to kPullRestPixels at kHoldMs (and there after it).
     float PullEdge(uint32_t heldMs);
+    // Its speed there (pixels a millisecond; negative: going back).
+    float PullSpeed(uint32_t heldMs);
 
-    // A grey as the panel takes it: RGB565 with its bytes swapped (the Launcher's grey to RGB565).
+    // The curtain's edge over time: the pull while HOME is held on a press that can open the menu, plus
+    // what is left of a way back to the left (after HOME was let go, or after the menu closed).
+    class Curtain {
+      public:
+        // Every frame. `pulling`: HOME is down on a press that can still open the menu, held `heldMs`.
+        // Returns the edge: 0 to kWidth.
+        float Update(bool pulling, uint32_t heldMs, uint32_t nowMs);
+        // The curtain is at `edge` at rest and goes back to the left from now (the menu closed).
+        void ReturnFrom(float edge, uint32_t nowMs);
+        // It is out or on its way: draw frames.
+        bool Moving(uint32_t nowMs) const { return pulling_ || nowMs - backSince_ < backMs_; }
+        void Reset() { *this = Curtain(); }
+
+      private:
+        float Back(uint32_t nowMs) const;
+        float BackSpeed(uint32_t nowMs) const;
+        bool pulling_ = false;
+        uint32_t heldMs_ = 0;
+        // The way back: from backFrom_ at backSpeed_ (pixels a millisecond) to 0, at rest after backMs_.
+        float backFrom_ = 0, backSpeed_ = 0;
+        uint32_t backSince_ = 0, backMs_ = 0;
+    };
+
+    // A grey as the HAL's panel takes it: the Launcher's grey to RGB565 (its Lcd::rgb) in the processor's
+    // byte order. The Launcher swaps the two bytes for its own panel setup (big-endian data, ESP-IDF's
+    // default); the HAL sets the same panel to little-endian data (display/display.cpp), so the swapped
+    // pixel was another colour here (the selection bar's grey 20 a dull pink, the details' 170 green) until
+    // 2026-11-18. Black and white are the same either way, which is how it went unseen in the tests.
     uint16_t PanelGrey(uint8_t grey);
     // Between two pixels as the panel takes them: weight 0 is a, 256 is b.
     uint16_t PanelMix(uint16_t a, uint16_t b, int weight);
 
-    // Reading one u8 value from the NVS partition without the NVS library (nothing is written). One page
+    // The backlight as the Launcher sets it on the Cardenza (its src/platform/board.cpp backlightDuty): the
+    // duty of its brightness setting `percent` (its NVS value launcher/bright: 10 to 100, 0 or missing 100)
+    // out of `full`. The menu shows at this duty and at the Launcher's PWM frequency, whatever the firmware's
+    // brightness: the same white as the Launcher's.
+    int LauncherBrightness(bool found, int32_t stored);
+    int LauncherBacklightDuty(int percent, int full);
+
+    // Reading one value from the NVS partition without the NVS library (nothing is written). One page
     // (4096 bytes) at a time: first every page for the namespace's index, then every page for the value.
     // ESP-IDF 5.3's layout (components/nvs_flash/src/nvs_types.hpp, nvs_page.hpp).
     inline constexpr std::size_t kNvsPageBytes = 4096;
@@ -146,5 +202,7 @@ namespace CardenzaHAL::SystemMenu::detail {
     uint8_t NvsNamespaceIndex(const uint8_t* page, const char* name);
     // The u8 `key` of namespace `index` if this page holds it.
     bool NvsFindU8(const uint8_t* page, uint8_t index, const char* key, uint8_t& value);
+    // The i32 `key` of namespace `index` if this page holds it.
+    bool NvsFindI32(const uint8_t* page, uint8_t index, const char* key, int32_t& value);
 
 }  // namespace CardenzaHAL::SystemMenu::detail

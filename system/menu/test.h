@@ -8,7 +8,7 @@
 namespace CardenzaHAL::SystemMenu::detail {
 
     void InjectKey(Key key);
-    // The curtain's edge on the screen (0: none), whether a fade has the firmware's picture, and the menu
+    // The curtain's edge on the screen (0: none; it is out while HOME is held and on its way back after), whether a fade has the firmware's picture, and the menu
     // task's stack never used so far (bytes).
     int CurtainEdge();
     bool HasFirmwarePicture();

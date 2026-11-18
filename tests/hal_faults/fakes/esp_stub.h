@@ -306,6 +306,7 @@ constexpr int LEDC_USE_APB_CLK = 0, LEDC_INTR_DISABLE = 0;
 struct ledc_timer_config_t { int speed_mode = 0, duty_resolution = 0, timer_num = 0; unsigned freq_hz = 0; int clk_cfg = 0; };
 struct ledc_channel_config_t { int gpio_num = 0, speed_mode = 0, channel = 0, intr_type = 0, timer_sel = 0, duty = 0, hpoint = 0; };
 inline int ledc_timer_config(const ledc_timer_config_t*) { return ESP_OK; }
+inline int ledc_set_freq(int, int, unsigned) { return ESP_OK; }
 inline int ledc_channel_config(const ledc_channel_config_t* config) {
   if (config->channel == LEDC_CHANNEL_7) {
     if (Fake::Bad("display_pwm")) return ESP_FAIL;

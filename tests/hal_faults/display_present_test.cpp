@@ -211,6 +211,81 @@ void Overlay(bool memory)
             Fake::transferredPixels - before == whole, "the firmware's first frame after the overlay was not whole");
 }
 
+// The system menu's curtain (display/internal/overlay.h MoveCurtain): going out, only the new columns are
+// sent, a narrow strip in one piece, and the firmware's frames reach only what is right of the edge; going
+// back, the columns given back are painted (the firmware's picture) before its frames reach them again;
+// without that picture its next frame goes whole. The backlight's duty while the menu shows is the menu's.
+void Curtain()
+{
+    alignas(4) static Frame firmware, next, menu, expected;
+    firmware = MakeFrame();
+    for (std::size_t index = 0; index < menu.size(); ++index)
+    {
+        menu[index] = static_cast<std::uint16_t>(~firmware[index]);
+        next[index] = static_cast<std::uint16_t>(firmware[index] ^ 0x5a5a);
+    }
+    Require(Display::SetBrightness(140) && Display::Init() && Display::Present(firmware.data()), "the firmware's first frame failed");
+    const auto paint = [](void* context, int x, int y, int width, int rows, std::uint16_t* out) {
+        const auto& picture = *static_cast<const Frame*>(context);
+        for (int row = 0; row < rows; ++row)
+            for (int column = 0; column < width; ++column)
+                out[row * width + column] = picture[(y + row) * Display::WIDTH + x + column];
+    };
+    const auto mixed = [&](const Frame& left, const Frame& right, int edge) {
+        for (int y = 0; y < Display::HEIGHT; ++y)
+            for (int x = 0; x < Display::WIDTH; ++x)
+                expected[y * Display::WIDTH + x] = (x < edge ? left : right)[y * Display::WIDTH + x];
+        return Fake::displayPixels == expected;
+    };
+    const std::size_t rows = Display::HEIGHT;
+    std::size_t before = Fake::transferredPixels;
+    int draws = Fake::draws;
+    Require(Display::detail::MoveCurtain(paint, &menu, 12, true, Display::HEIGHT) && mixed(menu, firmware, 12),
+            "the curtain's columns did not reach the panel");
+    Require(Fake::transferredPixels - before == 12 * rows && Fake::draws - draws == 1 &&
+            Fake::lastDraw == std::array<int, 4>{0, 0, 12, Display::HEIGHT}, "a narrow strip was not one piece of its columns");
+    // A painter that paints eight rows at a time: seventeen pieces of the same columns.
+    before = Fake::transferredPixels;
+    draws = Fake::draws;
+    Require(Display::detail::MoveCurtain(paint, &menu, 20, true) && mixed(menu, firmware, 20) &&
+            Fake::transferredPixels - before == 8 * rows && Fake::draws - draws == 17, "eight rows at a time failed");
+    // A strip too wide for one piece goes in as few as hold it.
+    before = Fake::transferredPixels;
+    draws = Fake::draws;
+    Require(Display::detail::MoveCurtain(paint, &menu, 100, true, Display::HEIGHT) && mixed(menu, firmware, 100) &&
+            Fake::transferredPixels - before == 80 * rows && Fake::draws - draws == 6, "a wide strip's pieces were wrong");
+    // The firmware's frames: only right of the edge.
+    before = Fake::transferredPixels;
+    Require(Display::Present(next.data()) && mixed(menu, next, 100) &&
+            Fake::transferredPixels - before == 140 * rows, "the firmware drew under the curtain");
+    // Back: the columns given back show the firmware's picture, and its frames reach them again.
+    before = Fake::transferredPixels;
+    Require(Display::detail::MoveCurtain(paint, &next, 96, true, Display::HEIGHT) && mixed(menu, next, 96) &&
+            Fake::transferredPixels - before == 4 * rows, "the curtain did not give its columns back");
+    const Display::Region strip{90, 0, 20, 8};
+    before = Fake::transferredPixels;
+    Require(Display::Present(firmware.data(), &strip, 1) && Fake::transferredPixels - before == 14 * 8,
+            "a region across the edge was not cut at it");
+    // Without the firmware's picture: nothing is painted, and its next frame goes whole (right of the edge).
+    before = Fake::transferredPixels;
+    Require(Display::detail::MoveCurtain(nullptr, nullptr, 0, false) && Fake::transferredPixels == before,
+            "a curtain without a picture painted");
+    Require(Display::Present(next.data(), nullptr, 0) && Fake::displayPixels == next, "the firmware's frame after the curtain was not whole");
+    // The overlay ends with the curtain left out: the firmware's whole frame stays right of it.
+    Require(Display::detail::BeginOverlay() && Display::detail::PaintOverlay(paint, &menu) && Fake::displayPixels == menu,
+            "the overlay did not paint");
+    const unsigned firmwareDuty = Fake::backlightDuty;
+    Display::detail::SetBacklightDuty(4095, true);
+    Require(Fake::backlightDuty == 4095 && Display::detail::FirmwareBacklightDuty() == static_cast<int>(firmwareDuty),
+            "the menu's duty was not applied");
+    Require(Display::SetBrightness(20) && Fake::backlightDuty == 4095, "the firmware changed the backlight under the menu");
+    Display::detail::EndOverlay(96);
+    Require(Fake::backlightDuty < firmwareDuty && Fake::backlightDuty > 0, "the firmware's brightness did not come back");
+    Require(Display::Present(firmware.data(), nullptr, 0) && mixed(menu, firmware, 96), "the firmware drew under the curtain the overlay left");
+    Require(Display::detail::MoveCurtain(paint, &firmware, 0, true, Display::HEIGHT) && Fake::displayPixels == firmware,
+            "the curtain did not go");
+}
+
 void Invalid()
 {
     const auto frame = MakeFrame();
@@ -237,6 +312,7 @@ int main(int argc, char** argv)
         else if (scenario == "invalid") Invalid();
         else if (scenario == "changed" || scenario == "changed_no_memory") Changed(scenario == "changed");
         else if (scenario == "overlay" || scenario == "overlay_no_memory") Overlay(scenario == "overlay");
+        else if (scenario == "curtain") Curtain();
         else FailAndRetry(scenario);
         std::cout << "Display " << scenario << " passed\n";
     } catch (const std::exception& error) {

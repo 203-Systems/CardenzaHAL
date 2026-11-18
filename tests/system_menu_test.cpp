@@ -383,24 +383,35 @@ void TestSlideBytes()
         }
 }
 
-// HOME held: the curtain comes out after a tap's length, moves only right while held, and covers the screen when
-// the hold is complete (the user, 2026-11-18: pulled out, never drawn back). Letting go removes it at once (menu.cpp).
-void TestCurtain()
+// HOME held: nothing for a tap's length, then the curtain's edge goes out to kPullOutPixels, eases back to
+// kPullRestPixels and is at rest there when the hold is complete (the user, 2026-11-18: out some, back a
+// little, then the pop).
+void TestPull()
 {
     assert(PullEdge(0) == 0 && PullEdge(kPullDelayMs) == 0);
-    float previous = 0;
-    for (uint32_t ms = kPullDelayMs; ms <= kHoldMs; ms += 10)
+    assert(std::fabs(PullEdge(kPullOutMs) - kPullOutPixels) < 0.01f);
+    assert(std::fabs(PullEdge(kHoldMs) - kPullRestPixels) < 0.01f && PullEdge(kHoldMs + 500) == PullEdge(kHoldMs));
+    // Enough to read what it is (the rail and the first words of the rows), never most of the screen; back
+    // only a little.
+    assert(kPullOutPixels >= 96 && kPullOutPixels <= kWidth / 2);
+    assert(kPullBackPixels >= 8 && kPullBackPixels <= kPullOutPixels / 4);
+    for (uint32_t ms = 0; ms < kHoldMs; ++ms)
     {
-        const float edge = PullEdge(ms);
-        assert(edge >= previous - 0.001f && edge <= kWidth + 0.01f);
-        previous = edge;
+        const float edge = PullEdge(ms), next = PullEdge(ms + 1);
+        assert(edge >= 0 && edge <= kPullOutPixels + 0.01f);
+        // Out until kPullOutMs, back after it, and never a jump: under a pixel a millisecond.
+        if (ms < kPullOutMs) assert(next >= edge - 0.001f);
+        else assert(next <= edge + 0.001f);
+        assert(std::fabs(next - edge) < 1.f);
+        // PullSpeed is the curve's slope.
+        if (ms > 0) assert(std::fabs(PullSpeed(ms) - (next - PullEdge(ms - 1)) / 2) < 0.02f);
     }
-    assert(std::fabs(PullEdge(kHoldMs) - kWidth) < 0.01f);
-    assert(std::fabs(PullEdge(kHoldMs + 500) - kWidth) < 0.01f);
-    const float middle = PullEdge((kPullDelayMs + kHoldMs) / 2);
-    assert(middle > kWidth * 0.4f && middle < kWidth * 0.6f);   // eased both ways: half way at half the hold
-    // Each step uncovers a few columns: at 10 ms a step, never more than a sixth of the screen
-    for (uint32_t ms = kPullDelayMs; ms + 10 <= kHoldMs; ms += 10) assert(PullEdge(ms + 10) - PullEdge(ms) < kWidth / 6.f);
+    // At rest where it starts, where it turns and where it pops (the Launcher's hold-to-act curve both ways).
+    assert(PullSpeed(kPullDelayMs) == 0 && PullSpeed(kPullOutMs) == 0 && PullSpeed(kHoldMs) == 0);
+    assert(PullEdge(kPullDelayMs + 10) < 0.5f && kPullOutPixels - PullEdge(kPullOutMs - 10) < 0.5f);
+    assert(PullEdge(kHoldMs - 10) - kPullRestPixels < 0.5f);
+    const float middle = PullEdge((kPullDelayMs + kPullOutMs) / 2);
+    assert(std::fabs(middle - kPullOutPixels / 2.f) < 1.f);  // eased both ways: half way at half the time
 
     HoldDetector hold;
     hold.Reset(false);
@@ -411,14 +422,144 @@ void TestCurtain()
     assert(!hold.Pressing());
 }
 
+// The curtain over time, a frame every 5 ms as system/menu.cpp draws it: `press` the times HOME goes down and
+// up in turn. Returns the edge of every frame.
+std::vector<float> RunCurtain(Curtain& curtain, std::initializer_list<uint32_t> changes, uint32_t until,
+                              uint32_t start = 70000)
+{
+    std::vector<float> edges;
+    bool down = false;
+    uint32_t since = 0;
+    auto next = changes.begin();
+    for (uint32_t ms = 0; ms <= until; ms += 5)
+    {
+        while (next != changes.end() && *next <= ms)
+        {
+            down = !down;
+            since = *next++;
+        }
+        edges.push_back(curtain.Update(down, down ? ms - since : 0, start + ms));
+    }
+    return edges;
+}
+
+void TestCurtain()
+{
+    // Held to the end: the pull itself, and still moving.
+    {
+        Curtain curtain;
+        assert(!curtain.Moving(70000));
+        const auto edges = RunCurtain(curtain, {0}, kHoldMs);
+        for (std::size_t i = 0; i < edges.size(); ++i) assert(edges[i] == PullEdge(uint32_t(i) * 5));
+        assert(curtain.Moving(70000 + kHoldMs));
+    }
+    // Let go at any moment of the hold: the edge goes back to the left from where it is, with no jump (a
+    // step is never larger than the pull's own largest), never further out than it was, and is gone
+    // kReturnMs later.
+    float largest = 0;
+    for (uint32_t ms = 0; ms < kHoldMs; ms += 5) largest = std::max(largest, std::fabs(PullEdge(ms + 5) - PullEdge(ms)));
+    for (uint32_t release = 10; release < kHoldMs; release += 35)
+    {
+        Curtain curtain;
+        const auto edges = RunCurtain(curtain, {0, release}, release + kReturnMs + 20);
+        const std::size_t at = release / 5 + (release % 5 ? 1 : 0);  // the first frame after HOME went up
+        const float from = edges[at - 1];
+        for (std::size_t i = at; i < edges.size(); ++i)
+        {
+            assert(edges[i] <= edges[i - 1] + 0.001f && edges[i] <= from + 0.001f);
+            assert(edges[i - 1] - edges[i] <= std::max(largest, 3 * from / kReturnMs * 5) + 0.01f);
+        }
+        assert(std::fabs(edges[at] - from) < 2.f);
+        assert(edges.back() == 0 && !curtain.Moving(70000 + release + kReturnMs + 20));
+        // Not linear: half way through the return, more than half of the way is... eased: slow at the end.
+        if (from > 20)
+        {
+            const float nearEnd = edges[at + (kReturnMs - 30) / 5];
+            assert(nearEnd < from * 0.06f);
+        }
+    }
+    // Let go while it eases back: it keeps the speed it has (the first step is as large as the last one of
+    // the pull, within a little); let go while it goes out: it starts back from rest.
+    {
+        Curtain back;
+        const auto edges = RunCurtain(back, {0, 800}, 900);
+        const float before = edges[159] - edges[158], after = edges[161] - edges[160];
+        assert(before < -0.1f && after < before * 0.6f);
+        Curtain out;
+        const auto going = RunCurtain(out, {0, 370}, 500);
+        assert(going[73] - going[72] > 1.f && std::fabs(going[75] - going[74]) < 0.4f);
+    }
+    // A new press while it goes back: no jump, the pull is added to what is left of the way back, and held
+    // to the end the edge is where the pop expects it.
+    {
+        Curtain curtain;
+        const auto edges = RunCurtain(curtain, {0, 600, 700}, 700 + kHoldMs);
+        for (std::size_t i = 1; i < edges.size(); ++i) assert(std::fabs(edges[i] - edges[i - 1]) <= largest + 0.5f);
+        assert(edges[140] > 20 && edges[140] < kPullOutPixels);  // the press came in mid-return
+        assert(std::fabs(edges.back() - kPullRestPixels) < 0.01f);
+        for (float edge : edges) assert(edge >= 0 && edge <= kWidth);
+    }
+    // After the menu closed: from the curtain's rest back to the left, from rest, eased.
+    {
+        Curtain curtain;
+        curtain.ReturnFrom(kPullRestPixels, 70000);
+        assert(curtain.Moving(70000) && curtain.Update(false, 0, 70000) == kPullRestPixels);
+        const float early = curtain.Update(false, 0, 70000 + 30), middle = curtain.Update(false, 0, 70000 + kReturnMs / 2);
+        assert(early > kPullRestPixels - 4 && std::fabs(middle - kPullRestPixels / 2.f) < 1.f);
+        assert(curtain.Update(false, 0, 70000 + kReturnMs) == 0 && !curtain.Moving(70000 + kReturnMs));
+    }
+    // The clock wraps: nothing comes back.
+    {
+        Curtain curtain;
+        (void)RunCurtain(curtain, {0, 300}, 300 + kReturnMs + 20, 0xFFFFFF00u);
+        assert(curtain.Update(false, 0, 0x7FFFFFFFu) == 0 && curtain.Update(false, 0, 0xFFFFFFF0u) == 0);
+    }
+}
+
+// The panel takes RGB565 in the processor's byte order (the HAL sets it to little-endian data): a grey is
+// the Launcher's Lcd::rgb as it is, not with its bytes swapped as the Launcher sends it to its own setup of
+// the same panel.
 void TestPanel()
 {
     assert(PanelGrey(255) == 0xFFFF && PanelGrey(0) == 0);
+    for (int grey = 0; grey < 256; ++grey)
+    {
+        const uint16_t c = PanelGrey(static_cast<uint8_t>(grey));
+        const int red = c >> 11, green = (c >> 5) & 63, blue = c & 31;
+        assert(red == grey >> 3 && green == grey >> 2 && blue == grey >> 3);  // a grey: no tint
+    }
+    assert(PanelGrey(20) == 0x10A2);  // the selection bar (swapped it was 0xA210: a dull pink)
     const uint16_t white = PanelGrey(255), black = PanelGrey(0);
     assert(PanelMix(white, black, 0) == white && PanelMix(white, black, 256) == black);
     const uint16_t half = PanelMix(white, black, 128);
-    const uint16_t c = static_cast<uint16_t>((half >> 8) | (half << 8));
-    assert(((c >> 11) & 31) == 16 && ((c >> 5) & 63) == 32);
+    assert(((half >> 11) & 31) == 16 && ((half >> 5) & 63) == 32 && (half & 31) == 16);
+    // A fade between a colour of the firmware's and a grey stays between them, channel by channel.
+    const uint16_t orange = 0xFAC6;  // 255, 90, 54
+    for (int weight = 0; weight <= 256; weight += 16)
+    {
+        const uint16_t mixed = PanelMix(orange, PanelGrey(20), weight);
+        assert((mixed >> 11) <= 31 && (mixed >> 11) >= 2 && ((mixed >> 5) & 63) <= 22 && ((mixed >> 5) & 63) >= 5);
+        assert((mixed & 31) <= 6 && (mixed & 31) >= 2);
+    }
+}
+
+// The backlight as the Launcher sets it: its brightness setting on its duty curve.
+void TestBacklight()
+{
+    assert(LauncherBrightness(false, 0) == 100 && LauncherBrightness(true, 0) == 100);
+    assert(LauncherBrightness(true, 80) == 80 && LauncherBrightness(true, 3) == 10 && LauncherBrightness(true, 400) == 100);
+    assert(LauncherBrightness(true, -5) == 10);
+    // The Launcher's own numbers (its static_assert: 0, 203 and 1023 of 1023 at 0, 10 and 100 %).
+    assert(LauncherBacklightDuty(0, 1023) == 0 && LauncherBacklightDuty(100, 1023) == 1023);
+    assert(std::abs(LauncherBacklightDuty(10, 1023) - 203) <= 1);
+    for (int percent = 1; percent <= 100; ++percent)
+    {
+        const int launcher = 1023 * (1100 + 89 * percent) / 10000;
+        assert(std::abs(LauncherBacklightDuty(percent, 1023) - launcher) <= 1);
+        // The HAL's 12 bits: the same part of the time.
+        assert(std::abs(LauncherBacklightDuty(percent, 4095) * 1023 - launcher * 4095) <= 4095 + 1023);
+    }
+    assert(LauncherBacklightDuty(100, 4095) == 4095);
 }
 
 // NVS pages as ESP-IDF 5.3 writes them: header, entry state table, 32-byte items.
@@ -436,7 +577,7 @@ struct Page {
         uint8_t& b = bytes[32 + index / 4];
         b = static_cast<uint8_t>((b & ~(3 << ((index % 4) * 2))) | (state << ((index % 4) * 2)));
     }
-    int Add(uint8_t ns, uint8_t type, const char* key, uint8_t value, uint8_t span = 1, uint8_t state = 2)
+    int Add(uint8_t ns, uint8_t type, const char* key, int32_t value, uint8_t span = 1, uint8_t state = 2)
     {
         const int index = next;
         uint8_t* item = bytes + 64 + index * 32;
@@ -447,7 +588,7 @@ struct Page {
         item[3] = 0xFF;
         std::memset(item + 8, 0, 16);
         std::strncpy(reinterpret_cast<char*>(item + 8), key, 15);
-        item[24] = value;
+        std::memcpy(item + 24, &value, 4);  // little-endian, as the chip
         for (int i = 0; i < span; ++i) SetState(index + i, state);
         next += span;
         return index;
@@ -472,6 +613,16 @@ void TestNvs()
     assert(NvsFindU8(values.bytes, 2, "lang", value) && value == 1);
     assert(!NvsFindU8(values.bytes, 3, "lang", value));
     assert(!NvsFindU8(values.bytes, 0, "lang", value));
+    // The Launcher's brightness is an i32; a u8 of the same name is not it.
+    values.Add(2, 0x14, "bright", 60, 1, 0);
+    values.Add(2, 0x01, "bright", 7);
+    values.Add(2, 0x14, "bright", 80);
+    values.Add(1, 0x14, "bright", 30);
+    int32_t bright = 0;
+    assert(NvsFindI32(values.bytes, 2, "bright", bright) && bright == 80);
+    assert(!NvsFindI32(values.bytes, 2, "lang", bright) && !NvsFindI32(values.bytes, 0, "bright", bright));
+    values.Add(2, 0x14, "dimtime", -3);
+    assert(NvsFindI32(values.bytes, 2, "dimtime", bright) && bright == -3);
     Page empty;
     std::memset(empty.bytes, 0xFF, sizeof(empty.bytes));  // uninitialised: not read
     assert(NvsNamespaceIndex(empty.bytes, "launcher") == 0);
@@ -494,7 +645,9 @@ int main()
     TestSlideFrames();
     TestListSlide();
     TestSlideBytes();
+    TestPull();
     TestCurtain();
+    TestBacklight();
     TestPanel();
     TestNvs();
     std::puts("system menu: ok");
