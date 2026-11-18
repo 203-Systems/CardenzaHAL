@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-[Website](https://203.io/products/cardenza-mini-synthsiser) · [Learn Cardenza](https://cardenza.203.io) · [203 Community](https://cardenza.203.io/community) · [Firmware developer guide](https://cardenza.203.io/community/develop) · [Example firmware: CardenzaSynth](https://github.com/203-Systems/CardenzaSynth)
+[Website](https://203.io/products/cardenza-mini-synthsiser) · [Learn Cardenza](https://cardenza.203.io) · [203 Community](https://cardenza.203.io/community) · [Firmware developer guide](https://cardenza.203.io/community/develop) · [203-CLI](https://github.com/203-Systems/203-CLI) · [Example firmware: CardenzaSynth](https://github.com/203-Systems/CardenzaSynth)
 
 CardenzaHAL is the ESP-IDF hardware layer for Cardenza, an ESP32-S3 device. Use it to read the 56-key keyboard, drive individual key LEDs, draw to the 240 × 135 display, play PCM audio, access an SD card, and add USB MIDI, audio, and HID to your firmware.
 
@@ -10,7 +10,11 @@ The HAL provides hardware initialization and native ESP-IDF handles. Your applic
 
 ## Making a firmware on CardenzaHAL
 
-Read [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md) first: the rules every firmware on the HAL follows, for people and coding agents alike (setup, the project's files and `203.json`, the HAL rules, building for the board and the browser, what the 203 community checks, versions, forks, what never to commit). Start from [`examples/template`](examples/template), and publish to the community with `203c`:
+Read [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md) first: the rules every firmware on the HAL follows, for people and coding agents alike (setup, the project's files and `203.json`, the HAL rules, building for the board and the browser, what the 203 community checks, versions, forks, what never to commit). Start from [`examples/template`](examples/template), and publish to the community with `203c`.
+
+Install [203-CLI](https://github.com/203-Systems/203-CLI) first: `203c`, the community's command line, with its Agent
+Skill for coding agents and the development guide and hardware reference of every 203 device (the Cardenza's is
+[`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)):
 
 ```sh
 curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh

@@ -20,6 +20,7 @@ from it. It is written for people and for coding agents alike: imperative, with 
 - The HAL's API: [README](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md).
 - The chip and the toolchain, learnt the hard way: [docs/developing.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/developing.md).
 - A project to start from: [examples/template](https://github.com/203-Systems/CardenzaHAL/tree/main/examples/template).
+- `203c`, its Agent Skill, and the development guide and hardware reference of every 203 device (the Cardenza's included): [203-CLI](https://github.com/203-Systems/203-CLI).
 
 ## If you are an AI agent
 
@@ -113,7 +114,9 @@ CMake is missing; its message says how to install it.
 
 ### Node.js and 203c
 
-`203c` is the community's command line (an Agent Skill with its CLI). It needs Node.js 18 or later.
+`203c` is the community's command line (an Agent Skill with its CLI), from the public repository
+[203-CLI](https://github.com/203-Systems/203-CLI), which also holds each 203 device's development guide and hardware
+reference (`products/cardenza` is this one). It needs Node.js 18 or later.
 
 ```sh
 curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
@@ -121,7 +124,7 @@ curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
 203c login
 ```
 
-- The installer puts the skill in `~/.claude/skills/203-community` and a `203c` command in `~/.local/bin` (put that on `PATH`). Without the command: `node ~/.claude/skills/203-community/scripts/203c.mjs`.
+- The installer puts the skill (203-CLI at the commit the community pins, its SHA-256 checked) in `~/.claude/skills/203-community` and a `203c` command in `~/.local/bin` (put that on `PATH`). Without the command: `node ~/.claude/skills/203-community/scripts/203c.mjs`. From a clone of 203-CLI instead: `sh 203-CLI/install.sh`.
 - `203c login` opens the browser on the community's sign-in page: sign in there (GitHub) if it asks, approve "203c on <your computer>", and the browser goes back to 203c (OAuth's authorization code with PKCE and a redirect to 203c on `127.0.0.1`). Where no browser can be opened, make a personal token on the site (设置 › 个人令牌, `/me/tokens`) and run `203c login --with-token`: it asks for the token (not shown), checks it and saves it (a script pipes it in: `203c login --with-token < token.txt`). An agent running remotely signs in with `203c login --no-browser`: a link and a code to approve on the site. Every way saves a personal token, listed on the site under 设置 › 个人令牌, where you can delete it. You sign in once: it has no end.
 - Everything the community's API does for you, 203c does (`203c --help`; `203c api` for anything else): use 203c, not raw HTTP.
 - Every command except `login`, `logout`, `help`, `version`, `doctor` and `rules` needs that sign-in.

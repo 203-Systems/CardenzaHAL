@@ -6,7 +6,7 @@
 
 ## 步骤
 
-1. 装好工具：ESP-IDF **5.3.5**（`idf.py --version`）、Emscripten（`emsdk install latest`，网页版要用）、Node.js 18 以上，以及 `203c`：
+1. 装好工具：ESP-IDF **5.3.5**（`idf.py --version`）、Emscripten（`emsdk install latest`，网页版要用）、Node.js 18 以上，以及 203-CLI（社区命令行 `203c`，公开仓库 [203-Systems/203-CLI](https://github.com/203-Systems/203-CLI)，里面还有每台 203 设备的开发指引和硬件资料，鸣片的在 `products/cardenza`）：
    ```sh
    curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
    203c doctor
