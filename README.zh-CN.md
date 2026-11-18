@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-[官网](https://203.io/products/cardenza-mini-synthsiser) · [教程](https://cardenza.203.io/zh-Hans/) · [固件社区](https://cardenza.203.io/community) · [固件开发说明](https://cardenza.203.io/community/develop) · [示例固件：鸣片 CardenzaSynth](https://github.com/203-Systems/CardenzaSynth)
+[官网](https://203.io/products/cardenza-mini-synthsiser) · [教程](https://cardenza.203.io/zh-Hans/) · [固件社区](https://cardenza.203.io/community) · [固件开发说明](https://cardenza.203.io/community/develop) · [203-CLI](https://github.com/203-Systems/203-CLI) · [示例固件：鸣片 CardenzaSynth](https://github.com/203-Systems/CardenzaSynth)
 
 CardenzaHAL 是 Cardenza（ESP32-S3）的 ESP-IDF 硬件层。你可以用它读取 56 键键盘、控制每颗按键灯、向 240 × 135 屏幕绘图、播放 PCM 音频、访问 SD 卡，以及给固件加入 USB MIDI、音频和 HID 功能。
 
@@ -10,7 +10,9 @@ HAL 负责硬件初始化，并提供原生 ESP-IDF 句柄；应用负责界面�
 
 ## 在 CardenzaHAL 上做固件
 
-先读 [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md)（英文，唯一的规范；[中文摘要](docs/FIRMWARE-PROJECT.zh-CN.md)）：每个基于 HAL 的固件都要遵守的规则，人和编程智能体都按它做（环境、工程文件和 `203.json`、HAL 的规则、编译板子版和网页版、203 社区发布前检查什么、版本、Fork、什么绝不能提交）。从 [`examples/template`](examples/template) 开始，用 `203c` 发布到社区：
+先读 [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md)（英文，唯一的规范；[中文摘要](docs/FIRMWARE-PROJECT.zh-CN.md)）：每个基于 HAL 的固件都要遵守的规则，人和编程智能体都按它做（环境、工程文件和 `203.json`、HAL 的规则、编译板子版和网页版、203 社区发布前检查什么、版本、Fork、什么绝不能提交）。从 [`examples/template`](examples/template) 开始，用 `203c` 发布到社区。
+
+先装 [203-CLI](https://github.com/203-Systems/203-CLI)：社区命令行 `203c`，附给 AI 编程助手用的 Agent Skill，以及每台 203 设备的开发指引和硬件资料（鸣片的在 [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)）：
 
 ```sh
 curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
