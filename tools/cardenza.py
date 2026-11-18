@@ -39,6 +39,7 @@ CLI_WANTED = (3, 5, 0)   # 203c new, log, sync, link, skill install
 APP_ROOM = 0x690000      # the 203 Launcher's room for one app on the Cardenza (from 0x170000)
 LOCAL_FLASH = "https://cardenza.203.io/community/firmware (Flash a local file / 烧录本地固件, in Chrome or Edge)"
 WINDOWS = os.name == "nt"
+PY = "python" if WINDOWS else "python3"   # what to type: Windows has python (and py), rarely python3
 
 
 def version_tuple(text):
@@ -225,7 +226,7 @@ def need(project, results):
     missing = [check for check in results if check["status"] == "missing"]
     if missing:
         print_checks(missing)
-        sys.stderr.write("cardenza: install or fix the above first (python3 %s doctor shows everything)\n" % os.path.relpath(__file__, project or "."))
+        sys.stderr.write("cardenza: install or fix the above first (%s %s doctor shows everything)\n" % (PY, os.path.relpath(__file__, project or ".")))
         return False
     return True
 
@@ -281,7 +282,7 @@ def through_203c(arguments, project):
 def flash(project, arguments):
     image = built_bin(project) if project else None
     if not image or not os.path.isfile(image):
-        sys.stderr.write("cardenza: no build yet: python3 %s build\n" % os.path.relpath(__file__, project or "."))
+        sys.stderr.write("cardenza: no build yet: %s %s build\n" % (PY, os.path.relpath(__file__, project or ".")))
         return 1
     return through_203c(["flash", "--bin", os.path.relpath(image, project)] + arguments, project)
 
