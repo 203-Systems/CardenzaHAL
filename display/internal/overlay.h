@@ -22,13 +22,18 @@ namespace CardenzaHAL::Display::detail {
     // Sends columns [x, x + width) of every row from `painter` now, eight rows at a time.
     bool PaintColumns(RegionPainter painter, void* context, int x, int width);
 
-    // From now on the firmware's Present* send nothing (and return true; frames are still captured).
+    // From now on the firmware's Present* send nothing (and return true; frames are still captured). Makes
+    // the overlay's table of what it sent (ChangedRegions' row segments, about 4 KB, PSRAM when there is
+    // some; EndOverlay gives it back).
     bool BeginOverlay();
-    // The whole screen from `painter`; bands that are as last sent are not sent again.
+    // The whole screen from `painter`, eight rows at a time: of each band only the rectangle over the rows
+    // that changed since the overlay last sent it and the span of their 30-pixel segments goes out
+    // (ChangedRegions::FindBand), so a frame of a sliding selection bar sends the strips its edges swept.
+    // Everything after anything else was sent, and every band whole when there was no room for the table.
     bool PaintOverlay(RegionPainter painter, void* context);
     // The backlight while the menu is there (0-255); -1: the firmware's brightness again.
     void SetBacklight(int value);
-    // Back to the firmware: its next frame is sent whole, no curtain, its brightness back.
+    // Back to the firmware: its next frame is sent whole, no curtain, its brightness back; the table goes.
     void EndOverlay();
     // Before deep sleep: the panel asleep, the backlight off and held off.
     bool SleepPanel();

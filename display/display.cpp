@@ -67,9 +67,12 @@ uint16_t* captureFrame = nullptr;
 bool captureValid = false;
 bool overlayBacklight = false;
 uint8_t overlayBacklightValue = 0;
-// The menu's bands as last sent (FNV-1a): a band that did not change is not sent again.
-constexpr int kOverlayBands = (HEIGHT + kTransferBandRows - 1) / kTransferBandRows;
-uint32_t overlayBandHash[kOverlayBands] = {};
+// The menu's pixels as last sent (ChangedRegions' row segments, made by BeginOverlay and given back by
+// EndOverlay; PSRAM when there is some): of each band only what changed is sent again, so a frame of the
+// menu's sliding selection bar sends the strips its edges swept. Null (no room): every band whole.
+static_assert(kTransferBandRows == ChangedRegions::kBandRows);
+uint32_t* overlayHashes = nullptr;
+ChangedRegions* overlayRegions = nullptr;
 bool overlayHashValid = false;
 SemaphoreHandle_t displayLock = nullptr;
 portMUX_TYPE displayLockMux = portMUX_INITIALIZER_UNLOCKED;
@@ -509,16 +512,9 @@ namespace CardenzaHAL::Display::detail {
 
 namespace {
 
-uint32_t BandHash(const uint16_t* pixels, std::size_t count)
-{
-    uint32_t hash = 2166136261u;
-    const auto* bytes = reinterpret_cast<const uint8_t*>(pixels);
-    for (std::size_t i = 0; i < count * sizeof(uint16_t); ++i) hash = (hash ^ bytes[i]) * 16777619u;
-    return hash;
-}
-
-// Columns [x, x + width) of every row from `painter`, eight rows at a time; `skipUnchanged`: bands as the
-// overlay last sent them are not sent again (whole-width bands only).
+// Columns [x, x + width) of every row from `painter`, eight rows at a time. `skipUnchanged`: of each band
+// only the rectangle over what changed since the overlay last sent it (whole-width bands only, when the
+// overlay has its table).
 bool PaintBands(RegionPainter painter, void* context, int x, int width, bool skipUnchanged)
 {
     if (painter == nullptr || !Init() || !EnsureCompletionCallback()) return false;
@@ -527,23 +523,37 @@ bool PaintBands(RegionPainter painter, void* context, int x, int width, bool ski
     if (width == 0) return true;
     // A timed-out DMA may still own the band.
     if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
-    const bool whole = x == 0 && width == WIDTH;
-    for (int band = 0, y = 0; y < HEIGHT; ++band, y += kTransferBandRows)
+    // Whole-width bands keep the table current; what else is sent leaves it behind.
+    const bool track = x == 0 && width == WIDTH && overlayRegions != nullptr;
+    const bool skip = track && skipUnchanged && overlayHashValid;
+    overlayHashValid = false;  // until every band has gone out
+    for (int y = 0; y < HEIGHT; y += kTransferBandRows)
     {
         const int rows = std::min(kTransferBandRows, HEIGHT - y);
         painter(context, x, y, width, rows, transferBand);
-        if (whole)
+        Region region{x, y, width, rows};
+        if (track)
         {
-            const uint32_t hash = BandHash(transferBand, static_cast<std::size_t>(width) * rows);
-            if (skipUnchanged && overlayHashValid && overlayBandHash[band] == hash) continue;
-            overlayBandHash[band] = hash;
+            const Region changed = overlayRegions->FindBand(transferBand, WIDTH, y, y + rows, !skip);
+            if (skip)
+            {
+                if (changed.width == 0) continue;
+                // The changed rectangle's rows, packed to the start of the band (each lands at or before
+                // where it was).
+                region = changed;
+                for (int row = 0; row < region.height; ++row)
+                    std::memmove(transferBand + row * region.width, transferBand + (region.y - y + row) * WIDTH + region.x,
+                                 static_cast<std::size_t>(region.width) * sizeof(uint16_t));
+            }
         }
         while (xSemaphoreTake(transferDone, 0) == pdTRUE) {}
-        if (esp_lcd_panel_draw_bitmap(panel, x, y, x + width, y + rows, transferBand) != ESP_OK) return false;
+        if (esp_lcd_panel_draw_bitmap(panel, region.x, region.y, region.x + region.width, region.y + region.height,
+                                      transferBand) != ESP_OK)
+            return false;
         transferPending = true;
         if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
     }
-    overlayHashValid = whole;
+    overlayHashValid = track;
     return true;
 }
 
@@ -589,6 +599,22 @@ bool BeginOverlay()
     if (!Init() || !EnsureCompletionCallback()) return false;
     overlayActive = true;
     overlayHashValid = false;
+    if (overlayRegions == nullptr)
+    {
+        const std::size_t bytes = ChangedRegions::kHashCount * sizeof(uint32_t);
+        overlayHashes = static_cast<uint32_t*>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (overlayHashes == nullptr)
+            overlayHashes = static_cast<uint32_t*>(heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        void* finder = overlayHashes != nullptr
+                           ? heap_caps_malloc(sizeof(ChangedRegions), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+                           : nullptr;
+        if (finder != nullptr) overlayRegions = new (finder) ChangedRegions(overlayHashes);
+        else
+        {
+            heap_caps_free(overlayHashes);
+            overlayHashes = nullptr;
+        }
+    }
     return true;
 }
 
@@ -614,6 +640,11 @@ void EndOverlay()
     DisplayLock lock;
     overlayActive = false;
     overlayHashValid = false;
+    // ChangedRegions holds no resources of its own: its block and the table go back as they are.
+    heap_caps_free(overlayRegions);
+    heap_caps_free(overlayHashes);
+    overlayRegions = nullptr;
+    overlayHashes = nullptr;
     curtainEdge = 0;
     fullRefreshRequired = true;
     overlayBacklight = false;

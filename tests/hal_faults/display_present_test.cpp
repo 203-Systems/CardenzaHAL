@@ -1,5 +1,6 @@
 #include "esp_stub.h"
 #include "display/display.h"
+#include "display/internal/overlay.h"
 
 #include <array>
 #include <iostream>
@@ -156,6 +157,60 @@ void Changed(bool memory)
     Fake::fail.clear();
 }
 
+// The system menu's overlay (display/internal/overlay.h): its first paint whole, then of each band of eight
+// rows only the rectangle over the rows that changed and the span of their 30-pixel segments, packed for
+// the panel; without memory for its table, every band whole every time.
+void Overlay(bool memory)
+{
+    alignas(4) static Frame firmware, menu;
+    firmware = MakeFrame();
+    Require(Display::Init() && Display::Present(firmware.data()), "the firmware's first frame failed");
+    if (!memory) Fake::fail = "heap";
+    Require(Display::detail::BeginOverlay(), "the overlay did not begin");
+    Fake::fail.clear();
+    const auto paint = [](void* context, int x, int y, int width, int rows, std::uint16_t* out) {
+        const auto& picture = *static_cast<const Frame*>(context);
+        for (int row = 0; row < rows; ++row)
+            for (int column = 0; column < width; ++column)
+                out[row * width + column] = picture[(y + row) * Display::WIDTH + x + column];
+    };
+    for (std::size_t index = 0; index < menu.size(); ++index) menu[index] = static_cast<std::uint16_t>(~firmware[index]);
+    const std::size_t whole = static_cast<std::size_t>(Display::WIDTH) * Display::HEIGHT;
+    std::size_t before = Fake::transferredPixels;
+    Require(Display::detail::PaintOverlay(paint, &menu) && Fake::displayPixels == menu &&
+            Fake::transferredPixels - before == whole, "the overlay's first paint was not the whole screen");
+    before = Fake::transferredPixels;
+    Require(Display::detail::PaintOverlay(paint, &menu) && Fake::transferredPixels - before == (memory ? 0 : whole),
+            memory ? "an unchanged overlay was sent again" : "without its table the overlay was not sent whole");
+    // A bar's edge: two rows across 100 columns (four segments, 120 pixels).
+    for (int y = 70; y < 72; ++y)
+        for (int x = 40; x < 140; ++x) menu[y * Display::WIDTH + x] ^= 0x0f0f;
+    before = Fake::transferredPixels;
+    Require(Display::detail::PaintOverlay(paint, &menu) && Fake::displayPixels == menu, "an edge did not reach the panel");
+    Require(Fake::transferredPixels - before == (memory ? 2 * 120 : whole), "more than the edge's rows and segments went");
+    // Two bands, each its own rectangle: rows 6-7 at column 200 (segment 6); rows 8-9 at column 200 and
+    // row 9 at column 5 (segments 0 to 6). The rows go packed, each from its own place.
+    for (int y = 6; y < 10; ++y) menu[y * Display::WIDTH + 200] ^= 0x00ff;
+    menu[9 * Display::WIDTH + 5] ^= 0x00ff;
+    before = Fake::transferredPixels;
+    Require(Display::detail::PaintOverlay(paint, &menu) && Fake::displayPixels == menu, "two bands' changes were misplaced");
+    if (memory)
+        Require(Fake::transferredPixels - before == 30 * 2 + 210 * 2 &&
+                Fake::lastDraw == std::array<int, 4>{0, 8, 210, 10}, "the bands' rectangles were not the changed ones");
+    // A paint that fails leaves the next one sending everything.
+    menu[0] ^= 1;
+    Fake::fail = "draw";
+    Require(!Display::detail::PaintOverlay(paint, &menu), "a failed draw was accepted");
+    Fake::fail.clear();
+    before = Fake::transferredPixels;
+    Require(Display::detail::PaintOverlay(paint, &menu) && Fake::displayPixels == menu &&
+            Fake::transferredPixels - before == whole, "after a failed draw the overlay was not sent whole");
+    Display::detail::EndOverlay();
+    before = Fake::transferredPixels;
+    Require(Display::Present(firmware.data(), nullptr, 0) && Fake::displayPixels == firmware &&
+            Fake::transferredPixels - before == whole, "the firmware's first frame after the overlay was not whole");
+}
+
 void Invalid()
 {
     const auto frame = MakeFrame();
@@ -181,6 +236,7 @@ int main(int argc, char** argv)
         else if (scenario == "native") Native();
         else if (scenario == "invalid") Invalid();
         else if (scenario == "changed" || scenario == "changed_no_memory") Changed(scenario == "changed");
+        else if (scenario == "overlay" || scenario == "overlay_no_memory") Overlay(scenario == "overlay");
         else FailAndRetry(scenario);
         std::cout << "Display " << scenario << " passed\n";
     } catch (const std::exception& error) {
