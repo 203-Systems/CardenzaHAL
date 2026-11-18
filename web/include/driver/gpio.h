@@ -1,6 +1,6 @@
 #pragma once
 
-// GPIO on the web target: every pin keeps its mode, pulls and level. GPIO0 (the Func button, active
+// GPIO on the web target: every pin keeps its mode, pulls and level. GPIO0 (HOME, the side key, active
 // low) reads the page's HOME key; an output on GPIO38 (the display backlight) dims the screen. Other
 // inputs read their pull (or their own output level).
 

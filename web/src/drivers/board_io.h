@@ -4,7 +4,7 @@
 
 namespace cardenza_web::board {
 
-// The HOME (Func) button on GPIO0, active low.
+// The HOME button (the side key) on GPIO0, active low.
 void SetHome(bool pressed);
 bool HomePressed();
 

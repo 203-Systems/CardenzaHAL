@@ -6,7 +6,10 @@ namespace CardenzaHAL::System {
 
     bool Init();
     void EnterDeepSleep();
-    bool GetFuncButton();
+    // HOME, the side key (GPIO0, active low): true while it is down, except while the system menu has it
+    // (system/menu.h). The side key is called HOME everywhere (2026-11-18); FN is the keyboard's bottom-left key.
+    bool GetFuncButton();  // its old name, still the one defined (firmware and their host fakes use it)
+    inline bool GetHomeButton() { return GetFuncButton(); }
     i2c_master_bus_handle_t GetI2CBus();
 
 }  // namespace CardenzaHAL::System

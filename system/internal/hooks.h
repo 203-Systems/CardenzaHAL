@@ -6,10 +6,10 @@
 namespace CardenzaHAL::System::detail {
 
     // The side key (HOME, GPIO0) as the pad reads it.
-    bool FuncButtonRaw();
-    // The menu has the side key (true): GetFuncButton reports it released. Then false: hidden until it is
+    bool HomeButtonRaw();
+    // The menu has the side key (true): GetHomeButton reports it released. Then false: hidden until it is
     // let go, so the press that opened or closed the menu never reaches the firmware.
-    void HoldFuncButton(bool held);
+    void HoldHomeButton(bool held);
 
     // USB (usb/usb.cpp) sets how to leave the host before a restart when it started; StopUsb runs it once
     // (nothing when USB never started, and nothing of TinyUSB is linked for it).
@@ -24,6 +24,6 @@ namespace CardenzaHAL::System::detail {
     // The side key's pad as System::Init sets it (an input with its pull-up). ESP-IDF's SD driver resets
     // GPIO0 when it lets a 4-bit slot go (its unused d4-d7 are 0): Storage calls this after a mount fails
     // and after an unmount.
-    void RestoreFuncButton();
+    void RestoreHomeButton();
 
 }  // namespace CardenzaHAL::System::detail

@@ -83,16 +83,7 @@ float PullEdge(uint32_t heldMs)
 {
     if (heldMs <= kPullDelayMs) return 0;
     const float p = std::min(1.f, float(heldMs - kPullDelayMs) / float(kHoldMs - kPullDelayMs));
-    const auto fill = [](float part) {
-        return launcher::powerHoldFill(uint32_t(std::clamp(part, 0.f, 1.f) * launcher::kPowerHoldMs));
-    };
-    if (p <= kPullPeakAt) return kPullPeak * fill(p / kPullPeakAt);
-    return kPullPeak - (kPullPeak - kClothWidth) * fill((p - kPullPeakAt) / (1 - kPullPeakAt));
-}
-
-float ReturnEdge(float from, uint32_t sinceMs)
-{
-    return launcher::powerReturnFill(from, sinceMs);
+    return kWidth * launcher::powerHoldFill(uint32_t(p * launcher::kPowerHoldMs));
 }
 
 uint16_t PanelGrey(uint8_t grey)

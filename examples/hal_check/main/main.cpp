@@ -2,7 +2,7 @@
 //
 // - The screen shows the 4 x 14 keys. A held key fills its cell, lights its LED and plays a tone (at
 //   most four at once: the HAL reads four keys at a time). Keys not held glow faintly.
-// - HOME (the Func button) switches the key LEDs between full and dim global brightness.
+// - HOME (the side key) switches the key LEDs between full and dim global brightness.
 // - A bar at the bottom shows the speaker's level; the square at the top right shows HOME.
 //
 // The UI runs in the main task at 50 fps and sends only what changed (Display::PresentChanged). The
@@ -172,7 +172,7 @@ extern "C" void app_main()
     {
         Keyboard::updateKeyList();
         const auto& keys = Keyboard::keyList();
-        const bool home = System::GetFuncButton();
+        const bool home = System::GetHomeButton();
         if (home && !homeBefore)
         {
             dim = !dim;

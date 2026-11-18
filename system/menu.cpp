@@ -220,19 +220,20 @@ void DrawCurtain(int edge)
     }
     Scene& scene = *g_scene;
     scene.now = NowMs();
-    scene.offset = detail::ClothOffset(edge);
+    scene.offset = 0;  // the menu stays in place and is uncovered
     scene.edge = edge;
     scene.mix = 0;
     scene.firmware = FirmwarePicture();
     if (edge > g_curtain)
     {
+        // Only the columns uncovered since the last step: the ones before them already show the menu
         Display::detail::SetCurtain(edge, false);
-        (void)Display::detail::PaintColumns(PaintScene, &scene, 0, edge);
+        (void)Display::detail::PaintColumns(PaintScene, &scene, g_curtain, edge);
     }
     else
     {
-        // Going back: the columns it leaves show the firmware's picture (its last frame) at once when there
-        // is one; else its next frame, sent whole, gives them back.
+        // Let go: the firmware's picture (its last frame) back at once when there is one; else its next frame,
+        // sent whole, gives the screen back.
         const bool picture = scene.firmware != nullptr;
         (void)Display::detail::PaintColumns(PaintScene, &scene, 0, picture ? g_curtain : edge);
         Display::detail::SetCurtain(edge, !picture);
@@ -249,7 +250,7 @@ void DrawCurtain(int edge)
     (void)Display::detail::SleepPanel();
     Keyboard::detail::LightsOffForSleep();
     gpio_deep_sleep_hold_en();
-    const auto key = static_cast<gpio_num_t>(Pins::kFuncButton);
+    const auto key = static_cast<gpio_num_t>(Pins::kHomeButton);
     (void)rtc_gpio_pullup_en(key);
     (void)rtc_gpio_pulldown_dis(key);
     (void)esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
@@ -340,7 +341,7 @@ void RunMenu()
     if (g_scene == nullptr && !Prepare()) return;
     Scene& scene = *g_scene;
     ESP_LOGI(kTag, "system menu: open");
-    System::detail::HoldFuncButton(true);
+    System::detail::HoldHomeButton(true);
     g_open.store(true);
     Notify(true);
     Keyboard::LedFrame lights{};
@@ -352,7 +353,7 @@ void RunMenu()
         g_open.store(false);
         g_curtain = 0;
         Release();
-        System::detail::HoldFuncButton(false);
+        System::detail::HoldHomeButton(false);
         Notify(false);
     };
     if (!Display::detail::BeginOverlay())
@@ -418,7 +419,7 @@ void RunMenu()
         detail::Key act = repeat.Update(held, now);
         if (const auto injected = static_cast<detail::Key>(g_injectedKey.exchange(0)); injected != detail::Key::None)
             act = injected;
-        const bool funcDown = System::detail::FuncButtonRaw();
+        const bool funcDown = System::detail::HomeButtonRaw();
         if (funcWasDown && !funcDown)
         {
             if (!openingPress && act == detail::Key::None) act = detail::Key::Select;  // a tap on HOME chooses
@@ -444,11 +445,11 @@ void RunMenu()
     if (chosen != detail::Item::Continue)
     {
         // HOME low at a restart is the ROM's download strap, and it would wake a sleep at once.
-        if (System::detail::FuncButtonRaw())
+        if (System::detail::HomeButtonRaw())
         {
             scene.view.releasePrompt = true;
             (void)DrawMenu(scene, NowMs());
-            while (System::detail::FuncButtonRaw())
+            while (System::detail::HomeButtonRaw())
             {
                 vTaskDelay(pdMS_TO_TICKS(kMenuPollMs));
                 if (scene.slide.active(scene.now)) (void)DrawMenu(scene, NowMs());  // the bar comes to rest
@@ -494,43 +495,23 @@ void RunMenu()
 
 // HOME's press: while it can still open the menu the curtain follows it; let go, it goes back (the
 // Launcher's return), and a new press takes it from where it is.
+// The curtain while HOME is held: out with the hold, gone at once when it is let go.
 struct Curtain {
-    bool returning = false;
-    float from = 0;
-    uint32_t releasedAt = 0;
     float shown = 0;
 
     void Update(const detail::HoldDetector& hold, uint32_t now)
     {
-        float edge = 0;
-        if (returning)
-        {
-            const uint32_t since = now - releasedAt;
-            edge = since >= launcher::kPowerReturnMs ? 0.f : detail::ReturnEdge(from, since);
-            if (since >= launcher::kPowerReturnMs) returning = false;
-        }
-        if (hold.Pressing()) edge = std::max(edge, detail::PullEdge(hold.HeldMs(now)));
-        else if (!returning && shown > 0)
-        {
-            returning = true;
-            from = shown;
-            releasedAt = now;
-            edge = shown;
-        }
+        const float edge = hold.Pressing() ? detail::PullEdge(hold.HeldMs(now)) : 0.f;
         shown = edge;
         DrawCurtain(int(std::lround(edge)));
     }
-    void Reset()
-    {
-        returning = false;
-        shown = 0;
-    }
+    void Reset() { shown = 0; }
 };
 
 void MenuTask(void*)
 {
     detail::HoldDetector hold;
-    hold.Reset(System::detail::FuncButtonRaw());
+    hold.Reset(System::detail::HomeButtonRaw());
     Curtain curtain;
     while (true)
     {
@@ -541,10 +522,10 @@ void MenuTask(void*)
         if (!(REG_READ(IO_MUX_GPIO0_REG) & FUN_IE))
         {
             ESP_LOGW(kTag, "system menu: GPIO0's input was off (another driver reset it): restored");
-            System::detail::RestoreFuncButton();
-            hold.Reset(System::detail::FuncButtonRaw());
+            System::detail::RestoreHomeButton();
+            hold.Reset(System::detail::HomeButtonRaw());
         }
-        const bool down = System::detail::FuncButtonRaw();
+        const bool down = System::detail::HomeButtonRaw();
         const uint32_t now = NowMs();
         if (!g_enabled.load())
         {
@@ -561,7 +542,7 @@ void MenuTask(void*)
         }
         RunMenu();
         curtain.Reset();
-        hold.Reset(System::detail::FuncButtonRaw());
+        hold.Reset(System::detail::HomeButtonRaw());
     }
 }
 

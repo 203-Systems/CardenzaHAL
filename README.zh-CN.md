@@ -146,7 +146,7 @@ idf.py -p <PORT> flash monitor
 
 | 模块 | 是否影响 `Init()` 成功 | 行为 |
 | --- | --- | --- |
-| System | 是 | 初始化共享 I2C 总线和 Func；失败则立即返回 |
+| System | 是 | 初始化共享 I2C 总线和 HOME 键；失败则立即返回 |
 | Keyboard | 是 | 启动后台按键与 LED 扫描 |
 | Audio | 是 | 配置单声道 TX 并启动 ES8156；新建的 TX 通道保持禁用 |
 | Display | 是 | 准备屏幕，提交一帧后才显示 |
@@ -155,7 +155,7 @@ idf.py -p <PORT> flash monitor
 
 `LastInitReport()` 提供上述六个模块的结果和 `overall`。整体初始化成功后会缓存结果，再调用一次不会重新挂载缺失的 SD 卡；需要单独调用 `Storage::Init()` 重试。麦克风、USB 和网络（[Net](#网络wi-fi-与-https)）**不在整体初始化范围内**；`cardenzaHAL.h` 也不包含 `usb/usb.h` 和 `net/net.h`。打开 `CONFIG_CARDENZA_HAL_PRESENCE`（默认打开）时，`Init()` 还会启动一次[社区在线服务](#社区在线服务任何固件运行时都能收到)，不论各模块的结果如何。
 
-只需要部分功能时，可以分别初始化各模块。使用共享 I2C 或 Func 前，先调用 `System::Init()`，并检查各模块的返回值。音频编解码器初始化失败后可以再次调用 `Audio::Init()`，重试频率限制约为每秒一次。
+只需要部分功能时，可以分别初始化各模块。使用共享 I2C 或 HOME 键前，先调用 `System::Init()`，并检查各模块的返回值。音频编解码器初始化失败后可以再次调用 `Audio::Init()`，重试频率限制约为每秒一次。
 
 ## 键盘与按键灯
 
@@ -282,9 +282,9 @@ void ReadSettings()
 
 `GetCapacity()` 返回以**字节**为单位的总容量，不是剩余空间。`IsMounted()` 是缓存状态，不是硬件插卡检测。I/O 出错后，先关闭受影响文件，再调用 `CheckAfterIoError()`：卡仍正常响应时保持挂载（例如只是写满），失去响应时标记为不可用，并在下一次 `Init()` 时清理旧挂载。重试前须协调所有文件使用者；HAL 不提供自动热插拔管理。
 
-## Func、I2C 与红外
+## HOME 键、I2C 与红外
 
-- [`System::GetFuncButton()`](system/system.h) 在 **GPIO0 的 Func 按键**（HOME 侧键）被按下时返回 `true`。它是独立按键，与矩阵键盘及其中的 Fn 键分开。它的**长按归系统菜单**（见下节）：打开或关闭菜单的那一下按键在这里读作松开。
+- [`System::GetHomeButton()`](system/system.h) 在 **GPIO0 的 HOME 键**（屏幕左侧的侧键）被按下时返回 `true`。它是独立按键，与矩阵键盘及其中的 Fn 键分开。它的**长按归系统菜单**（见下节）：打开或关闭菜单的那一下按键在这里读作松开。
 - `System::GetI2CBus()` 返回 `System::Init()` 创建的原生 I2C 主总线句柄。用 `i2c_master_bus_add_device()` 添加设备，避免在同一组引脚重复创建总线（SCL GPIO1、SDA GPIO2）。
 - `System::EnterDeepSleep()` 当前**只删除共享 I2C 总线**，并不会让 ESP32 进入深度睡眠，也不会配置唤醒源。调用前需要协调编解码器和其他 I2C 使用者。
 - [`IR::Send(addr, cmd)`](ir/ir.h) 在 GPIO44 上用 38 kHz 载波发出 8 位 NEC 地址/命令及各自反码。必要时会自行初始化发射器，并等待发送结束。没有接收接口，也不返回发送状态。
@@ -305,7 +305,7 @@ void ReadSettings()
 
 动效（这块屏没有防撕裂信号线，任何一帧都可能在扫描中途写进去：会动的东西每帧只变几个像素，盖住整屏的东西用渐变）：
 
-- **像拉窗帘一样拉出来。** HOME 按住超过单击的时间后，菜单的边（侧栏和列表的开头）从左边滑出来，先多出来一点，随着一秒走完再慢慢缩回一点；到时间后，其余部分在固件画面上快速渐变出来（180 ms）。中途松手，它滑回去（300 ms，两头慢中间快）。缓动曲线就是 Launcher“按住执行”的曲线和它的回弹（Launcher 的 `power_state.h`）。
+- **从左边拉出来盖住整个屏幕。** HOME 按住超过单击的时间后，菜单从左边露出来，边缘跟着按住的时间往右走（缓动曲线是 Launcher“按住执行”的曲线，Launcher 的 `power_state.h`），按满一秒正好盖住整个屏幕，菜单就打开了。中途松手，固件画面立刻回来，不做往回缩的动画。菜单本身不动，只是一列列露出来，所以每帧只发送新露出的几列。
 - **菜单里**深色的选中条靠上下两条边滑过去，和 Launcher 的列表一样（它的 `ListSlide`）：朝移动方向的那条边先走（Launcher 的缓出曲线，150 ms），另一条从静止开始跟上（230 ms），所以选中条先朝新的一行拉长，再缩回到这一行的高度；滑动途中再按，从两条边当时的位置接着走。文字在边经过的地方逐像素变白或变黑，一行的说明随选中条盖住它而展开。翻过最后一行时，各行一下子换好，选中条从它在屏上的位置接着滑。滑动时一帧画完，隔一个 tick 就画下一帧（有 PSRAM 时每帧在 PSRAM 里只画一次；没有时每 10 ms 一帧），每 8 行一条带子只发送变了的部分，也就是边和文字扫过的那几行、那几段 30 像素：平均每帧约 1-3 KB，最多 16 KB；以前整条带子发送，平均 3-9 KB，最多 35 KB（`tests/system_menu_test.cpp` 对 `--compare` 的每一段滑动都量了一遍）。
 - **继续**：固件画面淡回来（150 ms）。**其他项**：屏幕像 Launcher 关机时那样渐暗（600 ms）后再执行。
 
@@ -537,7 +537,7 @@ GPIO 以 [`board/pins.h`](board/pins.h) 为准。应用应避免重新配置 HAL
 | LEDC timer 0 / channel 7 | 屏幕背光，APB 时钟 |
 | LEDC timer 1 / channel 6 | 按键灯全局亮度，APB 时钟 |
 | GPIO47/48/21 | 按键灯使能、时钟、数据 |
-| GPIO0 | Func 按键（HOME；长按归系统菜单）与 ROM 启动选择 |
+| GPIO0 | HOME 键（HOME；长按归系统菜单）与 ROM 启动选择 |
 | 内部 USB PHY | USB 设备或 USB-Serial-JTAG |
 | Wi-Fi 射频 | Net：固件在 `Connect` 和 `Disconnect` 之间，以及在线服务运行期间（固件自己运行 Wi-Fi 之前先 `Presence::Enable(false)`） |
 
@@ -622,7 +622,7 @@ python3 components/CardenzaHAL/tools/cardenza_web.py serve build-web/site   # ht
 | 时间 | `esp_timer`（任务和 ISR 两种派发）、`esp_timer_get_time`、`xTaskGetTickCount` 跟随真实时间。 |
 | 内存 | 内部 RAM（`app_main` 开始时约 300 KB 可用）和 2 MB PSRAM 是两个独立的堆，容量与设备相同；`malloc`、`new`、任务栈和 DMA 缓冲都像在板子上一样从中分配；`heap_caps_*`、`CONFIG_SPIRAM_USE_MALLOC / CAPS_ALLOC / MEMMAP`、`esp_ptr_external_ram` 都可用。在板子上内部 RAM 不够的固件，在这里也会在差不多的地方不够。 |
 | 屏幕 | `Display::*` 就是 HAL 自己的代码；panel 和 panel IO 句柄驱动一个 ST7789 模型（窗口、MADCTL、反色、睡眠、字节序），带 SPI 总线的耗时（整屏 17 ms）和 `on_color_trans_done`。GPIO38 上的 LEDC 就是背光。 |
-| 按键、按键灯、HOME | `Keyboard::*` 把页面的按键交给 HAL 自己的去抖和四键上限；按键灯显示扫描会输出的亮度和总亮度。`System::GetFuncButton()` 和 GPIO0 就是 HOME。 |
+| 按键、按键灯、HOME | `Keyboard::*` 把页面的按键交给 HAL 自己的去抖和四键上限；按键灯显示扫描会输出的亮度和总亮度。`System::GetHomeButton()` 和 GPIO0 就是 HOME。 |
 | 音频 | `Audio::*`，以及经 I2C 访问的 ES8156 编解码器寄存器（启动耗时、音量）；TX 通道的 DMA（描述符 × 帧数）由页面的音频时钟按 44.1 kHz 取走，所以 `i2s_channel_write` 会像在板子上一样阻塞；有 `on_sent` / `on_send_q_ovf`。麦克风（`Mic::*`，PDM RX）在页面被允许时使用电脑的麦克风；GPIO43 归最后配置它的一方。 |
 | 存储 | `Storage::*` 挂载 `/sdcard`（页面说没有卡时 `?sd=0` 就没有）；C 和 C++ 的文件操作都可用；`esp_vfs_fat_info`；NVS 随页面保存。 |
 | USB | `USB::*`：MIDI 与电脑的 MIDI 端口互通（Web MIDI，在被允许时），系统 SysEx 命令，应用通道（也通向外层页面）；USB 音频和 HID 没有主机。 |

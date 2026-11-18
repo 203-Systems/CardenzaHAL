@@ -345,7 +345,7 @@ processing, file formats, the main loop). The rules (also in the HAL's
   | Header | What |
   | --- | --- |
   | `cardenzaHAL.h` | `CardenzaHAL::Init()`, `LastInitReport()` |
-  | `system/system.h` | the shared I2C bus (`GetI2CBus`), the Func button (`GetFuncButton`, HOME) |
+  | `system/system.h` | the shared I2C bus (`GetI2CBus`), the HOME button (`GetHomeButton`, the side key) |
   | `system/menu.h` | the system menu: holding HOME for a second opens it in every firmware (Continue, Back to Launcher, Restart, Turn off, Download mode); `SetListener`, `SetLeaveHook`, `IsOpen`, `Enable(false)` |
   | `keyboard/keyboard.h`, `keyboard/types.h` | the 4 × 14 keys (`updateKeyList`, `keyList`), key LEDs (`setLED`, `setLEDFrame`, `setLEDGlobalBrightness`, `enableLED`) |
   | `keyboard/led_light.h`, `keyboard/key_settle.h` | perceived brightness to LED level; a filter for modifier keys (plain headers) |

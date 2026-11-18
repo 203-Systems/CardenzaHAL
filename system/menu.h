@@ -4,8 +4,8 @@
 
 // The system menu: in every firmware on CardenzaHAL, holding the side key (HOME, GPIO0) for a second opens
 // the 203 Launcher's list (drawn by the Launcher's own code, system/menu/launcher/), over whatever the
-// firmware shows. While HOME is held its edge is pulled out from the left like a curtain (let go, it goes
-// back); at one second the rest fades in. Its items:
+// firmware shows. While HOME is held it is pulled out from the left over the screen and covers it at one
+// second (let go before that, the firmware's picture is back at once). Its items:
 //
 //   Continue           back to the firmware (also ESC or del)
 //   Back to Launcher   the Launcher's home screen, whatever its settings (the restart ticket,

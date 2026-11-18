@@ -145,7 +145,7 @@ These are commands for your consuming firmware. Launcher-distributed application
 
 | Module | Required for `Init()` to return `true` | Notes |
 | --- | --- | --- |
-| System | Yes | Shared I2C bus and Func button; failure stops initialization |
+| System | Yes | Shared I2C bus and HOME button; failure stops initialization |
 | Keyboard | Yes | Starts background key/LED scanning |
 | Audio | Yes | Configures mono TX and starts the ES8156 codec; a new TX channel is left disabled |
 | Display | Yes | Prepares the panel; present a frame to reveal it |
@@ -154,7 +154,7 @@ These are commands for your consuming firmware. Launcher-distributed application
 
 `LastInitReport()` exposes these six results and `overall`. A successful aggregate initialization is cached; calling it again does not remount a missing card. Retry `Storage::Init()` separately. Microphone, USB and the network ([Net](#network-wi-fi-and-https)) are **not** included, and `cardenzaHAL.h` includes neither `usb/usb.h` nor `net/net.h`. With `CONFIG_CARDENZA_HAL_PRESENCE` on (the default), `Init()` also starts the [community presence service](#community-presence-reachable-while-any-firmware-runs) once, whatever the modules' results.
 
-You can initialize individual modules for a smaller application. Call `System::Init()` before using the shared I2C bus or Func button. Check each module's result. Codec failures can be retried through `Audio::Init()`; retry attempts are rate limited to about once per second.
+You can initialize individual modules for a smaller application. Call `System::Init()` before using the shared I2C bus or HOME button. Check each module's result. Codec failures can be retried through `Audio::Init()`; retry attempts are rate limited to about once per second.
 
 ## Keyboard and key LEDs
 
@@ -281,9 +281,9 @@ void ReadSettings()
 
 `GetCapacity()` reports total card capacity in **bytes**, not free space. `IsMounted()` is cached state, not a card-detect signal. After an I/O failure, close affected files before `CheckAfterIoError()`: a healthy card stays mounted (for example, if full); an unresponsive card is marked unavailable and retired on the next `Init()`. Coordinate retries with all file users; automatic hot-plug management is not provided.
 
-## Func button, I2C, and IR
+## HOME button, I2C, and IR
 
-- [`System::GetFuncButton()`](system/system.h) returns `true` while the active-low **Func button on GPIO0** (HOME, the side key) is held. It is separate from the matrix keyboard and its Fn key. Its **long press is the system menu's** (below): the press that opens or closes the menu reads as released.
+- [`System::GetHomeButton()`](system/system.h) returns `true` while the active-low **HOME button on GPIO0** (the side key) is held. It is separate from the matrix keyboard and its Fn key. Its **long press is the system menu's** (below): the press that opens or closes the menu reads as released.
 - `System::GetI2CBus()` returns the native ESP-IDF master-bus handle after `System::Init()`. Reuse it with `i2c_master_bus_add_device()` rather than creating another bus on the same pins (SCL GPIO1, SDA GPIO2).
 - Despite its name, `System::EnterDeepSleep()` currently **only deletes the shared I2C bus**. It does not enter ESP32 deep sleep or configure wake sources. Coordinate codec and other bus users before calling it.
 - [`IR::Send(addr, cmd)`](ir/ir.h) sends an 8-bit NEC address/command frame with their inverted bytes, using a 38 kHz carrier on GPIO44. It initializes the transmitter if needed and waits for transmission to finish. There is no receive API or transmission status return.
@@ -304,7 +304,7 @@ Keys are the Launcher's: `;` and `,` up, `.` and `/` down, ENTER or a tap on HOM
 
 How it moves (the panel has no tearing-effect line, so any frame may be written across its scan: what moves changes a few pixels a frame, what covers the screen fades):
 
-- **Pulled out like a curtain.** Once HOME has been held longer than a tap, the menu's edge (its rail and the start of its rows) slides out from the left, a little further than it will stay, and eases back as the second runs out; then the rest fades in over your picture (180 ms). Let go before that and it slides back out of sight (300 ms, eased both ways). The easing is the Launcher's hold-to-act curve and its return (`power_state.h` there).
+- **Pulled out over the screen.** Once HOME has been held longer than a tap, the menu is uncovered from the left, its edge moving right with the hold (the Launcher's hold-to-act easing, `power_state.h` there), and covers the screen at one second: the menu is open. Let go before that and your picture is back at once (nothing slides back). The menu stays in place while it is uncovered, so each frame sends only the few new columns.
 - **In the menu** the dark selection bar slides by its two edges, as in the Launcher's lists (its `ListSlide`): the edge on the side it goes leads (the Launcher's ease-out, 150 ms), the other follows from rest (230 ms), so the bar stretches toward the new row and settles back on it; a press on the way goes on from where the edges are. Text turns white or dark pixel by pixel where an edge passes, and a row's description opens as the bar covers it. Past the last row the rows change at once and the bar slides on from where it is on screen. While it moves a frame follows the last one a tick later (PSRAM: the frame is drawn once into it; without, every 10 ms), and each sends only what changed in each band of eight rows, the rows and 30-pixel segments the edges and text swept: about 1-3 KB a frame on average and 16 KB at most, where whole bands were 3-9 KB and up to 35 KB (`tests/system_menu_test.cpp` measures every slide of `--compare`).
 - **Continue** fades your picture back in (150 ms). **The others** dim the screen as the Launcher's power-off does (600 ms) and then leave.
 
@@ -536,7 +536,7 @@ Use [`board/pins.h`](board/pins.h) as the source for GPIO assignments. Avoid rec
 | LEDC timer 0 / channel 7 | Display backlight, APB clock |
 | LEDC timer 1 / channel 6 | Key LED global brightness, APB clock |
 | GPIO47/48/21 | Key LED enable / clock / data |
-| GPIO0 | Func button (HOME; its long press is the system menu's) and ROM boot selection |
+| GPIO0 | HOME button (the side key; its long press is the system menu's) and ROM boot selection |
 | Internal USB PHY | USB device or USB-Serial-JTAG |
 | Wi-Fi radio | Net: the firmware between `Connect` and `Disconnect`, and the presence service while it runs (`Presence::Enable(false)` before running Wi-Fi yourself) |
 

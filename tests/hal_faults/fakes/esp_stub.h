@@ -34,7 +34,7 @@ inline int panelResets = 0, panelResetPin = -2, resetReason = 1;
 inline bool panelOn = false;
 inline int binarySemaphores = 0, callbackRegistrations = 0;
 inline int backlightConfigurations = 0, backlightWrites = 0, backlightHoldReleases = 0;
-inline int funcButtonRestores = 0;  // System::detail::RestoreFuncButton (hardware_boundary.cpp)
+inline int funcButtonRestores = 0;  // System::detail::RestoreHomeButton (hardware_boundary.cpp)
 inline unsigned backlightDuty = 0, backlightPendingDuty = 0;
 inline std::size_t transferredPixels = 0, backlightRevealedAt = 0;
 inline std::array<std::uint16_t, 240 * 135> displayPixels{};

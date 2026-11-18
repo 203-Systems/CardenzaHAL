@@ -120,25 +120,18 @@ namespace CardenzaHAL::SystemMenu::detail {
     inline constexpr int kHeight = 135;
 
     // ---- How it comes and goes (system/menu.cpp) ---------------------------------------------------------
-    // While HOME is held the menu is pulled out from the left like a curtain: after a tap's length it comes
-    // out (the Launcher's hold-to-act easing, power_state.h there), a little further than it will stay, and
-    // settles back to the rail and the rows' start (kClothWidth) by the time the hold is complete; then the
-    // rest fades in (kPopMs). Let go before that, it slides back out of sight (the Launcher's return: 300 ms,
-    // eased both ways). The panel has no tearing-effect line: only the narrow curtain moves (and, in the
-    // menu, the selection bar's edges, a few pixels a frame: the Launcher's ListSlide), what covers the
-    // screen fades.
+    // While HOME is held the menu is pulled out from the left over the whole screen (the user, 2026-11-18:
+    // "直接使用拉出的方式，不要使用那种收回的方式"): after a tap's length its edge moves right with the hold (the
+    // Launcher's hold-to-act easing, power_state.h there) and reaches the right edge when the hold is complete;
+    // the menu is open. It stays in place and is uncovered column by column, so a frame sends only the few new
+    // columns (the panel has no tearing-effect line). Let go before that and the firmware's picture is back at
+    // once: nothing slides back. In the menu, the selection bar's edges move a few pixels a frame (the
+    // Launcher's ListSlide); what covers the screen fades.
     inline constexpr uint32_t kPullDelayMs = 120;  // a tap on HOME shows nothing
-    inline constexpr int kClothWidth = 44;         // the Launcher's rail (24) and 20 pixels of its rows
-    inline constexpr int kPullPeak = 56;           // how far it comes out before settling
-    inline constexpr float kPullPeakAt = 0.7f;     // of the hold
-    inline constexpr uint32_t kPopMs = 180;        // the rest of the menu fades in
+    inline constexpr uint32_t kPopMs = 180;        // the backlight comes up to the menu's
     inline constexpr uint32_t kCloseMs = 150;      // Continue: the firmware's picture fades back
-    // The curtain's edge (pixels from the left) when HOME has been held `heldMs`.
+    // The curtain's edge (pixels from the left) when HOME has been held `heldMs`: 0 to kWidth, never back.
     float PullEdge(uint32_t heldMs);
-    // The edge `sinceMs` after HOME was let go with the edge at `from`.
-    float ReturnEdge(float from, uint32_t sinceMs);
-    // While the curtain is out, the menu's column c is at x = c + ClothOffset(edge): it slides with its edge.
-    constexpr int ClothOffset(int edge) { return edge - kClothWidth; }
 
     // A grey as the panel takes it: RGB565 with its bytes swapped (the Launcher's grey to RGB565).
     uint16_t PanelGrey(uint8_t grey);

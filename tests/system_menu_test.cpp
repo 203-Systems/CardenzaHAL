@@ -383,37 +383,24 @@ void TestSlideBytes()
         }
 }
 
-// HOME held: the curtain comes out after a tap's length, past where it stays, and settles on the rail and
-// the rows' start when the hold is complete; let go, it goes back in the Launcher's 300 ms.
+// HOME held: the curtain comes out after a tap's length, moves only right while held, and covers the screen when
+// the hold is complete (the user, 2026-11-18: pulled out, never drawn back). Letting go removes it at once (menu.cpp).
 void TestCurtain()
 {
     assert(PullEdge(0) == 0 && PullEdge(kPullDelayMs) == 0);
-    float previous = 0, peak = 0;
-    uint32_t peakAt = 0;
+    float previous = 0;
     for (uint32_t ms = kPullDelayMs; ms <= kHoldMs; ms += 10)
     {
         const float edge = PullEdge(ms);
-        assert(edge >= 0 && edge <= kPullPeak + 0.01f);
-        if (edge > peak) peak = edge, peakAt = ms;
-        if (ms < peakAt + 1) assert(edge >= previous - 0.01f);  // out, then...
+        assert(edge >= previous - 0.001f && edge <= kWidth + 0.01f);
         previous = edge;
     }
-    assert(peak > kPullPeak - 0.5f);
-    assert(peakAt > kPullDelayMs && peakAt < kHoldMs);
-    assert(std::fabs(PullEdge(kHoldMs) - kClothWidth) < 0.01f);  // ...back to where it stays
-    assert(std::fabs(PullEdge(kHoldMs + 500) - kClothWidth) < 0.01f);
-    assert(ClothOffset(kClothWidth) == 0);
-    assert(ReturnEdge(40, 0) == 40);
-    float last = 40;
-    for (uint32_t ms = 10; ms <= launcher::kPowerReturnMs; ms += 10)
-    {
-        const float edge = ReturnEdge(40, ms);
-        assert(edge <= last + 0.001f);
-        last = edge;
-    }
-    assert(ReturnEdge(40, launcher::kPowerReturnMs) == 0);
-    // Eased: slow at both ends.
-    assert(40 - ReturnEdge(40, 30) < ReturnEdge(40, 135) - ReturnEdge(40, 165));
+    assert(std::fabs(PullEdge(kHoldMs) - kWidth) < 0.01f);
+    assert(std::fabs(PullEdge(kHoldMs + 500) - kWidth) < 0.01f);
+    const float middle = PullEdge((kPullDelayMs + kHoldMs) / 2);
+    assert(middle > kWidth * 0.4f && middle < kWidth * 0.6f);   // eased both ways: half way at half the hold
+    // Each step uncovers a few columns: at 10 ms a step, never more than a sixth of the screen
+    for (uint32_t ms = kPullDelayMs; ms + 10 <= kHoldMs; ms += 10) assert(PullEdge(ms + 10) - PullEdge(ms) < kWidth / 6.f);
 
     HoldDetector hold;
     hold.Reset(false);

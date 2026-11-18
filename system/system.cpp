@@ -31,10 +31,10 @@ bool InitializeI2CBus()
     return i2c_new_master_bus(&busConfig, &i2cBus) == ESP_OK;
 }
 
-bool ConfigureFuncButton()
+bool ConfigureHomeButton()
 {
     gpio_config_t config = {};
-    config.pin_bit_mask = 1ULL << Pins::kFuncButton;
+    config.pin_bit_mask = 1ULL << Pins::kHomeButton;
     config.mode = GPIO_MODE_INPUT;
     config.pull_up_en = GPIO_PULLUP_ENABLE;
     config.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -46,7 +46,7 @@ bool ConfigureFuncButton()
 
 bool Init()
 {
-    return InitializeI2CBus() && ConfigureFuncButton();
+    return InitializeI2CBus() && ConfigureHomeButton();
 }
 
 void EnterDeepSleep()
@@ -74,7 +74,7 @@ std::atomic<void (*)()> usbStop{nullptr};
 
 bool GetFuncButton()
 {
-    const bool down = detail::FuncButtonRaw();
+    const bool down = detail::HomeButtonRaw();
     const uint8_t hold = funcHold.load();
     if (hold == 1) return false;
     if (hold == 2)
@@ -88,17 +88,17 @@ bool GetFuncButton()
 
 namespace detail {
 
-bool FuncButtonRaw()
+bool HomeButtonRaw()
 {
-    return gpio_get_level(static_cast<gpio_num_t>(Pins::kFuncButton)) == 0;
+    return gpio_get_level(static_cast<gpio_num_t>(Pins::kHomeButton)) == 0;
 }
 
-void RestoreFuncButton()
+void RestoreHomeButton()
 {
-    (void)ConfigureFuncButton();
+    (void)ConfigureHomeButton();
 }
 
-void HoldFuncButton(bool held)
+void HoldHomeButton(bool held)
 {
     funcHold.store(held ? 1 : 2);
 }

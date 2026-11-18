@@ -36,7 +36,7 @@ bool Init()
         sdmmc_card_t* stale = card;
         card = nullptr; // The SDK frees the card even if VFS unregister fails.
         const bool unmounted = esp_vfs_fat_sdcard_unmount(kMountPoint, stale) == ESP_OK;
-        System::detail::RestoreFuncButton();  // the SD driver's slot reset takes GPIO0 too
+        System::detail::RestoreHomeButton();  // the SD driver's slot reset takes GPIO0 too
         if (!unmounted) return false;
     }
 
@@ -63,7 +63,7 @@ bool Init()
         // ESP-IDF 5.3's SD driver resets every pin of the slot it gives up, the unused d4-d7 of a 4-bit
         // slot included, which it keeps as 0: GPIO0, HOME, loses its input (it then always reads pressed,
         // and the Launcher's bootloader takes it for its entry key). Seen on the board 2026-11-17, no card.
-        System::detail::RestoreFuncButton();
+        System::detail::RestoreHomeButton();
         return false;
     }
 
