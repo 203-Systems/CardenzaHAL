@@ -677,14 +677,18 @@ void TaskMain(void*)
 {
     Run();
     Net::Internal::Disconnect(User::Presence);
-    std::lock_guard<std::mutex> lock(g_lifecycle);
-    const State state = static_cast<State>(g_state.load());
-    const bool parked = g_parked.load();
-    if (state != State::Idle && state != State::SignedOut && !parked) SetState(State::Off);
-    g_task = nullptr;
-    g_running = false;
-    // Switched on again while it was stopping, or the activity changed while it parked: start over.
-    if (g_enabled && state != State::Idle && state != State::SignedOut && (!parked || g_wake.load())) StartTaskLocked();
+    {
+        std::lock_guard<std::mutex> lock(g_lifecycle);
+        const State state = static_cast<State>(g_state.load());
+        const bool parked = g_parked.load();
+        if (state != State::Idle && state != State::SignedOut && !parked) SetState(State::Off);
+        g_task = nullptr;
+        g_running = false;
+        // Switched on again while it was stopping, or the activity changed while it parked: start over.
+        if (g_enabled && state != State::Idle && state != State::SignedOut && (!parked || g_wake.load())) StartTaskLocked();
+    }
+    // The lock is given back first: a task deleted holding it would keep it for good, and the next
+    // SetActivity or Enable (the firmware's UI) would wait on it forever.
     vTaskDelete(nullptr);
 }
 
