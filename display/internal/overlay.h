@@ -12,21 +12,9 @@ namespace CardenzaHAL::Display::detail {
     // The firmware has shown a frame (the panel is on).
     bool Ready();
     // Every frame the firmware presents is copied into `frame` (WIDTH * HEIGHT, as presented) until
-    // SetCapture(nullptr); CaptureValid: one has been copied since.
+    // SetCapture(nullptr); CaptureValid: one has been copied since (the menu's backdrop is made from it).
     void SetCapture(uint16_t* frame);
     bool CaptureValid();
-    // The curtain: columns left of its edge are the menu's, and the firmware's frames are sent only right of
-    // it (0: all the firmware's). Moves it to `edge` and paints the columns it passed from `painter`, in one
-    // step no frame of the firmware's can fall into: going out, the new columns (the menu); going back, the
-    // columns given back (`restore`: the painter has the firmware's picture for them; without, they stay
-    // until the firmware's next frame, which then goes whole). A strip of few columns is sent in one piece
-    // (see PaintColumns).
-    bool MoveCurtain(RegionPainter painter, void* context, int edge, bool restore, int maxRows = 8);
-    // Sends columns [x, x + width) of every row from `painter` now: eight rows at a time, or, when the strip
-    // is narrow, as many rows at a time as the transfer buffer holds (1920 pixels), at most `maxRows` (what
-    // the painter can paint at once).
-    bool PaintColumns(RegionPainter painter, void* context, int x, int width, int maxRows = 8);
-
     // From now on the firmware's Present* send nothing (and return true; frames are still captured). Makes
     // the overlay's table of what it sent (ChangedRegions' row segments, about 4 KB, PSRAM when there is
     // some; EndOverlay gives it back).
@@ -42,9 +30,8 @@ namespace CardenzaHAL::Display::detail {
     void SetBacklightDuty(int duty, bool launcherPwm);
     // The duty of the firmware's brightness.
     int FirmwareBacklightDuty();
-    // Back to the firmware: its next frame is sent whole, its brightness back; the table goes. `curtain`: the
-    // menu keeps the columns left of it (it goes back to the left from there, MoveCurtain).
-    void EndOverlay(int curtain = 0);
+    // Back to the firmware: its next frame is sent whole, its brightness back; the table goes.
+    void EndOverlay();
     // Before deep sleep: the panel asleep, the backlight off and held off.
     bool SleepPanel();
 

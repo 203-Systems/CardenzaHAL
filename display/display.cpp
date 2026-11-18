@@ -55,8 +55,6 @@ bool transferPending = false;
 
 // The system menu (system/menu.h) draws over the firmware. Every submission takes displayLock, so the
 // menu's task and the firmware's never share the band or the panel.
-// - curtainEdge: while HOME is held the menu comes out from the left: the firmware's frames are sent only
-//   right of it.
 // - overlayActive: the menu is open: the firmware's frames are not sent at all.
 // - captureFrame: the menu keeps a copy of the firmware's latest frame (its picture fades into the menu and
 //   back), copied at every Present* while set.
@@ -65,7 +63,6 @@ bool transferPending = false;
 //   screen as it does in the Launcher (the backlight's driver takes 400 us to rise: the same duty is dimmer in
 //   shorter pulses).
 bool overlayActive = false;
-int curtainEdge = 0;
 uint16_t* captureFrame = nullptr;
 bool captureValid = false;
 int overlayDuty = -1;
@@ -401,17 +398,7 @@ bool PresentLocked(const uint16_t* framebuffer, const Region* regions, std::size
     // A timed-out DMA still owns transferBand. Never overwrite it while the
     // caller continues rendering into its own framebuffer.
     if (!WaitForTransfer(0)) return false;
-    // Left of the curtain's edge the system menu is coming out: only the rest is the firmware's.
-    const auto send = [&](Region region) {
-        if (curtainEdge > 0)
-        {
-            const int right = region.x + region.width;
-            region.x = std::max(region.x, curtainEdge);
-            region.width = right - region.x;
-            if (region.width <= 0) return true;
-        }
-        return SendRegion(framebuffer, region);
-    };
+    const auto send = [&](Region region) { return SendRegion(framebuffer, region); };
     bool sent = true;
     if (fullRefreshRequired)
         sent = send(Region{0, 0, WIDTH, HEIGHT});
@@ -523,30 +510,20 @@ namespace CardenzaHAL::Display::detail {
 
 namespace {
 
-// Columns [x, x + width) of every row from `painter`, eight rows at a time; a strip narrow enough goes in
-// fewer, taller pieces (as many rows as the band's pixels hold, at most `maxRows`, which the painter must be
-// able to paint at once): the curtain's few columns are one write along the panel's scan (a logical column is
-// a row of the panel's own), not seventeen, each of which waits a tick. `skipUnchanged`: of each band only
-// the rectangle over what changed since the overlay last sent it (whole-width bands only, when the overlay
-// has its table).
-bool PaintBands(RegionPainter painter, void* context, int x, int width, bool skipUnchanged,
-                int maxRows = kTransferBandRows)
+// Every row from `painter`, eight rows at a time. `skipUnchanged`: of each band only the rectangle over what
+// changed since the overlay last sent it (when the overlay has its table).
+bool PaintBands(RegionPainter painter, void* context, bool skipUnchanged)
 {
     if (painter == nullptr || !Init() || !EnsureCompletionCallback()) return false;
-    x = std::clamp(x, 0, WIDTH);
-    width = std::clamp(width, 0, WIDTH - x);
-    if (width == 0) return true;
+    const int x = 0, width = WIDTH;
     // A timed-out DMA may still own the band.
     if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
-    // Whole-width bands keep the table current; what else is sent leaves it behind.
-    const bool track = x == 0 && width == WIDTH && overlayRegions != nullptr;
+    const bool track = overlayRegions != nullptr;
     const bool skip = track && skipUnchanged && overlayHashValid;
     overlayHashValid = false;  // until every band has gone out
-    const int bandRows =
-        track ? kTransferBandRows : std::clamp(WIDTH * kTransferBandRows / width, kTransferBandRows, std::max(kTransferBandRows, maxRows));
-    for (int y = 0; y < HEIGHT; y += bandRows)
+    for (int y = 0; y < HEIGHT; y += kTransferBandRows)
     {
-        const int rows = std::min(bandRows, HEIGHT - y);
+        const int rows = std::min(kTransferBandRows, HEIGHT - y);
         painter(context, x, y, width, rows, transferBand);
         Region region{x, y, width, rows};
         if (track)
@@ -595,33 +572,6 @@ bool CaptureValid()
     return captureFrame != nullptr && captureValid;
 }
 
-bool MoveCurtain(RegionPainter painter, void* context, int edge, bool restore, int maxRows)
-{
-    DisplayLock lock;
-    edge = std::clamp(edge, 0, WIDTH);
-    const int from = curtainEdge;
-    if (edge >= from)
-    {
-        // Out: the columns are the menu's from now on, then they are painted.
-        curtainEdge = edge;
-        return PaintBands(painter, context, from, edge - from, false, maxRows);
-    }
-    // Back: the columns given back are painted with the firmware's picture, and only then its frames may
-    // reach them (no frame of its own can fall between the two: one lock). Without its picture its next
-    // frame goes whole.
-    bool painted = true;
-    if (restore) painted = PaintBands(painter, context, edge, from - edge, false, maxRows);
-    if (!restore || !painted) fullRefreshRequired = true;
-    curtainEdge = edge;
-    return painted;
-}
-
-bool PaintColumns(RegionPainter painter, void* context, int x, int width, int maxRows)
-{
-    DisplayLock lock;
-    return PaintBands(painter, context, x, width, false, maxRows);
-}
-
 bool BeginOverlay()
 {
     DisplayLock lock;
@@ -652,7 +602,7 @@ bool PaintOverlay(RegionPainter painter, void* context)
     DisplayLock lock;
     if (!overlayActive) return false;
     fullRefreshRequired = true;  // the firmware's next frame goes whole
-    if (!PaintBands(painter, context, 0, WIDTH, true)) return false;
+    if (!PaintBands(painter, context, true)) return false;
     return RevealFrame();
 }
 
@@ -670,7 +620,7 @@ int FirmwareBacklightDuty()
     return BacklightDuty(brightness);
 }
 
-void EndOverlay(int curtain)
+void EndOverlay()
 {
     DisplayLock lock;
     overlayActive = false;
@@ -680,7 +630,6 @@ void EndOverlay(int curtain)
     heap_caps_free(overlayHashes);
     overlayRegions = nullptr;
     overlayHashes = nullptr;
-    curtainEdge = std::clamp(curtain, 0, WIDTH);
     fullRefreshRequired = true;
     overlayDuty = -1;
     if (firstFramePresented) (void)ApplyDuty(ShownDuty(brightness));

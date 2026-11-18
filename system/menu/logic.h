@@ -9,13 +9,15 @@
 // (tests/system_menu_test.cpp). system/menu.cpp runs them on the device.
 namespace CardenzaHAL::SystemMenu::detail {
 
-    // The side key (HOME, GPIO0) held this long opens the menu.
-    inline constexpr uint32_t kHoldMs = 1000;
+    // A press of the side key (HOME, GPIO0) opens the menu (the user, 2026-11-18: no hold, no animation while
+    // it is held: "直接点按"): when it has read as down this long, which a contact's bounce or a glitch on the
+    // pin does not.
+    inline constexpr uint32_t kPressMs = 30;
 
-    // When the side key has been held kHoldMs. A press that was already down when watching began (the
-    // firmware started with it held: the ROM's download strap, the Launcher's entry key) does not count
-    // until it has been released once.
-    class HoldDetector {
+    // When the side key has been down kPressMs: once per press. A press that was already down when watching
+    // began (the firmware started with it held: the ROM's download strap, the Launcher's entry key; or the
+    // menu closed while it was held) does not count until it has been released once.
+    class PressDetector {
       public:
         void Reset(bool down)
         {
@@ -24,7 +26,7 @@ namespace CardenzaHAL::SystemMenu::detail {
             downSince_ = 0;
             wasDown_ = down;
         }
-        // True once per press, kHoldMs after it went down.
+        // True once per press, kPressMs after it went down.
         bool Update(bool down, uint32_t nowMs)
         {
             if (!down)
@@ -36,13 +38,12 @@ namespace CardenzaHAL::SystemMenu::detail {
             }
             if (!wasDown_) downSince_ = nowMs;
             wasDown_ = true;
-            if (!armed_ || fired_ || nowMs - downSince_ < kHoldMs) return false;
+            if (!armed_ || fired_ || nowMs - downSince_ < kPressMs) return false;
             fired_ = true;
             return true;
         }
-        // HOME is down on a press that can still open the menu (the curtain follows it), held this long.
-        bool Pressing() const { return armed_ && wasDown_ && !fired_; }
-        uint32_t HeldMs(uint32_t nowMs) const { return nowMs - downSince_; }
+        // HOME is down on a press that is about to open the menu.
+        bool Pending() const { return armed_ && wasDown_ && !fired_; }
 
       private:
         bool armed_ = false;
@@ -120,72 +121,40 @@ namespace CardenzaHAL::SystemMenu::detail {
     inline constexpr int kHeight = 135;
 
     // ---- How it comes and goes (system/menu.cpp) ---------------------------------------------------------
-    // The menu is the Launcher, pulled out from the left like a curtain (the user, 2026-11-18: "从左侧慢慢拉
-    // 出来一点，又慢慢缩回去一点点，直到达到弹出时间的时候，快速渐变动画弹出来 ... 如果中途放手了，也会慢慢的用
-    // 一定的非线性速度回去", and again that day after a straight pull was tried: "出来一些，然后缩回去一点点，
-    // 超过触发时间就弹出来 ... 保持收回去，动画连贯性好").
-    //
-    // HOME held past a tap's length (kPullDelayMs): the menu's left part is uncovered up to an edge that
-    // goes out to kPullOutPixels (enough to read what it is: the Launcher's black rail with the page's name,
-    // the selection bar and the first words of the rows), then eases back kPullBackPixels, both on the
-    // Launcher's hold-to-act curve (powerHoldFill: a cubic in and out, at rest at each end), and is at rest
-    // when the hold is complete (kHoldMs). Then it pops: the rest of the menu fades in over the firmware's
-    // picture (kPopMs, the Launcher's ease) while the backlight goes to the Launcher's.
-    // Let go before that: the edge goes back to the left from where it is (kReturnMs, the Launcher's
-    // kPowerReturnMs), on the cubic the Launcher's lists move their selection bar's edges with
-    // (ListSlide::Edge: from where it is, at the speed it has when that is already toward the left, from rest
-    // when it was still going out). A new press while it goes back adds its pull to what is left of the way
-    // back: the edge never jumps. Continue closes the same way round: the right part fades back to the
-    // firmware's picture (kCloseMs), then the curtain goes back to the left.
-    //
-    // The menu stays in place and is uncovered, never slid: the panel has no tearing-effect line, so a frame
-    // sends only the columns the edge passed since the last one (a strip a few columns wide, one write along
-    // the panel's scan), and what covers a large area fades.
-    inline constexpr uint32_t kPullDelayMs = 120;  // a tap on HOME shows nothing
-    inline constexpr uint32_t kPullOutMs = 620;    // held this long, the edge is furthest out
-    inline constexpr int kPullOutPixels = 112;
-    inline constexpr int kPullBackPixels = 16;     // and back by this at kHoldMs
-    inline constexpr int kPullRestPixels = kPullOutPixels - kPullBackPixels;
-    inline constexpr uint32_t kReturnMs = 300;     // let go: back to the left
-    inline constexpr uint32_t kPopMs = 180;        // the rest of the menu fades in, the backlight to the Launcher's
-    inline constexpr uint32_t kCloseMs = 150;      // Continue: the right part fades back to the firmware's picture
-    // The curtain's edge (pixels from the left) when HOME has been held `heldMs`: 0 until kPullDelayMs, out to
-    // kPullOutPixels at kPullOutMs, back to kPullRestPixels at kHoldMs (and there after it).
-    float PullEdge(uint32_t heldMs);
-    // Its speed there (pixels a millisecond; negative: going back).
-    float PullSpeed(uint32_t heldMs);
+    // The user, 2026-11-18: "直接点按，就直接一个 dither 变暗变低饱和屏幕，然后再让它这个界面显示出来" and
+    // "必须要让它只保持黑白灰". A press of HOME: the firmware's picture (its last frame) goes dark and grey
+    // through an ordered dither (the backdrop, one frame), and after kBackdropMs the menu comes through it,
+    // pixel by pixel in the dither's order (kDissolveSteps frames: every pixel is the backdrop's or the
+    // menu's, never a mix, so nothing on the screen has a colour). The panel has no tearing-effect line: a
+    // dissolve can be written across its scan without a seam, a slide of the whole screen cannot. Continue:
+    // the backdrop again (the firmware's latest frame) for kCloseMs, then the firmware's picture.
+    inline constexpr uint32_t kBackdropMs = 70;
+    inline constexpr int kDissolveSteps = 4;
+    inline constexpr uint32_t kCloseMs = 60;
 
-    // The curtain's edge over time: the pull while HOME is held on a press that can open the menu, plus
-    // what is left of a way back to the left (after HOME was let go, or after the menu closed).
-    class Curtain {
-      public:
-        // Every frame. `pulling`: HOME is down on a press that can still open the menu, held `heldMs`.
-        // Returns the edge: 0 to kWidth.
-        float Update(bool pulling, uint32_t heldMs, uint32_t nowMs);
-        // The curtain is at `edge` at rest and goes back to the left from now (the menu closed).
-        void ReturnFrom(float edge, uint32_t nowMs);
-        // It is out or on its way: draw frames.
-        bool Moving(uint32_t nowMs) const { return pulling_ || nowMs - backSince_ < backMs_; }
-        void Reset() { *this = Curtain(); }
+    // The 4x4 ordered dither's threshold at a pixel: 0 to 15.
+    int Bayer(int x, int y);
+    // The backdrop at (x, y) over the firmware's pixel there (RGB565 as the panel takes it): its luma
+    // (Rec. 709), darkened to two fifths and dithered to the greys 0, 32, 64, 96 and 128.
+    uint8_t BackdropGrey(uint16_t firmwarePixel, int x, int y);
+    // Without the firmware's picture: a dark dithered field.
+    uint8_t BackdropField(int x, int y);
+    // At dissolve step `step` (0: the backdrop alone, kDissolveSteps: the menu alone) the pixel is the menu's.
+    bool Dissolved(int x, int y, int step);
+    // The grey the screen shows at (x, y) at dissolve step `step`: the menu's (`menuGrey`) or the backdrop's
+    // over `firmwarePixel` (null: no picture). Everything the menu puts on the panel is PanelGrey of this.
+    uint8_t SceneGrey(int step, uint8_t menuGrey, const uint16_t* firmwarePixel, int x, int y);
 
-      private:
-        float Back(uint32_t nowMs) const;
-        float BackSpeed(uint32_t nowMs) const;
-        bool pulling_ = false;
-        uint32_t heldMs_ = 0;
-        // The way back: from backFrom_ at backSpeed_ (pixels a millisecond) to 0, at rest after backMs_.
-        float backFrom_ = 0, backSpeed_ = 0;
-        uint32_t backSince_ = 0, backMs_ = 0;
-    };
-
-    // A grey as the HAL's panel takes it: the Launcher's grey to RGB565 (its Lcd::rgb) in the processor's
-    // byte order. The Launcher swaps the two bytes for its own panel setup (big-endian data, ESP-IDF's
-    // default); the HAL sets the same panel to little-endian data (display/display.cpp), so the swapped
-    // pixel was another colour here (the selection bar's grey 20 a dull pink, the details' 170 green) until
-    // 2026-11-18. Black and white are the same either way, which is how it went unseen in the tests.
+    // A grey as the HAL's panel takes it: RGB565 in the processor's byte order (the HAL sets the panel to
+    // little-endian data; the Launcher sends its own setup of the panel the bytes swapped, and its swapped
+    // pixels were other colours here until 2026-11-18), and neutral: red and blue the grey's five bits, green
+    // those five bits as the panel widens them to six (the top bit again at the bottom). The Launcher's own
+    // Lcd::rgb takes green's sixth bit from the grey instead, which is a step of green more or less than the
+    // red and blue beside it on half the greys (20, the selection bar: a little green; 170, the details: a
+    // little magenta): the menu shows black, white and grey only.
     uint16_t PanelGrey(uint8_t grey);
-    // Between two pixels as the panel takes them: weight 0 is a, 256 is b.
-    uint16_t PanelMix(uint16_t a, uint16_t b, int weight);
+    // The pixel is a neutral grey (PanelGrey's rule).
+    bool PanelNeutral(uint16_t pixel);
 
     // The backlight as the Launcher sets it on the Cardenza (its src/platform/board.cpp backlightDuty): the
     // duty of its brightness setting `percent` (its NVS value launcher/bright: 10 to 100, 0 or missing 100)

@@ -1,4 +1,4 @@
-// system/menu/logic.h and frame.h: the system menu's long press, curtain, keys, list, words, its frames (the
+// system/menu/logic.h and frame.h: the system menu's press, backdrop and dissolve, keys, list, words, its frames (the
 // Launcher's own, pixel for pixel, the selection bar's slide too) and what they send to the panel, and the
 // NVS reader.
 #include <cassert>
@@ -27,30 +27,37 @@ uint32_t CardenzaHAL::SystemMenu::launcher::launcherMillis() { return 0; }
 
 namespace {
 
-void TestHold()
+// A press of HOME opens the menu once it has lasted kPressMs: once a press, never a bounce, never a press
+// that was already down.
+void TestPress()
 {
-    HoldDetector hold;
+    PressDetector hold;
     hold.Reset(false);
-    assert(!hold.Update(true, 0));
-    assert(!hold.Update(true, kHoldMs - 1));
-    assert(hold.Update(true, kHoldMs));
-    assert(!hold.Update(true, kHoldMs + 500));  // once per press
-    assert(!hold.Update(false, kHoldMs + 600));
+    assert(!hold.Pending());
+    assert(!hold.Update(true, 0) && hold.Pending());
+    assert(!hold.Update(true, kPressMs - 1));
+    assert(hold.Update(true, kPressMs) && !hold.Pending());
+    assert(!hold.Update(true, kPressMs + 500));  // once per press
+    assert(!hold.Update(false, kPressMs + 600));
     assert(!hold.Update(true, 5000));
-    assert(hold.Update(true, 5000 + kHoldMs));
+    assert(hold.Update(true, 5000 + kPressMs));
+    // A bounce or a glitch: down for less than kPressMs opens nothing, and the next press counts from its own start.
+    assert(!hold.Update(false, 6000) && !hold.Update(true, 6010) && !hold.Update(true, 6020) && !hold.Update(false, 6030));
+    assert(!hold.Pending() && !hold.Update(true, 6040) && !hold.Update(true, 6040 + kPressMs - 1) && hold.Update(true, 6040 + kPressMs));
+    assert(kPressMs >= 20 && kPressMs <= 50);  // past a contact's bounce, and at once to a finger
 
     // Down when watching began (the firmware started with HOME held): no menu until it was let go.
     hold.Reset(true);
-    assert(!hold.Update(true, 0));
-    assert(!hold.Update(true, 10 * kHoldMs));
-    assert(!hold.Update(false, 10 * kHoldMs + 1));
+    assert(!hold.Update(true, 0) && !hold.Pending());
+    assert(!hold.Update(true, 1000 * kPressMs));
+    assert(!hold.Update(false, 10 * kPressMs + 1));
     assert(!hold.Update(true, 20000));
-    assert(hold.Update(true, 20000 + kHoldMs));
+    assert(hold.Update(true, 20000 + kPressMs));
 
     // Time wraps (a uint32_t of milliseconds, after 49 days).
     hold.Reset(false);
     assert(!hold.Update(true, 0xFFFFFF00u));
-    assert(hold.Update(true, 0xFFFFFF00u + kHoldMs));
+    assert(hold.Update(true, 0xFFFFFF00u + kPressMs));
 }
 
 void TestKeys()
@@ -383,164 +390,129 @@ void TestSlideBytes()
         }
 }
 
-// HOME held: nothing for a tap's length, then the curtain's edge goes out to kPullOutPixels, eases back to
-// kPullRestPixels and is at rest there when the hold is complete (the user, 2026-11-18: out some, back a
-// little, then the pop).
-void TestPull()
-{
-    assert(PullEdge(0) == 0 && PullEdge(kPullDelayMs) == 0);
-    assert(std::fabs(PullEdge(kPullOutMs) - kPullOutPixels) < 0.01f);
-    assert(std::fabs(PullEdge(kHoldMs) - kPullRestPixels) < 0.01f && PullEdge(kHoldMs + 500) == PullEdge(kHoldMs));
-    // Enough to read what it is (the rail and the first words of the rows), never most of the screen; back
-    // only a little.
-    assert(kPullOutPixels >= 96 && kPullOutPixels <= kWidth / 2);
-    assert(kPullBackPixels >= 8 && kPullBackPixels <= kPullOutPixels / 4);
-    for (uint32_t ms = 0; ms < kHoldMs; ++ms)
-    {
-        const float edge = PullEdge(ms), next = PullEdge(ms + 1);
-        assert(edge >= 0 && edge <= kPullOutPixels + 0.01f);
-        // Out until kPullOutMs, back after it, and never a jump: under a pixel a millisecond.
-        if (ms < kPullOutMs) assert(next >= edge - 0.001f);
-        else assert(next <= edge + 0.001f);
-        assert(std::fabs(next - edge) < 1.f);
-        // PullSpeed is the curve's slope.
-        if (ms > 0) assert(std::fabs(PullSpeed(ms) - (next - PullEdge(ms - 1)) / 2) < 0.02f);
-    }
-    // At rest where it starts, where it turns and where it pops (the Launcher's hold-to-act curve both ways).
-    assert(PullSpeed(kPullDelayMs) == 0 && PullSpeed(kPullOutMs) == 0 && PullSpeed(kHoldMs) == 0);
-    assert(PullEdge(kPullDelayMs + 10) < 0.5f && kPullOutPixels - PullEdge(kPullOutMs - 10) < 0.5f);
-    assert(PullEdge(kHoldMs - 10) - kPullRestPixels < 0.5f);
-    const float middle = PullEdge((kPullDelayMs + kPullOutMs) / 2);
-    assert(std::fabs(middle - kPullOutPixels / 2.f) < 1.f);  // eased both ways: half way at half the time
-
-    HoldDetector hold;
-    hold.Reset(false);
-    hold.Update(true, 100);
-    assert(hold.Pressing() && hold.HeldMs(400) == 300);
-    assert(hold.Update(true, 100 + kHoldMs) && !hold.Pressing());
-    hold.Update(false, 2000);
-    assert(!hold.Pressing());
-}
-
-// The curtain over time, a frame every 5 ms as system/menu.cpp draws it: `press` the times HOME goes down and
-// up in turn. Returns the edge of every frame.
-std::vector<float> RunCurtain(Curtain& curtain, std::initializer_list<uint32_t> changes, uint32_t until,
-                              uint32_t start = 70000)
-{
-    std::vector<float> edges;
-    bool down = false;
-    uint32_t since = 0;
-    auto next = changes.begin();
-    for (uint32_t ms = 0; ms <= until; ms += 5)
-    {
-        while (next != changes.end() && *next <= ms)
-        {
-            down = !down;
-            since = *next++;
-        }
-        edges.push_back(curtain.Update(down, down ? ms - since : 0, start + ms));
-    }
-    return edges;
-}
-
-void TestCurtain()
-{
-    // Held to the end: the pull itself, and still moving.
-    {
-        Curtain curtain;
-        assert(!curtain.Moving(70000));
-        const auto edges = RunCurtain(curtain, {0}, kHoldMs);
-        for (std::size_t i = 0; i < edges.size(); ++i) assert(edges[i] == PullEdge(uint32_t(i) * 5));
-        assert(curtain.Moving(70000 + kHoldMs));
-    }
-    // Let go at any moment of the hold: the edge goes back to the left from where it is, with no jump (a
-    // step is never larger than the pull's own largest), never further out than it was, and is gone
-    // kReturnMs later.
-    float largest = 0;
-    for (uint32_t ms = 0; ms < kHoldMs; ms += 5) largest = std::max(largest, std::fabs(PullEdge(ms + 5) - PullEdge(ms)));
-    for (uint32_t release = 10; release < kHoldMs; release += 35)
-    {
-        Curtain curtain;
-        const auto edges = RunCurtain(curtain, {0, release}, release + kReturnMs + 20);
-        const std::size_t at = release / 5 + (release % 5 ? 1 : 0);  // the first frame after HOME went up
-        const float from = edges[at - 1];
-        for (std::size_t i = at; i < edges.size(); ++i)
-        {
-            assert(edges[i] <= edges[i - 1] + 0.001f && edges[i] <= from + 0.001f);
-            assert(edges[i - 1] - edges[i] <= std::max(largest, 3 * from / kReturnMs * 5) + 0.01f);
-        }
-        assert(std::fabs(edges[at] - from) < 2.f);
-        assert(edges.back() == 0 && !curtain.Moving(70000 + release + kReturnMs + 20));
-        // Not linear: half way through the return, more than half of the way is... eased: slow at the end.
-        if (from > 20)
-        {
-            const float nearEnd = edges[at + (kReturnMs - 30) / 5];
-            assert(nearEnd < from * 0.06f);
-        }
-    }
-    // Let go while it eases back: it keeps the speed it has (the first step is as large as the last one of
-    // the pull, within a little); let go while it goes out: it starts back from rest.
-    {
-        Curtain back;
-        const auto edges = RunCurtain(back, {0, 800}, 900);
-        const float before = edges[159] - edges[158], after = edges[161] - edges[160];
-        assert(before < -0.1f && after < before * 0.6f);
-        Curtain out;
-        const auto going = RunCurtain(out, {0, 370}, 500);
-        assert(going[73] - going[72] > 1.f && std::fabs(going[75] - going[74]) < 0.4f);
-    }
-    // A new press while it goes back: no jump, the pull is added to what is left of the way back, and held
-    // to the end the edge is where the pop expects it.
-    {
-        Curtain curtain;
-        const auto edges = RunCurtain(curtain, {0, 600, 700}, 700 + kHoldMs);
-        for (std::size_t i = 1; i < edges.size(); ++i) assert(std::fabs(edges[i] - edges[i - 1]) <= largest + 0.5f);
-        assert(edges[140] > 20 && edges[140] < kPullOutPixels);  // the press came in mid-return
-        assert(std::fabs(edges.back() - kPullRestPixels) < 0.01f);
-        for (float edge : edges) assert(edge >= 0 && edge <= kWidth);
-    }
-    // After the menu closed: from the curtain's rest back to the left, from rest, eased.
-    {
-        Curtain curtain;
-        curtain.ReturnFrom(kPullRestPixels, 70000);
-        assert(curtain.Moving(70000) && curtain.Update(false, 0, 70000) == kPullRestPixels);
-        const float early = curtain.Update(false, 0, 70000 + 30), middle = curtain.Update(false, 0, 70000 + kReturnMs / 2);
-        assert(early > kPullRestPixels - 4 && std::fabs(middle - kPullRestPixels / 2.f) < 1.f);
-        assert(curtain.Update(false, 0, 70000 + kReturnMs) == 0 && !curtain.Moving(70000 + kReturnMs));
-    }
-    // The clock wraps: nothing comes back.
-    {
-        Curtain curtain;
-        (void)RunCurtain(curtain, {0, 300}, 300 + kReturnMs + 20, 0xFFFFFF00u);
-        assert(curtain.Update(false, 0, 0x7FFFFFFFu) == 0 && curtain.Update(false, 0, 0xFFFFFFF0u) == 0);
-    }
-}
-
-// The panel takes RGB565 in the processor's byte order (the HAL sets it to little-endian data): a grey is
-// the Launcher's Lcd::rgb as it is, not with its bytes swapped as the Launcher sends it to its own setup of
-// the same panel.
+// Everything the menu puts on the panel is black, white or grey (the user, 2026-11-18: "必须要让它只保持黑白灰"):
+// red and blue the same five bits, green those bits widened to six as the panel widens them.
 void TestPanel()
 {
     assert(PanelGrey(255) == 0xFFFF && PanelGrey(0) == 0);
+    uint16_t previous = 0;
     for (int grey = 0; grey < 256; ++grey)
     {
         const uint16_t c = PanelGrey(static_cast<uint8_t>(grey));
         const int red = c >> 11, green = (c >> 5) & 63, blue = c & 31;
-        assert(red == grey >> 3 && green == grey >> 2 && blue == grey >> 3);  // a grey: no tint
+        assert(PanelNeutral(c) && red == grey >> 3 && blue == red && green == (red << 1 | red >> 4));
+        // Never further from the Launcher's own pixel than green's last bit, and never darker for a lighter grey.
+        assert(std::abs(green - (grey >> 2)) <= 1 && c >= previous);
+        previous = c;
     }
-    assert(PanelGrey(20) == 0x10A2);  // the selection bar (swapped it was 0xA210: a dull pink)
-    const uint16_t white = PanelGrey(255), black = PanelGrey(0);
-    assert(PanelMix(white, black, 0) == white && PanelMix(white, black, 256) == black);
-    const uint16_t half = PanelMix(white, black, 128);
-    assert(((half >> 11) & 31) == 16 && ((half >> 5) & 63) == 32 && (half & 31) == 16);
-    // A fade between a colour of the firmware's and a grey stays between them, channel by channel.
-    const uint16_t orange = 0xFAC6;  // 255, 90, 54
-    for (int weight = 0; weight <= 256; weight += 16)
+    assert(!PanelNeutral(0x10A2) && !PanelNeutral(0xA210) && !PanelNeutral(0xF800) && !PanelNeutral(0x0020));
+}
+
+// The backdrop: the firmware's picture dark and grey through the 4x4 dither; the dissolve: the menu's pixels
+// in the dither's order.
+void TestBackdrop()
+{
+    int seen[16] = {};
+    for (int y = 0; y < 4; ++y)
+        for (int x = 0; x < 4; ++x)
+        {
+            assert(Bayer(x, y) >= 0 && Bayer(x, y) < 16 && Bayer(x + 4, y + 8) == Bayer(x, y));
+            ++seen[Bayer(x, y)];
+        }
+    for (int count : seen) assert(count == 1);
+    // Every colour a firmware can show, at every place of the dither: one of five dark greys, neutral.
+    for (int pixel = 0; pixel < 65536; ++pixel)
     {
-        const uint16_t mixed = PanelMix(orange, PanelGrey(20), weight);
-        assert((mixed >> 11) <= 31 && (mixed >> 11) >= 2 && ((mixed >> 5) & 63) <= 22 && ((mixed >> 5) & 63) >= 5);
-        assert((mixed & 31) <= 6 && (mixed & 31) >= 2);
+        int sum = 0;
+        for (int at = 0; at < 16; ++at)
+        {
+            const uint8_t grey = BackdropGrey(static_cast<uint16_t>(pixel), at & 3, at >> 2);
+            assert(grey % 32 == 0 && grey <= 128 && PanelNeutral(PanelGrey(grey)));
+            sum += grey;
+        }
+        // The dither's sixteen pixels together are two fifths of the colour's luma.
+        const int r5 = pixel >> 11, g6 = (pixel >> 5) & 63, b5 = pixel & 31;
+        const int luma = (54 * (r5 << 3 | r5 >> 2) + 183 * (g6 << 2 | g6 >> 4) + 19 * (b5 << 3 | b5 >> 2) + 128) >> 8;
+        assert(std::abs(sum / 16 - luma * 2 / 5) <= 2);
     }
+    assert(BackdropGrey(0x0000, 1, 1) == 0 && BackdropGrey(0xFFFF, 0, 0) >= 96);
+    // Pure red, green and blue are greys by how light they look: green the lightest.
+    const auto mean = [](uint16_t pixel) {
+        int sum = 0;
+        for (int at = 0; at < 16; ++at) sum += BackdropGrey(pixel, at & 3, at >> 2);
+        return sum / 16;
+    };
+    assert(mean(0x07E0) > mean(0xF800) && mean(0xF800) > mean(0x001F));
+    // Without a picture: a dark field, dithered (two greys).
+    int dark = 0;
+    for (int at = 0; at < 16; ++at)
+    {
+        const uint8_t grey = BackdropField(at & 3, at >> 2);
+        assert(grey == 0 || grey == 32);
+        dark += grey == 0;
+    }
+    assert(dark > 0 && dark < 16);
+    // The dissolve: none of the menu at step 0, a quarter more each step, a step's pixels kept by the next.
+    for (int step = 0; step <= kDissolveSteps; ++step)
+    {
+        int count = 0;
+        for (int at = 0; at < 16; ++at)
+        {
+            const bool menu = Dissolved(at & 3, at >> 2, step);
+            count += menu;
+            if (step > 0 && Dissolved(at & 3, at >> 2, step - 1)) assert(menu);
+        }
+        assert(count == step * 16 / kDissolveSteps);
+    }
+}
+
+// Every pixel of every frame the menu shows is neutral: the backdrop over a firmware picture of every colour
+// (and without one), each step of the dissolve into the menu, and the menu itself, in every language and
+// with every row selected, the selection bar's slide included.
+void TestNeutralFrames()
+{
+    std::vector<uint16_t> firmware(kWidth * kHeight);
+    for (int i = 0; i < kWidth * kHeight; ++i) firmware[i] = static_cast<uint16_t>(i * 2654435761u >> 12);
+    std::vector<uint8_t> menu(kWidth * kHeight);
+    long menuPixels = 0, backdropPixels = 0;
+    const auto check = [&](int step, bool picture) {
+        for (int y = 0; y < kHeight; ++y)
+            for (int x = 0; x < kWidth; ++x)
+            {
+                const int i = y * kWidth + x;
+                const uint8_t grey = SceneGrey(step, menu[i], picture ? &firmware[i] : nullptr, x, y);
+                assert(PanelNeutral(PanelGrey(grey)));
+                if (step >= kDissolveSteps) assert(grey == menu[i]);
+                if (step == 0) assert(grey == (picture ? BackdropGrey(firmware[i], x, y) : BackdropField(x, y)));
+                (grey == menu[i] ? menuPixels : backdropPixels)++;
+            }
+    };
+    for (int language = 0; language < kLanguageCount; ++language)
+        for (int selected = 0; selected < kItemCount; ++selected)
+        {
+            View view;
+            view.language = language;
+            view.firmware = "CardenzaSynthFirmware 0.2.1";
+            view.state.selected = selected;
+            view.state.scroll = selected < kVisibleRows ? 0 : selected - kVisibleRows + 1;
+            view.releasePrompt = selected == 2;
+            view.backHeld = selected == 3;
+            PaintGrey(view, nullptr, 0, 0, kHeight, menu.data());
+            for (int step = 0; step <= kDissolveSteps; ++step)
+                for (bool picture : {true, false}) check(step, picture);
+            // The bar on its way to the next row.
+            ListSlide slide;
+            slide.keep = true;
+            PaintGrey(view, &slide, 9000, 0, kHeight, menu.data());
+            view.state.selected = std::min(selected + 1, kItemCount - 1);
+            view.state.scroll = view.state.selected < kVisibleRows ? 0 : view.state.selected - kVisibleRows + 1;
+            for (uint32_t ms : {20u, 60u, 120u, 200u})
+            {
+                PaintGrey(view, &slide, 9000 + ms, 0, kHeight, menu.data());
+                check(kDissolveSteps, true);
+            }
+        }
+    assert(menuPixels > 0 && backdropPixels > 0);
 }
 
 // The backlight as the Launcher sets it: its brightness setting on its duty curve.
@@ -637,7 +609,7 @@ void TestNvs()
 
 int main()
 {
-    TestHold();
+    TestPress();
     TestKeys();
     TestList();
     TestWords();
@@ -645,8 +617,8 @@ int main()
     TestSlideFrames();
     TestListSlide();
     TestSlideBytes();
-    TestPull();
-    TestCurtain();
+    TestBackdrop();
+    TestNeutralFrames();
     TestBacklight();
     TestPanel();
     TestNvs();

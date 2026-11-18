@@ -79,99 +79,57 @@ int LanguageIndex(int launcherLang)
     }
 }
 
+int Bayer(int x, int y)
+{
+    static constexpr uint8_t kBayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    return kBayer[y & 3][x & 3];
+}
+
 namespace {
 
-// The Launcher's hold-to-act curve (powerHoldFill, a cubic in and out) over [0, 1], and its slope.
-float InOut(float p)
+// A darkened level (0 to 103 or so) to the greys a step of 32 apart, by the dither.
+uint8_t DitherGrey(int level, int x, int y)
 {
-    return launcher::powerHoldFill(uint32_t(std::clamp(p, 0.f, 1.f) * launcher::kPowerHoldMs + 0.5f));
-}
-float InOutSlope(float p)
-{
-    if (p <= 0 || p >= 1) return 0;
-    const float q = p < .5f ? p : 1 - p;
-    return 12 * q * q;
+    const int step = level >> 5, part = (level & 31) >> 1;  // part: 0 to 15 of the way to the next grey
+    return static_cast<uint8_t>(std::min(255, (step + (part > Bayer(x, y) ? 1 : 0)) << 5));
 }
 
 }  // namespace
 
-float PullEdge(uint32_t heldMs)
+uint8_t BackdropGrey(uint16_t firmwarePixel, int x, int y)
 {
-    if (heldMs <= kPullDelayMs) return 0;
-    if (heldMs <= kPullOutMs)
-        return kPullOutPixels * InOut(float(heldMs - kPullDelayMs) / float(kPullOutMs - kPullDelayMs));
-    if (heldMs >= kHoldMs) return kPullRestPixels;
-    return kPullOutPixels - kPullBackPixels * InOut(float(heldMs - kPullOutMs) / float(kHoldMs - kPullOutMs));
+    const int r5 = firmwarePixel >> 11, g6 = (firmwarePixel >> 5) & 63, b5 = firmwarePixel & 31;
+    const int r = r5 << 3 | r5 >> 2, g = g6 << 2 | g6 >> 4, b = b5 << 3 | b5 >> 2;
+    const int luma = (54 * r + 183 * g + 19 * b + 128) >> 8;
+    return DitherGrey(luma * 2 / 5, x, y);
 }
 
-float PullSpeed(uint32_t heldMs)
+uint8_t BackdropField(int x, int y)
 {
-    if (heldMs <= kPullDelayMs || heldMs >= kHoldMs) return 0;
-    if (heldMs <= kPullOutMs)
-    {
-        const float span = float(kPullOutMs - kPullDelayMs);
-        return kPullOutPixels * InOutSlope(float(heldMs - kPullDelayMs) / span) / span;
-    }
-    const float span = float(kHoldMs - kPullOutMs);
-    return -kPullBackPixels * InOutSlope(float(heldMs - kPullOutMs) / span) / span;
+    return DitherGrey(20, x, y);
 }
 
-// The way back is the Launcher's ListSlide::Edge (launcher/motion.inc): a cubic from `from` at `speed` to 0,
-// at rest after `ms`.
-float Curtain::Back(uint32_t nowMs) const
+bool Dissolved(int x, int y, int step)
 {
-    launcher::ListSlide::Edge edge{backFrom_, 0, backSpeed_, backSince_, backMs_};
-    return backMs_ != 0 ? edge.at(nowMs) : 0.f;
+    return Bayer(x, y) * kDissolveSteps < step * 16;
 }
 
-float Curtain::BackSpeed(uint32_t nowMs) const
+uint8_t SceneGrey(int step, uint8_t menuGrey, const uint16_t* firmwarePixel, int x, int y)
 {
-    launcher::ListSlide::Edge edge{backFrom_, 0, backSpeed_, backSince_, backMs_};
-    return backMs_ != 0 ? edge.velocity(nowMs) : 0.f;
-}
-
-void Curtain::ReturnFrom(float edge, uint32_t nowMs)
-{
-    pulling_ = false;
-    heldMs_ = 0;
-    backFrom_ = std::clamp(edge, 0.f, float(kWidth));
-    backSpeed_ = 0;
-    backSince_ = nowMs;
-    backMs_ = backFrom_ > 0 ? kReturnMs : 0;
-}
-
-float Curtain::Update(bool pulling, uint32_t heldMs, uint32_t nowMs)
-{
-    if (pulling_ && !pulling)
-    {
-        // Let go: back from where the edge was last drawn. The speed it has is kept when it is already toward
-        // the left (never faster than the Launcher's ease-out would start); an edge still going out starts
-        // back from rest (ListSlide::Edge::go's rule for an edge that turns round).
-        const float from = std::clamp(PullEdge(heldMs_) + Back(nowMs), 0.f, float(kWidth));
-        const float speed = PullSpeed(heldMs_) + BackSpeed(nowMs);
-        ReturnFrom(from, nowMs);
-        backSpeed_ = std::clamp(speed, -3 * from / float(kReturnMs), 0.f);
-    }
-    pulling_ = pulling;
-    heldMs_ = pulling ? heldMs : 0;
-    if (!pulling && nowMs - backSince_ >= backMs_) backMs_ = 0;  // at rest: nothing left (the clock may wrap)
-    return std::clamp((pulling ? PullEdge(heldMs) : 0.f) + Back(nowMs), 0.f, float(kWidth));
+    if (step >= kDissolveSteps || (step > 0 && Dissolved(x, y, step))) return menuGrey;
+    return firmwarePixel != nullptr ? BackdropGrey(*firmwarePixel, x, y) : BackdropField(x, y);
 }
 
 uint16_t PanelGrey(uint8_t grey)
 {
-    return launcher::Lcd::rgb(grey);
+    const uint16_t five = grey >> 3;
+    return static_cast<uint16_t>(five << 11 | (five << 1 | five >> 4) << 5 | five);
 }
 
-uint16_t PanelMix(uint16_t a, uint16_t b, int weight)
+bool PanelNeutral(uint16_t pixel)
 {
-    if (weight <= 0) return a;
-    if (weight >= 256) return b;
-    const auto mix = [&](int shift, int mask) {
-        const int x = (a >> shift) & mask, y = (b >> shift) & mask;
-        return ((x * (256 - weight) + y * weight + 128) >> 8) << shift;
-    };
-    return static_cast<uint16_t>(mix(11, 31) | mix(5, 63) | mix(0, 31));
+    const int red = pixel >> 11, green = (pixel >> 5) & 63, blue = pixel & 31;
+    return red == blue && green == (red << 1 | red >> 4);
 }
 
 int LauncherBrightness(bool found, int32_t stored)

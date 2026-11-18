@@ -2,12 +2,10 @@
 
 #include <cstdint>
 
-// The system menu: in every firmware on CardenzaHAL, holding the side key (HOME, GPIO0) for a second opens
-// the 203 Launcher's list (drawn by the Launcher's own code, system/menu/launcher/; the same greys on the
-// panel and the Launcher's own backlight setting), over whatever the firmware shows. While HOME is held the
-// Launcher comes out from the left like a curtain (to 112 pixels, then back a little), and at one second it
-// pops open: the rest fades in. Let go before that and it goes back to the left, eased, from where it is;
-// Continue closes the same way round (system/menu/logic.h has the curve). Its items:
+// The system menu: in every firmware on CardenzaHAL, a press of the side key (HOME, GPIO0) opens the 203
+// Launcher's list (drawn by the Launcher's own code, system/menu/launcher/; black, white and grey only, at
+// the Launcher's own backlight setting), over whatever the firmware shows. The firmware's picture goes dark
+// and grey through a dither, and the menu comes through it (system/menu/logic.h). Its items:
 //
 //   Continue           back to the firmware (also ESC or del)
 //   Back to Launcher   the Launcher's home screen, whatever its settings (the restart ticket,
@@ -28,11 +26,10 @@
 // the panel handles itself (Display::GetPanel, Present() without a framebuffer) should stop while IsOpen().
 //
 // CardenzaHAL::Init starts it (CONFIG_CARDENZA_HAL_SYSTEM_MENU, on by default): a task of 5 KB that reads
-// the side key every 20 ms. While the curtain is out (HOME held, or on its way back), Display::Present* send
-// only the columns right of it; it gives columns back from a copy of the firmware's latest frame (PSRAM;
-// without one, or before the firmware presented a frame since the press, the curtain only goes out and is
-// gone at once when HOME is let go). A firmware that needs HOME's long press for itself turns it off with
-// Enable(false) (or the Kconfig option); short presses of HOME are always the firmware's.
+// the side key every 10 ms; a press that has lasted 30 ms opens the menu (a HOME already down when the
+// firmware starts, or still down when the menu closes, opens nothing until it has been let go). So with the
+// menu on, HOME is the menu's: a firmware that needs HOME for itself turns the menu off with Enable(false)
+// (or the Kconfig option).
 namespace CardenzaHAL::SystemMenu {
 
     enum class Action : uint8_t { Launcher, Restart, PowerOff, Download };
