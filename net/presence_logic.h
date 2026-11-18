@@ -132,8 +132,8 @@ namespace CardenzaHAL::Presence::Logic {
     // lwIP, the supplicant; the reference sdkconfig of README.md).
     inline constexpr std::size_t kWifiCostEstimate = 40 * 1024;
     // The same with Wi-Fi's own allocations in PSRAM (Net's adapter table): 30.1 KB measured on a Cardenza
-    // (CardenzaSynth, 2026-11-18), 32 KB until measured.
-    inline constexpr std::size_t kWifiCostEstimatePsram = 32 * 1024;
+    // with 4 static receive buffers, 28.5 KB with 3 (CardenzaSynth, 2026-11-18).
+    inline constexpr std::size_t kWifiCostEstimatePsram = 30 * 1024;
     // Wi-Fi's largest block (its task's stack is about 6.5 KB).
     inline constexpr std::size_t kWifiLargestBlock = 8 * 1024;
     // A request's internal RAM beside TLS (TCP and Wi-Fi buffers, the HTTP client's 2 KB): with TLS in
