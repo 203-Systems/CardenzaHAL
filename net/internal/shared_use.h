@@ -29,6 +29,9 @@ namespace CardenzaHAL::Net::Internal {
                     void* context);
     // A request of `user` is under way.
     bool Sending(User user);
+    // Wi-Fi is up and its own allocations prefer PSRAM (net.cpp, WifiFuncs): a request needs less
+    // internal RAM.
+    bool WifiInPsram();
 
     // The Launcher's account binding and Settings > Account > Receive firmware, read as
     // ReadLauncherSettings reads them (read-only, nothing written), without the saved networks.

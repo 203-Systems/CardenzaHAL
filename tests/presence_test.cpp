@@ -337,6 +337,19 @@ void DecideTests()
     CHECK(Logic::Decide(s).step == Step::Wait && Logic::Decide(s).reason == Wait::Ram);
     s.freeInternal = 40 * KB;
     CHECK(Logic::Decide(s).step == Step::Ask);
+    // With Wi-Fi's own allocations in PSRAM as well, a request needs 10 KB beside the floor instead of 12.
+    s.freeInternal = 39 * KB;
+    CHECK(Logic::Decide(s).step == Step::Wait && Logic::Decide(s).reason == Wait::Ram);
+    s.wifiInPsram = true;
+    CHECK(Logic::Decide(s).step == Step::Ask);
+    s.freeInternal = 37 * KB;
+    CHECK(Logic::Decide(s).step == Step::Wait && Logic::Decide(s).reason == Wait::Ram);
+    s.tlsInPsram = false;  // TLS in internal RAM: as before, whatever Wi-Fi does
+    s.freeInternal = 75 * KB;
+    CHECK(Logic::Decide(s).step == Step::Wait && Logic::Decide(s).reason == Wait::Ram);
+    s.tlsInPsram = true;
+    s.wifiInPsram = false;
+    s.freeInternal = 40 * KB;
     s.largestInternal = 7 * KB;
     CHECK(Logic::Decide(s).step == Step::Wait && Logic::Decide(s).reason == Wait::Ram);
     s.largestInternal = 40 * KB;

@@ -687,7 +687,9 @@ Decision Decide(const Situation& s)
         return decide(Step::Join, Wait::None);
     }
     if (s.firmwareSending) return decide(Step::Wait, Wait::FirmwareRequest);
-    const std::size_t need = s.tlsInPsram ? kRequestBytesTlsInPsram : kRequestBytesTlsInternal;
+    const std::size_t need = !s.tlsInPsram ? kRequestBytesTlsInternal
+                             : s.wifiInPsram ? kRequestBytesAllInPsram
+                                             : kRequestBytesTlsInPsram;
     const std::size_t block = s.tlsInPsram ? kRequestBlockTlsInPsram : kRequestBlockTlsInternal;
     if (s.freeInternal < s.floor + need || s.largestInternal < block) return decide(Step::Wait, Wait::Ram);
     return decide(Step::Ask, Wait::None);

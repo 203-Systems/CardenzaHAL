@@ -418,6 +418,7 @@ Logic::Situation Look(Audio::TxCounters& lastAudio, bool ramPaused, std::size_t 
     s.connected = Net::Internal::Holds(User::Presence) && Net::Connected();
     s.firmwareSending = Net::Internal::Sending(User::Firmware);
     s.tlsInPsram = kTlsCanUsePsram && heap_caps_get_free_size(MALLOC_CAP_SPIRAM) >= 64 * 1024;
+    s.wifiInPsram = s.tlsInPsram && Net::Internal::WifiInPsram();
     s.ramPaused = ramPaused;
     s.freeInternal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     s.largestInternal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -490,8 +491,9 @@ void Run()
                 ESP_LOGI(kTag, "waiting for internal RAM: %u free (largest %u); %s needs %u beside the firmware's %u",
                          static_cast<unsigned>(s.freeInternal), static_cast<unsigned>(s.largestInternal),
                          s.connected ? "a request" : "Wi-Fi",
-                         static_cast<unsigned>(s.connected ? (s.tlsInPsram ? Logic::kRequestBytesTlsInPsram
-                                                                           : Logic::kRequestBytesTlsInternal)
+                         static_cast<unsigned>(s.connected ? (!s.tlsInPsram   ? Logic::kRequestBytesTlsInternal
+                                                              : s.wifiInPsram ? Logic::kRequestBytesAllInPsram
+                                                                              : Logic::kRequestBytesTlsInPsram)
                                                            : wifiCost),
                          static_cast<unsigned>(s.floor));
             }

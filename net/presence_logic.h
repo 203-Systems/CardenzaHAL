@@ -135,8 +135,11 @@ namespace CardenzaHAL::Presence::Logic {
     inline constexpr std::size_t kWifiLargestBlock = 8 * 1024;
     // A request's internal RAM beside TLS (TCP and Wi-Fi buffers, the HTTP client's 2 KB): with TLS in
     // PSRAM 12 KB and an 8 KB block; with TLS in internal RAM 48 KB and a 20 KB block (its 16 KB receive
-    // record).
+    // record). With Wi-Fi's own allocations in PSRAM too (the frames it copies for lwIP while they come
+    // in: Net's adapter table, net.cpp WifiFuncs) 10 KB: measured on a Cardenza, internal RAM went down by
+    // 9.5 KB during a full TLS handshake and by 6 KB during a resumed one (CardenzaSynth, 2026-11-18).
     inline constexpr std::size_t kRequestBytesTlsInPsram = 12 * 1024;
+    inline constexpr std::size_t kRequestBytesAllInPsram = 10 * 1024;
     inline constexpr std::size_t kRequestBlockTlsInPsram = 8 * 1024;
     inline constexpr std::size_t kRequestBytesTlsInternal = 48 * 1024;
     inline constexpr std::size_t kRequestBlockTlsInternal = 20 * 1024;
@@ -148,6 +151,7 @@ namespace CardenzaHAL::Presence::Logic {
         bool connected = false;          // the service holds Wi-Fi and it has an address
         bool firmwareSending = false;    // the firmware's own Net request is under way
         bool tlsInPsram = false;         // TLS takes its memory from PSRAM
+        bool wifiInPsram = false;        // so do Wi-Fi's own allocations (Net::Internal::WifiInPsram)
         bool ramPaused = false;          // Wi-Fi was let go for the firmware's RAM a short while ago
         std::size_t freeInternal = 0;    // internal RAM free, and its largest block
         std::size_t largestInternal = 0;
