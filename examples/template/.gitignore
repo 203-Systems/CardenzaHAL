@@ -1,4 +1,4 @@
-# Builds: the device (idf.py) and the browser (cardenza_web.py); 203c's working folder (203c inbox --out .203/inbox.md)
+# Builds: the device (idf.py) and the browser (cardenza_web.py); 203c's working folder (203c sync: .203/community.md)
 build/
 build-*/
 .203/

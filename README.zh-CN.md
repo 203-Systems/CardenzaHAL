@@ -22,7 +22,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方�
 203c log                                                  # 看它打印的日志
 203c login                                                # 每台电脑一次：浏览器里批准
 203c publish --dry-run && 203c publish                    # 第一个版本；之后由 CI 发布（见「发布」）
-203c inbox                                                # 之后：大家提了什么需求、说了什么
+203c sync                                                 # 之后：.203/community.md，大家提了什么需求、说了什么
 ```
 
 [`tools/cardenza.py`](tools/cardenza.py) 是首选的编译方式：编译前检查 ESP-IDF 5.3、这个 HAL 是干净的子模块、`203c` 已安装（并已登录），shell 没激活 ESP-IDF 时它自己导出环境再编译。**不要对鸣片 `idf.py flash`**：那会抹掉 203 Launcher 和它装过的所有固件；`203c flash` 通过 Launcher 安装。

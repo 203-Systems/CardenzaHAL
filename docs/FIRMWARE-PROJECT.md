@@ -39,7 +39,7 @@ from it. It is written for people and for coding agents alike: imperative, with 
 11. When the checks send the version back, read the report ([Checks](#5-what-the-community-checks)); fix and publish the next version, or, only for a false positive, appeal.
 12. Commit `203.json` (203c writes the firmware's code into it). Never commit a secret ([Never commit](#9-never-commit)).
 13. The standard release ([Publish from CI](#publish-from-ci-the-standard-release)): once the repository is on GitHub, `203c link` makes it the firmware's trusted publisher (the template has the workflow). From then on a push to `main` is a dev version and a tag `vX.Y.Z` the release.
-14. Later: `203c inbox --out .203/inbox.md` is what users asked for and said since the last look (requests with votes, comments, versions sent back); work from it, answer with `203c comments add …`, release the next version.
+14. Before every change to a published firmware: `203c sync`, then read `.203/community.md`: the page, every version's notes, what users asked for and said (requests with votes and their discussion, comments with replies), merge requests and forks, new ones marked. Work from it, answer with `203c comments add …`, release the next version. `203c project diff <FORK>` shows what a fork changed.
 
 ## 1. Dependencies and setup
 
@@ -357,8 +357,8 @@ managed_components/
 *.pfx
 ```
 
-`build-web/` (the web build) is covered by `build-*/`; `.203/` is 203c's working folder (`203c inbox --out
-.203/inbox.md`). Commit `dependencies.lock`.
+`build-web/` (the web build) is covered by `build-*/`; `.203/` is 203c's working folder (`203c sync` writes
+`.203/community.md` there). Commit `dependencies.lock`.
 
 ## 3. Using the HAL
 
@@ -623,13 +623,16 @@ jobs:
 - **On your own Cardenza** (optional): a self-hosted runner on a computer with a Cardenza on its USB cable (labels `self-hosted, cardenza`) installs every build and checks that it starts; the template's workflow has the job (`on-device`, commented out): `203c flash --bin build/<project>.bin` and `203c log --until "<ready line>" --seconds 60`, which fails the job at a panic or when the line never comes.
 - Not on GitHub Actions (or a repository that cannot be linked): a personal token (设置 › 个人令牌, `/me/tokens`, scope `write`) as the CI system's secret `COMMUNITY_TOKEN`, and `203c publish --channel dev --version "$(tr -d '[:space:]' < version.txt)-dev.<n>" --commit <sha> --json` (the action's `token:` input does the same on GitHub).
 
-### Users' feedback
+### Users' feedback and forks
 
-What people say about a published firmware comes back to the project with `203c inbox` (in the project's folder:
-the firmware is `203.json`'s): requests with their votes and new comments, comments on the firmware, merge requests,
-versions the checks sent back, unread notifications, all new since the last look. `--out .203/inbox.md` writes it
-as Markdown for an agent (git-ignore `.203/`; the template does); `203c dev read <CODE> <N>` is a request in full,
-`203c comments add …` answers people (they are notified), `203c dev update …` keeps the internal tracker.
+What the community has about a published firmware comes back to the project with `203c sync` (in the project's
+folder: the firmware is `203.json`'s): `.203/community.md` (and `community.json`) holds its page, every version and its
+notes, the requests with their votes, status and discussion, every comment thread with its replies and likes, the merge
+requests and the forks (魔改版), new since the last sync marked (git-ignore `.203/`; the template does). Read it before
+planning a change. One part at a time: `203c project show`, `project versions`, `project feedback --new`, `project
+forks`; `203c project diff <FORK>` compares a fork's source with this folder (`--patch` the unified diff), `203c
+project diff 1.0.0 1.1.0` two versions (their source archives: `publish_source: true`). Answer people with
+`203c comments add …` (they are notified); `203c dev update …` keeps the internal tracker.
 
 ## 9. Never commit
 

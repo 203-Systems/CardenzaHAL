@@ -35,7 +35,7 @@ RULES = "https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJ
 INSTALL_203C = "npm install -g 203c && 203c skill install"
 IDF_WANTED = (5, 3)
 IDF_TESTED = "5.3.5"
-CLI_WANTED = (3, 5, 0)   # 203c new, log, inbox, link
+CLI_WANTED = (3, 5, 0)   # 203c new, log, sync, link, skill install
 APP_ROOM = 0x690000      # the 203 Launcher's room for one app on the Cardenza (from 0x170000)
 LOCAL_FLASH = "https://cardenza.203.io/community/firmware (Flash a local file / 烧录本地固件, in Chrome or Edge)"
 WINDOWS = os.name == "nt"

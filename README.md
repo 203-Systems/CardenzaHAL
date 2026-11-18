@@ -27,7 +27,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # the preferred build:
 203c log                                                  # what it prints
 203c login                                                # once on a computer: the browser asks you to approve
 203c publish --dry-run && 203c publish                    # the first version; then CI publishes (Releasing)
-203c inbox                                                # later: what people asked for and said
+203c sync                                                 # later: .203/community.md, what people asked for and said
 ```
 
 [`tools/cardenza.py`](tools/cardenza.py) is the preferred way to build: it checks ESP-IDF 5.3, that this HAL is a

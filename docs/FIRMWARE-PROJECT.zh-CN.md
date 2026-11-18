@@ -32,7 +32,7 @@
    ```
    第一次发布后 203c 把固件代码写回 `203.json`：提交它。
 8. 之后用 CI 发布（标准方式，203 Systems 的官方固件也一样）：模板里的 `.github/workflows/firmware.yml`（HAL 的 `community-publish` action）。仓库上了 GitHub 后运行 `203c link`：把这个仓库关联为固件的受信任发布者（也可以在固件页的「自动发布」里关联），并在固件页打开 beta、dev 渠道。推送到 `main` 发 dev，打 `vX.Y.Z` 标签发 stable，`vX.Y.Z-beta.N` 发 beta。受信任发布：作业用 GitHub 的 OIDC 令牌登录（`permissions: id-token: write`），不存任何密钥；CI 只发布版本，不改固件页。仓库搬家后 `203c link --move`。可选：自托管 runner 接一台鸣片，每次构建都装上去并用 `203c log --until` 检查能启动（模板里注释掉的 `on-device` 作业）。
-9. 用户反馈：`203c inbox --out .203/inbox.md` 汇总上次之后的新需求（含投票、新评论）、评论、被打回的版本和通知，给 AI 读；`203c dev read <代码> <编号>` 看需求全文，`203c comments add …` 回复。
+9. 用户反馈和魔改版：每次改已发布的固件之前先运行 `203c sync`，读 `.203/community.md`：固件页、每个版本的更新说明、用户的需求（投票、讨论）和评论（回复、点赞）、合并请求和魔改版，上次之后的新内容有标记。`203c project diff <魔改版代码>` 看某个魔改版改了什么，`203c project diff 1.0.0 1.1.0` 比较两个版本；`203c comments add …` 回复用户。
 
 ## 必须有的文件
 
