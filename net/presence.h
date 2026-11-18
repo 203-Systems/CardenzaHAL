@@ -85,11 +85,15 @@ namespace CardenzaHAL::Presence {
                    // RAM returns, a request under way is cancelled) and asks nothing until the activity
                    // changes. The website shows the device offline 40 s after its last request.
     };
+    // While the activity keeps Wi-Fi down (Quiet, or RealTime before it came up) the service's task ends and
+    // its 8 KB stack returns to the firmware; the next change of the activity starts it again (it then
+    // looks at once: no start delay, what it learnt kept).
     void SetActivity(Activity activity);
     Activity GetActivity();
 
     // The internal RAM the firmware keeps for itself (default 24 KB): Wi-Fi comes up only while that much
-    // stays free beside what Wi-Fi takes (learnt when it first comes up, 40 KB until then), and is let go
+    // stays free beside what Wi-Fi takes (learnt when it first comes up; until then 40 KB, 30 KB with its own
+    // allocations in PSRAM) and a request, and is let go
     // when free internal RAM falls below it. Any task, any time.
     void SetRamFloor(std::size_t bytes);
 

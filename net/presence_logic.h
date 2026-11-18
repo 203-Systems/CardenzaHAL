@@ -13,8 +13,16 @@ namespace CardenzaHAL::Presence::Logic {
 
     // --- Where the device token goes ------------------------------------------------------------------
 
-    // The community hosts the service sends the device token to (https only, port 443).
-    inline constexpr const char* kAllowedHosts[] = {"community.203.io", "cardenza.203.io"};
+    // The community hosts the service sends the device token to (https only, port 443). apps.203.io is the
+    // live community's twin (the same server behind a CDN, as 203-launcher's kCommunityOfficialApis).
+    inline constexpr const char* kAllowedHosts[] = {"community.203.io", "cardenza.203.io", "apps.203.io"};
+
+    // The same community at its twin (either way): a request the binding's API does not answer goes there
+    // next (203-launcher 0.3.3 does the same: from mainland China cardenza.203.io often times out). The
+    // device token goes to the same server. False when the API has no twin.
+    inline constexpr const char* kTwinFrom = "https://cardenza.203.io/community/api";
+    inline constexpr const char* kTwinTo = "https://apps.203.io/community/api";
+    bool TwinApi(const char* api, char* out, std::size_t capacity);
 
     // Whether the community API base from the Launcher's binding (l_account api) may get the device
     // token: https:// on a host of kAllowedHosts (any case, no port or 443) and a path, as
@@ -131,12 +139,18 @@ namespace CardenzaHAL::Presence::Logic {
     // What Wi-Fi takes of internal RAM until it has been measured on this device (its buffers, tasks,
     // lwIP, the supplicant; the reference sdkconfig of README.md).
     inline constexpr std::size_t kWifiCostEstimate = 40 * 1024;
+    // The same with Wi-Fi's own allocations in PSRAM (Net's adapter table): 30.1 KB measured on a Cardenza
+    // with 4 static receive buffers, 28.5 KB with 3 (CardenzaSynth, 2026-11-18).
+    inline constexpr std::size_t kWifiCostEstimatePsram = 30 * 1024;
     // Wi-Fi's largest block (its task's stack is about 6.5 KB).
     inline constexpr std::size_t kWifiLargestBlock = 8 * 1024;
     // A request's internal RAM beside TLS (TCP and Wi-Fi buffers, the HTTP client's 2 KB): with TLS in
     // PSRAM 12 KB and an 8 KB block; with TLS in internal RAM 48 KB and a 20 KB block (its 16 KB receive
-    // record).
+    // record). With Wi-Fi's own allocations in PSRAM too (the frames it copies for lwIP while they come
+    // in: Net's adapter table, net.cpp WifiFuncs) 10 KB: measured on a Cardenza, internal RAM went down by
+    // 9.5 KB during a full TLS handshake and by 6 KB during a resumed one (CardenzaSynth, 2026-11-18).
     inline constexpr std::size_t kRequestBytesTlsInPsram = 12 * 1024;
+    inline constexpr std::size_t kRequestBytesAllInPsram = 10 * 1024;
     inline constexpr std::size_t kRequestBlockTlsInPsram = 8 * 1024;
     inline constexpr std::size_t kRequestBytesTlsInternal = 48 * 1024;
     inline constexpr std::size_t kRequestBlockTlsInternal = 20 * 1024;
@@ -148,6 +162,7 @@ namespace CardenzaHAL::Presence::Logic {
         bool connected = false;          // the service holds Wi-Fi and it has an address
         bool firmwareSending = false;    // the firmware's own Net request is under way
         bool tlsInPsram = false;         // TLS takes its memory from PSRAM
+        bool wifiInPsram = false;        // so do Wi-Fi's own allocations (Net::Internal::WifiInPsram)
         bool ramPaused = false;          // Wi-Fi was let go for the firmware's RAM a short while ago
         std::size_t freeInternal = 0;    // internal RAM free, and its largest block
         std::size_t largestInternal = 0;
@@ -165,9 +180,10 @@ namespace CardenzaHAL::Presence::Logic {
         Wait reason = Wait::None;
     };
     // In order: Quiet lets go of Wi-Fi (or waits); a firmware below its RAM floor gets Wi-Fi's RAM back;
-    // audio running late waits; without Wi-Fi, RealTime waits, then Wi-Fi comes up when the floor and
-    // Wi-Fi's cost fit (not again for a while after a RAM let-go); with Wi-Fi, the firmware's own request
-    // waits, then a request starts when the floor and the request's RAM fit.
+    // audio running late waits; without Wi-Fi, RealTime waits, then Wi-Fi comes up when the floor, Wi-Fi's
+    // cost and a request fit (Wi-Fi up with no room to ask would only hold the RAM; not again for a while
+    // after a RAM let-go); with Wi-Fi, the firmware's own request waits, then a request starts when the
+    // floor and the request's RAM fit.
     Decision Decide(const Situation& situation);
 
     // What Wi-Fi took: internal RAM free before it came up less what is free once it has an address,

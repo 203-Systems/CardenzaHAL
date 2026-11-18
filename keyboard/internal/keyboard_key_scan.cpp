@@ -13,6 +13,10 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
+// The scan task's stack: 0.8 KB used on a Cardenza (CardenzaSynth's stress test, 2026-11-18); 3 KB, the rest of
+// the 4 KB it had goes to what a firmware runs (the community presence's Wi-Fi among it).
+constexpr uint32_t kScanTaskStackBytes = 3072;
+
 namespace CardenzaHAL::Keyboard {
 
 void KeyboardDriver::_set_output(uint8_t output)
@@ -127,10 +131,10 @@ bool KeyboardDriver::init()
         return fail();
     timerEnabled = true;
 #if portNUM_PROCESSORS > 1
-    const BaseType_t created = xTaskCreatePinnedToCore(_scan_task_entry, "kb_scan", 4096, this,
+    const BaseType_t created = xTaskCreatePinnedToCore(_scan_task_entry, "kb_scan", kScanTaskStackBytes, this,
         detail::kScanTaskPriority, &_scan_task_handle, detail::kScanTaskPinnedCore);
 #else
-    const BaseType_t created = xTaskCreate(_scan_task_entry, "kb_scan", 4096, this,
+    const BaseType_t created = xTaskCreate(_scan_task_entry, "kb_scan", kScanTaskStackBytes, this,
         detail::kScanTaskPriority, &_scan_task_handle);
 #endif
     if (created != pdPASS) return fail();

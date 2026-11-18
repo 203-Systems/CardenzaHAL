@@ -1,6 +1,8 @@
 // The presence service's decisions (net/presence_logic.h). Pure C++: the host tests compile it too.
 #include "net/presence_logic.h"
 
+#include <cctype>
+
 #include <cstdio>
 #include <cstring>
 
@@ -493,6 +495,22 @@ bool AllowedApi(const char* api, bool localHttp)
     return localHttp && Ipv4(parts.host, parts.hostLength, address) && LocalAddress(address);
 }
 
+bool TwinApi(const char* api, char* out, std::size_t capacity)
+{
+    if (api == nullptr || capacity == 0) return false;
+    const std::size_t length = ApiLength(api);
+    const auto same = [&](const char* base) {
+        if (length != std::strlen(base)) return false;
+        for (std::size_t i = 0; i < length; ++i)
+            if (std::tolower(static_cast<unsigned char>(api[i])) != base[i]) return false;
+        return true;
+    };
+    const char* twin = same(kTwinFrom) ? kTwinTo : same(kTwinTo) ? kTwinFrom : nullptr;
+    if (twin == nullptr) return false;
+    const int written = std::snprintf(out, capacity, "%s", twin);
+    return written > 0 && static_cast<std::size_t>(written) < capacity;
+}
+
 bool InboxUrl(const char* api, char* out, std::size_t capacity)
 {
     const int written = std::snprintf(out, capacity, "%.*s/launcher/inbox?from=firmware",
@@ -679,15 +697,17 @@ Decision Decide(const Situation& s)
         return s.connected ? decide(Step::LetGo, Wait::Activity) : decide(Step::Wait, Wait::Activity);
     if (s.connected && s.freeInternal < s.floor) return decide(Step::LetGo, Wait::Ram);
     if (s.audio == Audio::Struggling) return decide(Step::Wait, Wait::AudioLate);
+    const std::size_t need = !s.tlsInPsram ? kRequestBytesTlsInternal
+                             : s.wifiInPsram ? kRequestBytesAllInPsram
+                                             : kRequestBytesTlsInPsram;
     if (!s.connected)
     {
         if (s.activity == Activity::RealTime) return decide(Step::Wait, Wait::Activity);
-        if (s.ramPaused || s.freeInternal < s.floor + s.wifiCost || s.largestInternal < kWifiLargestBlock)
+        if (s.ramPaused || s.freeInternal < s.floor + s.wifiCost + need || s.largestInternal < kWifiLargestBlock)
             return decide(Step::Wait, Wait::Ram);
         return decide(Step::Join, Wait::None);
     }
     if (s.firmwareSending) return decide(Step::Wait, Wait::FirmwareRequest);
-    const std::size_t need = s.tlsInPsram ? kRequestBytesTlsInPsram : kRequestBytesTlsInternal;
     const std::size_t block = s.tlsInPsram ? kRequestBlockTlsInPsram : kRequestBlockTlsInternal;
     if (s.freeInternal < s.floor + need || s.largestInternal < block) return decide(Step::Wait, Wait::Ram);
     return decide(Step::Ask, Wait::None);

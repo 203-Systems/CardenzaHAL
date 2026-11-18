@@ -59,6 +59,8 @@
 #include <esp_partition.h>
 #include <esp_timer.h>
 #include <esp_tls.h>
+#include <esp_attr.h>
+#include <esp_private/wifi_os_adapter.h>
 #include <esp_wifi.h>
 #include <esp_wifi_default.h>
 #include <freertos/FreeRTOS.h>
@@ -445,6 +447,69 @@ void TearDown()
     }
 }
 
+// Wi-Fi's own allocations that may live in PSRAM. The driver asks for internal RAM where it needs it (its
+// DMA receive buffers, queues, task: _malloc_internal and the task wrappers) and for the rest through
+// _wifi_malloc / _wifi_calloc / _wifi_zalloc / _wifi_realloc: its configuration (3.5 KB), the station, the
+// management frames (5 x 600 B) and the frames it copies for lwIP while they come in. ESP-IDF's
+// CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP sends exactly these to PSRAM first (esp_adapter.c's wifi_malloc), but
+// only with SPIRAM_USE_CAPS_ALLOC or SPIRAM_USE_MALLOC; a firmware that adds its PSRAM to the heap itself for
+// MALLOC_CAP_SPIRAM alone (CONFIG_SPIRAM_USE_MEMMAP, examples/psram_heap) gets the same here, from Net's own
+// copy of the adapter table. lwIP stays as ESP-IDF builds it (internal RAM). Without PSRAM in the heap,
+// PSRAM full, or with ESP-IDF's option on, the driver's own table is used and nothing changes. Measured on a
+// Cardenza (CardenzaSynth, ESP-IDF 5.3.5): Wi-Fi up took 38.6 KB of internal RAM with the driver's table.
+IRAM_ATTR void* WifiSlowMalloc(size_t size)
+{
+    return heap_caps_malloc_prefer(size, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
+IRAM_ATTR void* WifiSlowRealloc(void* ptr, size_t size)
+{
+    return heap_caps_realloc_prefer(ptr, size, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
+IRAM_ATTR void* WifiSlowCalloc(size_t n, size_t size)
+{
+    return heap_caps_calloc_prefer(n, size, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
+IRAM_ATTR void* WifiSlowZalloc(size_t size)
+{
+    return WifiSlowCalloc(1, size);
+}
+
+// The adapter table esp_wifi_init gets: the driver's own, or a copy with the allocations above. It has to
+// outlive esp_wifi_deinit (the driver keeps the pointer), so it is static; written only by BringUp.
+DRAM_ATTR wifi_osi_funcs_t g_wifiFuncs;
+std::atomic<bool> g_wifiInPsram{false};  // the running Wi-Fi was started with the copy
+
+// Some PSRAM in the heap, with room beyond what Wi-Fi takes (about 20 KB while frames come and go).
+bool WifiPsramUsable()
+{
+#if CONFIG_SPIRAM && !CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP
+    return heap_caps_get_free_size(MALLOC_CAP_SPIRAM) >= 64 * 1024;
+#else
+    return false;
+#endif
+}
+
+wifi_osi_funcs_t* WifiFuncs()
+{
+#if CONFIG_SPIRAM && !CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP
+    if (WifiPsramUsable())
+    {
+        g_wifiFuncs = g_wifi_osi_funcs;
+        g_wifiFuncs._wifi_malloc = WifiSlowMalloc;
+        g_wifiFuncs._wifi_realloc = WifiSlowRealloc;
+        g_wifiFuncs._wifi_calloc = WifiSlowCalloc;
+        g_wifiFuncs._wifi_zalloc = WifiSlowZalloc;
+        g_wifiInPsram = true;
+        return &g_wifiFuncs;
+    }
+#endif
+    g_wifiInPsram = false;
+    return &g_wifi_osi_funcs;
+}
+
 ConnectStatus StatusFor(esp_err_t err)
 {
     return err == ESP_ERR_NO_MEM ? ConnectStatus::NoMemory : ConnectStatus::Failed;
@@ -479,6 +544,7 @@ ConnectStatus BringUp(esp_err_t& error)
 
     wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
     config.nvs_enable = 0;
+    config.osi_funcs = WifiFuncs();
     if ((error = esp_wifi_init(&config)) != ESP_OK) return StatusFor(error);
     s.wifiInit = true;
     if ((error = esp_wifi_set_storage(WIFI_STORAGE_RAM)) != ESP_OK) return StatusFor(error);
@@ -1259,6 +1325,16 @@ SendStatus Internal::Send(User user, const Request& request, Response& response,
 bool Internal::Sending(User user)
 {
     return g_sending[Bit(user)].load() > 0;
+}
+
+bool Internal::WifiInPsram()
+{
+    return g_wifiInPsram.load();
+}
+
+bool Internal::WifiPsramPossible()
+{
+    return WifiPsramUsable();
 }
 
 ConnectStatus Connect(const LauncherSettings& settings, ConnectReport& report, uint32_t timeoutMs,
