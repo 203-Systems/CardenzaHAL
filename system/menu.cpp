@@ -114,6 +114,11 @@ struct Scene {
     int edge = detail::kWidth;          // from here on: firmware and menu mixed
     int mix = 256;                      // 0 the firmware's picture, 256 the menu
     const uint16_t* firmware = nullptr; // null: no picture (right of edge is the menu)
+    // The menu as the pull and the pop show it (the view Prepare set, no fade), drawn once (PSRAM): a pull
+    // moves it every 10 ms, and drawing the Launcher's frame again for every band of every step kept the
+    // CPU so busy that the firmware's own tasks below this one stalled (the board's self-test, 2026-11-18).
+    // Null without PSRAM: drawn band by band.
+    uint8_t* still = nullptr;
     uint8_t grey[detail::kWidth * 8];   // one band of the menu
 };
 
@@ -125,12 +130,16 @@ char g_firmwareName[80];
 void PaintScene(void* context, int x, int y, int width, int rows, uint16_t* out)
 {
     Scene& scene = *static_cast<Scene*>(context);
-    detail::PaintGrey(scene.view, scene.useFade ? &scene.fade : nullptr, scene.now, y, rows, scene.grey);
+    const uint8_t* menu = scene.grey;
+    if (scene.still != nullptr && !scene.useFade)
+        menu = scene.still + y * detail::kWidth;
+    else
+        detail::PaintGrey(scene.view, scene.useFade ? &scene.fade : nullptr, scene.now, y, rows, scene.grey);
     for (int r = 0; r < rows; ++r)
         for (int c = 0; c < width; ++c)
         {
             const int px = x + c, menuX = px - scene.offset;
-            const uint8_t grey = menuX < 0 ? 0 : menuX >= detail::kWidth ? 255 : scene.grey[r * detail::kWidth + menuX];
+            const uint8_t grey = menuX < 0 ? 0 : menuX >= detail::kWidth ? 255 : menu[r * detail::kWidth + menuX];
             uint16_t pixel = detail::PanelGrey(grey);
             if (px >= scene.edge && scene.firmware != nullptr)
                 pixel = detail::PanelMix(scene.firmware[(y + r) * detail::kWidth + px], pixel, scene.mix);
@@ -157,6 +166,11 @@ bool Prepare()
     g_scene->view.language = detail::LanguageIndex(ReadLauncherLanguage());
     g_scene->view.firmware = g_firmwareName;
     g_scene->useFade = false;
+    if (g_scene->still == nullptr)
+        g_scene->still = static_cast<uint8_t*>(heap_caps_malloc(std::size_t(detail::kWidth) * detail::kHeight,
+                                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (g_scene->still != nullptr)
+        detail::PaintGrey(g_scene->view, nullptr, NowMs(), 0, detail::kHeight, g_scene->still);
     if (g_capture == nullptr)
     {
         g_capture = static_cast<uint16_t*>(heap_caps_malloc(
@@ -171,6 +185,7 @@ void Release()
     Display::detail::SetCapture(nullptr);
     heap_caps_free(g_capture);
     g_capture = nullptr;
+    if (g_scene != nullptr) heap_caps_free(g_scene->still);
     delete g_scene;
     g_scene = nullptr;
 }
