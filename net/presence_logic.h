@@ -131,6 +131,9 @@ namespace CardenzaHAL::Presence::Logic {
     // What Wi-Fi takes of internal RAM until it has been measured on this device (its buffers, tasks,
     // lwIP, the supplicant; the reference sdkconfig of README.md).
     inline constexpr std::size_t kWifiCostEstimate = 40 * 1024;
+    // The same with Wi-Fi's own allocations in PSRAM (Net's adapter table): 30.1 KB measured on a Cardenza
+    // (CardenzaSynth, 2026-11-18), 32 KB until measured.
+    inline constexpr std::size_t kWifiCostEstimatePsram = 32 * 1024;
     // Wi-Fi's largest block (its task's stack is about 6.5 KB).
     inline constexpr std::size_t kWifiLargestBlock = 8 * 1024;
     // A request's internal RAM beside TLS (TCP and Wi-Fi buffers, the HTTP client's 2 KB): with TLS in
@@ -169,9 +172,10 @@ namespace CardenzaHAL::Presence::Logic {
         Wait reason = Wait::None;
     };
     // In order: Quiet lets go of Wi-Fi (or waits); a firmware below its RAM floor gets Wi-Fi's RAM back;
-    // audio running late waits; without Wi-Fi, RealTime waits, then Wi-Fi comes up when the floor and
-    // Wi-Fi's cost fit (not again for a while after a RAM let-go); with Wi-Fi, the firmware's own request
-    // waits, then a request starts when the floor and the request's RAM fit.
+    // audio running late waits; without Wi-Fi, RealTime waits, then Wi-Fi comes up when the floor, Wi-Fi's
+    // cost and a request fit (Wi-Fi up with no room to ask would only hold the RAM; not again for a while
+    // after a RAM let-go); with Wi-Fi, the firmware's own request waits, then a request starts when the
+    // floor and the request's RAM fit.
     Decision Decide(const Situation& situation);
 
     // What Wi-Fi took: internal RAM free before it came up less what is free once it has an address,

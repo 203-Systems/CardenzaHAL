@@ -482,11 +482,20 @@ IRAM_ATTR void* WifiSlowZalloc(size_t size)
 DRAM_ATTR wifi_osi_funcs_t g_wifiFuncs;
 std::atomic<bool> g_wifiInPsram{false};  // the running Wi-Fi was started with the copy
 
+// Some PSRAM in the heap, with room beyond what Wi-Fi takes (about 20 KB while frames come and go).
+bool WifiPsramUsable()
+{
+#if CONFIG_SPIRAM && !CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP
+    return heap_caps_get_free_size(MALLOC_CAP_SPIRAM) >= 64 * 1024;
+#else
+    return false;
+#endif
+}
+
 wifi_osi_funcs_t* WifiFuncs()
 {
 #if CONFIG_SPIRAM && !CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP
-    // Some PSRAM in the heap, with room beyond what Wi-Fi takes (about 20 KB while frames come and go).
-    if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) >= 64 * 1024)
+    if (WifiPsramUsable())
     {
         g_wifiFuncs = g_wifi_osi_funcs;
         g_wifiFuncs._wifi_malloc = WifiSlowMalloc;
@@ -1321,6 +1330,11 @@ bool Internal::Sending(User user)
 bool Internal::WifiInPsram()
 {
     return g_wifiInPsram.load();
+}
+
+bool Internal::WifiPsramPossible()
+{
+    return WifiPsramUsable();
 }
 
 ConnectStatus Connect(const LauncherSettings& settings, ConnectReport& report, uint32_t timeoutMs,

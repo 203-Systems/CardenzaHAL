@@ -364,10 +364,17 @@ void DecideTests()
 
     s.connected = false;
     s.wifiCost = 36 * KB;
-    s.freeInternal = 63 * KB;  // 28 + 36 = 64 needed
+    s.freeInternal = 75 * KB;  // 28 + 36 + a request's 12 = 76 needed: Wi-Fi up with no room to ask holds RAM for nothing
     CHECK(Logic::Decide(s).step == Step::Wait && Logic::Decide(s).reason == Wait::Ram);
-    s.freeInternal = 64 * KB;
+    s.freeInternal = 76 * KB;
     CHECK(Logic::Decide(s).step == Step::Join);
+    s.wifiInPsram = true;  // its allocations to PSRAM: a request's 10
+    s.freeInternal = 74 * KB;
+    CHECK(Logic::Decide(s).step == Step::Join);
+    s.freeInternal = 73 * KB;
+    CHECK(Logic::Decide(s).step == Step::Wait && Logic::Decide(s).reason == Wait::Ram);
+    s.wifiInPsram = false;
+    s.freeInternal = 76 * KB;
     s.largestInternal = 6 * KB;  // Wi-Fi's task stack is one block
     CHECK(Logic::Decide(s).step == Step::Wait);
     s.largestInternal = 40 * KB;

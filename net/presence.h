@@ -92,7 +92,8 @@ namespace CardenzaHAL::Presence {
     Activity GetActivity();
 
     // The internal RAM the firmware keeps for itself (default 24 KB): Wi-Fi comes up only while that much
-    // stays free beside what Wi-Fi takes (learnt when it first comes up, 40 KB until then), and is let go
+    // stays free beside what Wi-Fi takes (learnt when it first comes up; until then 40 KB, 32 KB with its own
+    // allocations in PSRAM) and a request, and is let go
     // when free internal RAM falls below it. Any task, any time.
     void SetRamFloor(std::size_t bytes);
 

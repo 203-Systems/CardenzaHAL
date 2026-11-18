@@ -32,6 +32,8 @@ namespace CardenzaHAL::Net::Internal {
     // Wi-Fi is up and its own allocations prefer PSRAM (net.cpp, WifiFuncs): a request needs less
     // internal RAM.
     bool WifiInPsram();
+    // Wi-Fi's own allocations would prefer PSRAM if it came up now (the heap has the PSRAM for it).
+    bool WifiPsramPossible();
 
     // The Launcher's account binding and Settings > Account > Receive firmware, read as
     // ReadLauncherSettings reads them (read-only, nothing written), without the saved networks.

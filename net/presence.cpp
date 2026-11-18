@@ -77,7 +77,7 @@ bool g_delayed = false;         // the start delay is done (the task's own)
 // The task ended while the firmware's activity kept Wi-Fi down (Run, Park): it starts again when the
 // activity changes, and what it learnt carries over.
 std::atomic<bool> g_parked{false};
-std::size_t g_wifiCost = Logic::kWifiCostEstimate;  // the task's own (Run): learnt when Wi-Fi comes up
+std::size_t g_wifiCost = 0;                         // the task's own (Run): learnt when Wi-Fi comes up (0: not yet)
 bool g_joinedOnce = false;                          // the task's own: the first join of a run is news
 
 // The report (GetReport), 32-bit words: written by the service's task, read by anyone.
@@ -423,7 +423,7 @@ Logic::Situation Look(Audio::TxCounters& lastAudio, bool ramPaused, std::size_t 
     s.connected = Net::Internal::Holds(User::Presence) && Net::Connected();
     s.firmwareSending = Net::Internal::Sending(User::Firmware);
     s.tlsInPsram = kTlsCanUsePsram && heap_caps_get_free_size(MALLOC_CAP_SPIRAM) >= 64 * 1024;
-    s.wifiInPsram = s.tlsInPsram && Net::Internal::WifiInPsram();
+    s.wifiInPsram = s.tlsInPsram && (s.connected ? Net::Internal::WifiInPsram() : Net::Internal::WifiPsramPossible());
     s.ramPaused = ramPaused;
     s.freeInternal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     s.largestInternal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -442,6 +442,9 @@ void Run()
         if (!WaitFor(kStartDelayMs)) return;
     }
     DescribeFirmware();
+    // Wi-Fi's cost until it has been measured: less when its own allocations will go to PSRAM.
+    if (g_wifiCost == 0)
+        g_wifiCost = Net::Internal::WifiPsramPossible() ? Logic::kWifiCostEstimatePsram : Logic::kWifiCostEstimate;
     Net::LauncherAccount account;
     Logic::Backoff backoff;
     Logic::AudioPause audioPause;

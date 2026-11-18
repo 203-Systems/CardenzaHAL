@@ -679,17 +679,17 @@ Decision Decide(const Situation& s)
         return s.connected ? decide(Step::LetGo, Wait::Activity) : decide(Step::Wait, Wait::Activity);
     if (s.connected && s.freeInternal < s.floor) return decide(Step::LetGo, Wait::Ram);
     if (s.audio == Audio::Struggling) return decide(Step::Wait, Wait::AudioLate);
+    const std::size_t need = !s.tlsInPsram ? kRequestBytesTlsInternal
+                             : s.wifiInPsram ? kRequestBytesAllInPsram
+                                             : kRequestBytesTlsInPsram;
     if (!s.connected)
     {
         if (s.activity == Activity::RealTime) return decide(Step::Wait, Wait::Activity);
-        if (s.ramPaused || s.freeInternal < s.floor + s.wifiCost || s.largestInternal < kWifiLargestBlock)
+        if (s.ramPaused || s.freeInternal < s.floor + s.wifiCost + need || s.largestInternal < kWifiLargestBlock)
             return decide(Step::Wait, Wait::Ram);
         return decide(Step::Join, Wait::None);
     }
     if (s.firmwareSending) return decide(Step::Wait, Wait::FirmwareRequest);
-    const std::size_t need = !s.tlsInPsram ? kRequestBytesTlsInternal
-                             : s.wifiInPsram ? kRequestBytesAllInPsram
-                                             : kRequestBytesTlsInPsram;
     const std::size_t block = s.tlsInPsram ? kRequestBlockTlsInPsram : kRequestBlockTlsInternal;
     if (s.freeInternal < s.floor + need || s.largestInternal < block) return decide(Step::Wait, Wait::Ram);
     return decide(Step::Ask, Wait::None);
