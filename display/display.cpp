@@ -53,11 +53,24 @@ SemaphoreHandle_t transferDone = nullptr;
 bool completionCallbackInstalled = false;
 bool transferPending = false;
 
-// The system menu (system/menu.h) draws over the firmware: while overlayActive the firmware's frames are
-// not sent. Every submission takes displayLock, so the menu's task and the firmware's never share the
-// band or the panel. The backlight is at least kOverlayBrightness while the menu shows.
+// The system menu (system/menu.h) draws over the firmware. Every submission takes displayLock, so the
+// menu's task and the firmware's never share the band or the panel.
+// - curtainEdge: while HOME is held the menu comes out from the left: the firmware's frames are sent only
+//   right of it.
+// - overlayActive: the menu is open: the firmware's frames are not sent at all.
+// - captureFrame: the menu keeps a copy of the firmware's latest frame (its picture fades into the menu and
+//   back), copied at every Present* while set.
+// - overlayBacklight: the menu sets the backlight (it fades it); the firmware's brightness comes back after.
 bool overlayActive = false;
-constexpr uint8_t kOverlayBrightness = 128;
+int curtainEdge = 0;
+uint16_t* captureFrame = nullptr;
+bool captureValid = false;
+bool overlayBacklight = false;
+uint8_t overlayBacklightValue = 0;
+// The menu's bands as last sent (FNV-1a): a band that did not change is not sent again.
+constexpr int kOverlayBands = (HEIGHT + kTransferBandRows - 1) / kTransferBandRows;
+uint32_t overlayBandHash[kOverlayBands] = {};
+bool overlayHashValid = false;
 SemaphoreHandle_t displayLock = nullptr;
 portMUX_TYPE displayLockMux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -92,7 +105,14 @@ class DisplayLock {
 
 uint8_t ShownBrightness(uint8_t requested)
 {
-    return overlayActive && requested < kOverlayBrightness ? kOverlayBrightness : requested;
+    return overlayBacklight ? overlayBacklightValue : requested;
+}
+
+void Capture(const uint16_t* framebuffer)
+{
+    if (captureFrame == nullptr) return;
+    std::memcpy(captureFrame, framebuffer, static_cast<std::size_t>(WIDTH) * HEIGHT * sizeof(uint16_t));
+    captureValid = true;
 }
 
 esp_err_t ApplyBrightness(uint8_t value)
@@ -354,6 +374,7 @@ namespace {
 bool PresentLocked(const uint16_t* framebuffer, const Region* regions, std::size_t count)
 {
     if (framebuffer == nullptr || (count != 0 && regions == nullptr)) return false;
+    Capture(framebuffer);
     // The system menu is on the screen: this frame is not sent, and the first one after it goes whole.
     if (overlayActive)
     {
@@ -366,12 +387,23 @@ bool PresentLocked(const uint16_t* framebuffer, const Region* regions, std::size
     // A timed-out DMA still owns transferBand. Never overwrite it while the
     // caller continues rendering into its own framebuffer.
     if (!WaitForTransfer(0)) return false;
+    // Left of the curtain's edge the system menu is coming out: only the rest is the firmware's.
+    const auto send = [&](Region region) {
+        if (curtainEdge > 0)
+        {
+            const int right = region.x + region.width;
+            region.x = std::max(region.x, curtainEdge);
+            region.width = right - region.x;
+            if (region.width <= 0) return true;
+        }
+        return SendRegion(framebuffer, region);
+    };
     bool sent = true;
     if (fullRefreshRequired)
-        sent = SendRegion(framebuffer, Region{0, 0, WIDTH, HEIGHT});
+        sent = send(Region{0, 0, WIDTH, HEIGHT});
     else
         for (std::size_t index = 0; sent && index < count; ++index)
-            sent = SendRegion(framebuffer, regions[index]);
+            sent = send(regions[index]);
     if (!sent || !RevealFrame())
     {
         fullRefreshRequired = true;
@@ -408,6 +440,7 @@ bool PresentChanged(const uint16_t* framebuffer)
     DisplayLock lock;
     if (overlayActive)
     {
+        Capture(framebuffer);
         fullRefreshRequired = true;
         return true;
     }
@@ -474,39 +507,116 @@ uint8_t GetBrightness()
 
 namespace CardenzaHAL::Display::detail {
 
+namespace {
+
+uint32_t BandHash(const uint16_t* pixels, std::size_t count)
+{
+    uint32_t hash = 2166136261u;
+    const auto* bytes = reinterpret_cast<const uint8_t*>(pixels);
+    for (std::size_t i = 0; i < count * sizeof(uint16_t); ++i) hash = (hash ^ bytes[i]) * 16777619u;
+    return hash;
+}
+
+// Columns [x, x + width) of every row from `painter`, eight rows at a time; `skipUnchanged`: bands as the
+// overlay last sent them are not sent again (whole-width bands only).
+bool PaintBands(RegionPainter painter, void* context, int x, int width, bool skipUnchanged)
+{
+    if (painter == nullptr || !Init() || !EnsureCompletionCallback()) return false;
+    x = std::clamp(x, 0, WIDTH);
+    width = std::clamp(width, 0, WIDTH - x);
+    if (width == 0) return true;
+    // A timed-out DMA may still own the band.
+    if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
+    const bool whole = x == 0 && width == WIDTH;
+    for (int band = 0, y = 0; y < HEIGHT; ++band, y += kTransferBandRows)
+    {
+        const int rows = std::min(kTransferBandRows, HEIGHT - y);
+        painter(context, x, y, width, rows, transferBand);
+        if (whole)
+        {
+            const uint32_t hash = BandHash(transferBand, static_cast<std::size_t>(width) * rows);
+            if (skipUnchanged && overlayHashValid && overlayBandHash[band] == hash) continue;
+            overlayBandHash[band] = hash;
+        }
+        while (xSemaphoreTake(transferDone, 0) == pdTRUE) {}
+        if (esp_lcd_panel_draw_bitmap(panel, x, y, x + width, y + rows, transferBand) != ESP_OK) return false;
+        transferPending = true;
+        if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
+    }
+    overlayHashValid = whole;
+    return true;
+}
+
+}  // namespace
+
+bool Ready()
+{
+    DisplayLock lock;
+    return displayInitialized && firstFramePresented;
+}
+
+void SetCapture(uint16_t* frame)
+{
+    DisplayLock lock;
+    captureFrame = frame;
+    captureValid = false;
+}
+
+bool CaptureValid()
+{
+    DisplayLock lock;
+    return captureFrame != nullptr && captureValid;
+}
+
+void SetCurtain(int edge, bool refresh)
+{
+    DisplayLock lock;
+    edge = std::clamp(edge, 0, WIDTH);
+    // Columns the curtain gives back and the menu did not repaint: the firmware's next frame goes whole.
+    if (refresh && edge < curtainEdge) fullRefreshRequired = true;
+    curtainEdge = edge;
+}
+
+bool PaintColumns(RegionPainter painter, void* context, int x, int width)
+{
+    DisplayLock lock;
+    return PaintBands(painter, context, x, width, false);
+}
+
 bool BeginOverlay()
 {
     DisplayLock lock;
     if (!Init() || !EnsureCompletionCallback()) return false;
     overlayActive = true;
+    overlayHashValid = false;
     return true;
 }
 
-bool PaintOverlay(BandPainter painter, void* context)
+bool PaintOverlay(RegionPainter painter, void* context)
 {
     DisplayLock lock;
-    if (!overlayActive || painter == nullptr) return false;
-    // A timed-out DMA may still own the band.
-    if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
+    if (!overlayActive) return false;
     fullRefreshRequired = true;  // the firmware's next frame goes whole
-    for (int y = 0; y < HEIGHT; y += kTransferBandRows)
-    {
-        const int rows = std::min(kTransferBandRows, HEIGHT - y);
-        painter(context, y, rows, transferBand);
-        while (xSemaphoreTake(transferDone, 0) == pdTRUE) {}
-        if (esp_lcd_panel_draw_bitmap(panel, 0, y, WIDTH, y + rows, transferBand) != ESP_OK) return false;
-        transferPending = true;
-        if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
-    }
+    if (!PaintBands(painter, context, 0, WIDTH, true)) return false;
     return RevealFrame();
+}
+
+void SetBacklight(int value)
+{
+    DisplayLock lock;
+    overlayBacklight = value >= 0;
+    overlayBacklightValue = static_cast<uint8_t>(std::clamp(value, 0, 255));
+    if (firstFramePresented) (void)ApplyBrightness(ShownBrightness(brightness));
 }
 
 void EndOverlay()
 {
     DisplayLock lock;
-    if (!overlayActive) return;
     overlayActive = false;
+    overlayHashValid = false;
+    curtainEdge = 0;
     fullRefreshRequired = true;
+    overlayBacklight = false;
     if (firstFramePresented) (void)ApplyBrightness(brightness);
 }
 

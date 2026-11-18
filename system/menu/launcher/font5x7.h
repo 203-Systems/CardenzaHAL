@@ -1,3 +1,12 @@
+// Copied from the 203 Launcher (https://github.com/203-Systems/203-launcher, MIT; LICENSE and
+// NOTICE.md there) by tools/launcher_ui.py: src/platform/font5x7.h at 264061de6d32.
+// Do not edit: change it in the Launcher and copy it again.
+#pragma once
+
+#include <cstdint>
+
+namespace CardenzaHAL::SystemMenu::launcher {
+
 /*
  * SPDX-License-Identifier: BSD-3-Clause
  * Copyright (c) 2026 PicoTracker contributors
@@ -39,14 +48,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-// Taken from the 203 Launcher (203-launcher src/platform/font5x7.h, MIT, which keeps the BSD notice above)
-// so the system menu (system/menu.h) reads like the Launcher. In CardenzaHAL::SystemMenu::detail.
-#pragma once
-#include <cstdint>
-
-namespace CardenzaHAL::SystemMenu::detail {
-
-inline constexpr uint8_t kFont5x7[128][7] = {
+constexpr uint8_t kFont5x7[128][7] = {
     {14, 17, 1, 2, 4, 0, 4},      {14, 17, 1, 2, 4, 0, 4},
     {14, 17, 1, 2, 4, 0, 4},      {14, 17, 1, 2, 4, 0, 4},
     {14, 17, 1, 2, 4, 0, 4},      {14, 17, 1, 2, 4, 0, 4},
@@ -114,8 +116,8 @@ inline constexpr uint8_t kFont5x7[128][7] = {
 };
 
 // Descenders use the eighth cell row; keep their bitmap data and advance intact.
-inline constexpr int font5x7YOffset(unsigned char c) {
+constexpr int font5x7YOffset(unsigned char c) {
   return c == 'g' || c == 'p' || c == 'q' || c == 'y' ? 1 : 0;
 }
 
-}  // namespace CardenzaHAL::SystemMenu::detail
+}  // namespace CardenzaHAL::SystemMenu::launcher

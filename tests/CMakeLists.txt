@@ -55,9 +55,11 @@ add_executable(CardenzaPresenceTests presence_test.cpp
 target_include_directories(CardenzaPresenceTests PRIVATE ${hal_root})
 add_test(NAME CardenzaPresenceTests COMMAND CardenzaPresenceTests)
 
-# system/menu/logic.h: the system menu's long press, keys, list, words and glyphs, drawing, NVS reader.
+# system/menu/logic.h and frame.h: the system menu's long press, curtain, keys, list, words, its frames (the
+# Launcher's, tests/system_menu_frames.inc), NVS reader.
 add_executable(CardenzaSystemMenuTests system_menu_test.cpp ${hal_root}/system/menu/logic.cpp
-  ${cardenza_test_guard})
+  ${hal_root}/system/menu/frame.cpp ${hal_root}/system/menu/launcher/glyphs.cpp
+  ${hal_root}/system/menu/launcher/lcd.cpp ${cardenza_test_guard})
 target_include_directories(CardenzaSystemMenuTests PRIVATE ${hal_root})
 add_test(NAME CardenzaSystemMenuTests COMMAND CardenzaSystemMenuTests)
 

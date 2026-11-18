@@ -290,7 +290,7 @@ void ReadSettings()
 
 ## System menu (hold HOME in any firmware)
 
-Holding HOME (the side key, GPIO0) for a second opens the [system menu](system/menu.h) in every firmware on the HAL, drawn like the 203 Launcher's lists and in the Launcher's language:
+Holding HOME (the side key, GPIO0) for a second opens the [system menu](system/menu.h) in every firmware on the HAL. It is the 203 Launcher's list, drawn by the Launcher's own code and in the Launcher's language, so the two look and move as one thing:
 
 | Item | What it does |
 | --- | --- |
@@ -302,10 +302,17 @@ Holding HOME (the side key, GPIO0) for a second opens the [system menu](system/m
 
 Keys are the Launcher's: `;` and `,` up, `.` and `/` down, ENTER or a tap on HOME choose, ESC or del go back; they are lit while the menu is open.
 
-- `CardenzaHAL::Init` starts it when the display is up (`CONFIG_CARDENZA_HAL_SYSTEM_MENU`, on by default): a 3 KB task that reads GPIO0 every 20 ms; about 10 KB of flash for its words and glyphs.
-- While it is open your firmware keeps running (its tasks and sound), but the HAL holds back what would disturb it: `Display::Present*` send nothing and return `true` (the next frame after it closes goes whole, so your screen comes back by itself), `Keyboard::updateKeyList` reports no key (keys still down when it closes stay hidden until released), and the key lights show the menu's keys (your `setLED*` levels are kept and come back). A firmware that draws through the panel handles itself should pause while `SystemMenu::IsOpen()`.
+How it moves (the panel has no tearing-effect line, so nothing wide moves across it):
+
+- **Pulled out like a curtain.** Once HOME has been held longer than a tap, the menu's edge (its rail and the start of its rows) slides out from the left, a little further than it will stay, and eases back as the second runs out; then the rest fades in over your picture (180 ms). Let go before that and it slides back out of sight (300 ms, eased both ways). The easing is the Launcher's hold-to-act curve and its return (`power_state.h` there).
+- **In the menu** the selection crossfades from row to row and a scroll fades through, as in the Launcher's Cardenza lists (its `ListFade`).
+- **Continue** fades your picture back in (150 ms). **The others** dim the screen as the Launcher's power-off does (600 ms) and then leave.
+
+- `CardenzaHAL::Init` starts it when the display is up (`CONFIG_CARDENZA_HAL_SYSTEM_MENU`, on by default): a 5 KB task that reads GPIO0 every 20 ms; about 30 KB of flash. While HOME is held or the menu is open it borrows 2 KB of RAM and, when the firmware has PSRAM, a 64 KB copy of your latest frame there (the fades need it; without PSRAM the curtain opens the rest instead of fading).
+- While HOME is held, `Display::Present*` send only the columns right of the curtain. While the menu is open your firmware keeps running (its tasks and sound), but the HAL holds back what would disturb it: `Display::Present*` send nothing and return `true` (the next frame after it closes goes whole, so your screen comes back by itself), `Keyboard::updateKeyList` reports no key (keys still down when it closes stay hidden until released), and the key lights show the menu's keys (your `setLED*` levels are kept and come back). A firmware that draws through the panel handles itself should pause while `SystemMenu::IsOpen()`.
 - `SystemMenu::SetListener` tells you when it opens and closes; `SystemMenu::SetLeaveHook` runs just before the board restarts, sleeps or enters the download mode (save what must survive). A firmware that needs HOME's long press for itself calls `SystemMenu::Enable(false)`.
-- Its Chinese, Japanese and Vietnamese text uses the 203 Launcher's bitmaps of **HarmonyOS Sans** (12 px), copied by `tools/system_menu_text.py` from `system/menu/strings.json`; the bitmaps are a work made with the font, which its license lets us distribute ([licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)); no font file is included. The 5x7 font is NullPerator's (BSD-3-Clause, notice in [system/menu/font5x7.h](system/menu/font5x7.h)).
+- The Launcher's code is in [system/menu/launcher/](system/menu/launcher/), copied unchanged by `tools/launcher_ui.py --launcher <203-launcher checkout>` (MIT, [licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)): its text and glyph code, canvas drawing, easing and list crossfades; [system/menu/frame.cpp](system/menu/frame.cpp) is its `menuFrame` and status rail on the Cardenza, ported line by line. `--check` tells whether the copy is current, `--compare` draws every frame with the Launcher's real `menuFrame` too and fails on any pixel that differs (the host tests keep those frames' hashes). The words are `system/menu/strings.json`.
+- Its Chinese, Japanese and Vietnamese text uses the 203 Launcher's bitmaps of **HarmonyOS Sans** (12 px), read out of the Launcher's tables by the same tool for the menu's words only; the bitmaps are a work made with the font, which its license lets us distribute ([licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)); no font file is included. The 5x7 font is NullPerator's (BSD-3-Clause, notice in [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)).
 
 ## USB device usage
 
@@ -660,4 +667,5 @@ Upload and registration tools with setup instructions are included in [tools/upl
 - **[M5Stack Cardputer](https://docs.m5stack.com/en/core/Cardputer)**: a wonderful project, and the inspiration and the reason we set out to make the Cardenza. Thank you, M5Stack. The Cardenza and this HAL are not compatible with M5Stack devices.
 - **[ESP-IDF](https://github.com/espressif/esp-idf)** (Espressif) and **[TinyUSB](https://github.com/hathach/tinyusb)**: the framework every module here is built on, and the USB stack behind `usb/usb.h`.
 - **[Emscripten](https://emscripten.org)**: the web target runs the same firmware source in a browser.
+- **[203 Launcher](https://github.com/203-Systems/203-launcher)** (MIT, from [bmorcelli/Launcher](https://github.com/bmorcelli/Launcher)): the system menu runs its drawing, text and motion code; license in [licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt).
 - **HarmonyOS Sans** (Huawei Device Co., Ltd.): the system menu's Chinese, Japanese and Vietnamese text is drawn with bitmaps made from it (via the 203 Launcher); license in [licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt).

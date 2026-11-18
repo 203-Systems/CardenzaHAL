@@ -25,6 +25,9 @@ if(COMMAND idf_component_register)
             storage/storage.cpp
             system/launcher.cpp
             system/menu.cpp
+            system/menu/frame.cpp
+            system/menu/launcher/glyphs.cpp
+            system/menu/launcher/lcd.cpp
             system/menu/logic.cpp
             system/system.cpp
             usb/usb.cpp
@@ -91,6 +94,9 @@ set(cardenza_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/net/presence_logic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/launcher.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/menu.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/menu/frame.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/menu/launcher/glyphs.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/menu/launcher/lcd.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/menu/logic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/system.cpp
     ${CMAKE_CURRENT_LIST_DIR}/usb/usb.cpp

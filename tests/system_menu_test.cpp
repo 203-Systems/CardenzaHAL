@@ -1,12 +1,25 @@
-// system/menu/logic.h: the system menu's long press, keys, list, words, drawing and the NVS reader.
+// system/menu/logic.h and frame.h: the system menu's long press, curtain, keys, list, words, its frames (the
+// Launcher's own, pixel for pixel) and fades, and the NVS reader.
 #include <cassert>
 #include <cstdio>
 #include <cstring>
 #include <vector>
 
+#include <algorithm>
+#include <cmath>
+
+#include "system/menu/frame.h"
+#include "system/menu/launcher/i18n.h"
+#include "system/menu/launcher/motion.h"
 #include "system/menu/logic.h"
 
 using namespace CardenzaHAL::SystemMenu::detail;
+using CardenzaHAL::SystemMenu::launcher::ListFade;
+namespace launcher = CardenzaHAL::SystemMenu::launcher;
+
+uint32_t CardenzaHAL::SystemMenu::launcher::launcherMillis() { return 0; }
+
+#include "system_menu_frames.inc"
 
 namespace {
 
@@ -50,14 +63,14 @@ void TestKeys()
 
     KeyRepeat repeat;
     assert(repeat.Update(Key::Down, 0) == Key::Down);
-    assert(repeat.Update(Key::Down, kRepeatDelayMs - 1) == Key::None);
-    assert(repeat.Update(Key::Down, kRepeatDelayMs) == Key::Down);
-    assert(repeat.Update(Key::Down, kRepeatDelayMs + kRepeatMs - 1) == Key::None);
-    assert(repeat.Update(Key::Down, kRepeatDelayMs + kRepeatMs) == Key::Down);
+    assert(repeat.Update(Key::Down, launcher::kKeyRepeatDelayMs - 1) == Key::None);
+    assert(repeat.Update(Key::Down, launcher::kKeyRepeatDelayMs) == Key::Down);
+    assert(repeat.Update(Key::Down, launcher::kKeyRepeatDelayMs + launcher::kKeyRepeatMs - 1) == Key::None);
+    assert(repeat.Update(Key::Down, launcher::kKeyRepeatDelayMs + launcher::kKeyRepeatMs) == Key::Down);
     assert(repeat.Update(Key::None, 2000) == Key::None);
     // Select and Back never repeat: a held ENTER chooses once.
     assert(repeat.Update(Key::Select, 3000) == Key::Select);
-    assert(repeat.Update(Key::Select, 3000 + 5 * kRepeatDelayMs) == Key::None);
+    assert(repeat.Update(Key::Select, 3000 + 5 * launcher::kKeyRepeatDelayMs) == Key::None);
     assert(repeat.Update(Key::None, 9000) == Key::None);
     assert(repeat.Update(Key::Back, 9001) == Key::Back);
 }
@@ -88,58 +101,155 @@ void TestList()
     assert(o.item == Item::Launcher);
 }
 
+// Every word has its glyphs in the Launcher's tables as the menu carries them.
 void TestWords()
 {
-    assert(LanguageIndex(0) == 0 && LanguageIndex(1) == 1 && LanguageIndex(2) == 1 && LanguageIndex(3) == 2 &&
-           LanguageIndex(4) == 3 && LanguageIndex(5) == 4 && LanguageIndex(6) == 0 && LanguageIndex(255) == 0);
     for (int language = 0; language < kLanguageCount; ++language)
         for (int id = 0; id < kTextCount; ++id)
         {
             const char* text = kTexts[language][id];
             assert(text != nullptr && text[0] != 0);
-            if (!HasGlyphs(kFaces[language], text))
+            if (!launcher::textDrawable(text))
             {
                 std::fprintf(stderr, "no glyph in language %d, text %d: %s\n", language, id, text);
                 assert(false);
             }
         }
-    assert(TextWidth(Face::Font5x7, "Restart") == 7 * 6);
-    assert(TextWidth(Face::Cjk, "关机") == 24);
-    assert(TextWidth(Face::Cjk, "USB") == 18);
-    assert(!HasGlyphs(Face::Font5x7, "关机"));
+    launcher::i18nSetLanguage(launcher::Language::English);
+    assert(launcher::textWidth("Restart", 1) == 7 * 6);
+    launcher::i18nSetLanguage(launcher::Language::SimplifiedChinese);
+    assert(launcher::textWidth("\xe5\x85\xb3\xe6\x9c\xba", 1) == 24);  // 关机: two 12 px glyphs
+    assert(launcher::textWidth("USB", 1) == 18);
 }
 
-// Every pixel painted, the same in any band split, inside the screen.
-void TestPaint()
+uint64_t Fnv(const std::vector<uint8_t>& bytes)
 {
-    std::vector<uint16_t> whole(kWidth * kHeight, 0x1234);
-    std::vector<uint16_t> banded(kWidth * kHeight, 0x5678);
+    uint64_t hash = 0xcbf29ce484222325ull;
+    for (uint8_t b : bytes) hash = (hash ^ b) * 0x100000001b3ull;
+    return hash;
+}
+
+std::vector<uint8_t> Frame(const View& view, ListFade* fade = nullptr, uint32_t now = 0, int band = kHeight)
+{
+    std::vector<uint8_t> canvas(kWidth * kHeight, 0x55);
+    for (int y = 0; y < kHeight; y += band)
+        PaintGrey(view, fade, now, y, std::min(band, kHeight - y), canvas.data() + y * kWidth);
+    return canvas;
+}
+
+// The frames are the Launcher's own (tools/launcher_ui.py --compare draws them with its menuFrame and
+// status() and keeps their hashes), however they are cut into bands.
+void TestFrames()
+{
     for (int language = 0; language < kLanguageCount; ++language)
         for (int selected = 0; selected < kItemCount; ++selected)
-            for (int prompt = 0; prompt < 2; ++prompt)
+        {
+            View view;
+            view.language = language;
+            view.state.selected = selected;
+            view.state.scroll = selected < kVisibleRows ? 0 : selected - kVisibleRows + 1;
+            view.firmware = "CardenzaSynthFirmware 0.2.1";
+            const std::vector<uint8_t> whole = Frame(view);
+            if (Fnv(whole) != kLauncherFrameHashes[language * kItemCount + selected])
             {
-                View view;
-                view.language = language;
-                view.state.selected = selected;
-                view.state.scroll = selected < kVisibleRows ? 0 : selected - kVisibleRows + 1;
-                view.firmware = "A firmware with a very long name 1.2.3-dev.456";
-                view.releasePrompt = prompt != 0;
-                Paint(view, 0, kHeight, whole.data());
-                for (int y = 0; y < kHeight; y += 8)
-                    Paint(view, y, y + 8 <= kHeight ? 8 : kHeight - y, banded.data() + y * kWidth);
-                assert(whole == banded);
-                for (uint16_t pixel : whole) assert(pixel != 0x1234);
+                std::fprintf(stderr, "language %d, row %d: not the Launcher's frame\n", language, selected);
+                assert(false);
             }
-    // The selection is a dark block, the rest of the content white, the rail black.
+            assert(Frame(view, nullptr, 0, 8) == whole);
+            assert(Frame(view, nullptr, 0, 5) == whole);
+        }
+    // The release prompt replaces the chosen row's description; Back held dims the rail's arrow.
     View view;
-    view.state.selected = 1;
-    Paint(view, 0, kHeight, whole.data());
-    const uint16_t white = 0xFFFF, black = 0x0000;
-    assert(whole[10 * kWidth + 2] == black);              // the rail
-    assert(whole[2 * kWidth + 100] == white);             // above the list
-    const int selectedTop = 4 + 32;                        // the second row
-    const uint16_t block = whole[(selectedTop + 1) * kWidth + 31];
-    assert(block != white && block != black);
+    view.state.selected = 2;
+    View prompt = view;
+    prompt.releasePrompt = true;
+    assert(Frame(prompt) != Frame(view));
+    View back = view;
+    back.backHeld = true;
+    const std::vector<uint8_t> a = Frame(view), b = Frame(back);
+    assert(a != b);
+    for (int y = 0; y < kHeight; ++y)
+        for (int x = 24; x < kWidth; ++x) assert(a[y * kWidth + x] == b[y * kWidth + x]);  // only the rail
+}
+
+// The Launcher's ListFade: the selection crossfades from row to row, a scroll fades through; at the end
+// the frame is the still one.
+void TestListFade()
+{
+    View from;
+    from.state.selected = 1;
+    View to = from;
+    to.state.selected = 2;
+    ListFade fade;
+    fade.reset(1, 0);
+    assert(Frame(from, &fade, 1000) == Frame(from));
+    fade.select(2, 1000);
+    const std::vector<uint8_t> middle = Frame(to, &fade, 1000 + ListFade::kFadeMs / 2);
+    assert(middle != Frame(from) && middle != Frame(to));
+    assert(Frame(to, &fade, 1000 + ListFade::kFadeMs) == Frame(to));
+    assert(!fade.active(1000 + ListFade::kFadeMs + 1));
+    // Down past the fourth row: the rows fade out, the new ones in.
+    View last = to;
+    last.state.selected = 4;
+    last.state.scroll = 1;
+    fade.reset(3, 0);
+    fade.select(4, 2000);
+    fade.scrollTo(1, 2000);
+    assert(fade.active(2000));
+    const std::vector<uint8_t> out = Frame(last, &fade, 2000 + ListFade::kScrollMs / 2);
+    assert(out != Frame(last));
+    assert(Frame(last, &fade, 2000 + 2 * ListFade::kScrollMs + ListFade::kFadeMs) == Frame(last));
+}
+
+// HOME held: the curtain comes out after a tap's length, past where it stays, and settles on the rail and
+// the rows' start when the hold is complete; let go, it goes back in the Launcher's 300 ms.
+void TestCurtain()
+{
+    assert(PullEdge(0) == 0 && PullEdge(kPullDelayMs) == 0);
+    float previous = 0, peak = 0;
+    uint32_t peakAt = 0;
+    for (uint32_t ms = kPullDelayMs; ms <= kHoldMs; ms += 10)
+    {
+        const float edge = PullEdge(ms);
+        assert(edge >= 0 && edge <= kPullPeak + 0.01f);
+        if (edge > peak) peak = edge, peakAt = ms;
+        if (ms < peakAt + 1) assert(edge >= previous - 0.01f);  // out, then...
+        previous = edge;
+    }
+    assert(peak > kPullPeak - 0.5f);
+    assert(peakAt > kPullDelayMs && peakAt < kHoldMs);
+    assert(std::fabs(PullEdge(kHoldMs) - kClothWidth) < 0.01f);  // ...back to where it stays
+    assert(std::fabs(PullEdge(kHoldMs + 500) - kClothWidth) < 0.01f);
+    assert(ClothOffset(kClothWidth) == 0);
+    assert(ReturnEdge(40, 0) == 40);
+    float last = 40;
+    for (uint32_t ms = 10; ms <= launcher::kPowerReturnMs; ms += 10)
+    {
+        const float edge = ReturnEdge(40, ms);
+        assert(edge <= last + 0.001f);
+        last = edge;
+    }
+    assert(ReturnEdge(40, launcher::kPowerReturnMs) == 0);
+    // Eased: slow at both ends.
+    assert(40 - ReturnEdge(40, 30) < ReturnEdge(40, 135) - ReturnEdge(40, 165));
+
+    HoldDetector hold;
+    hold.Reset(false);
+    hold.Update(true, 100);
+    assert(hold.Pressing() && hold.HeldMs(400) == 300);
+    assert(hold.Update(true, 100 + kHoldMs) && !hold.Pressing());
+    hold.Update(false, 2000);
+    assert(!hold.Pressing());
+}
+
+void TestPanel()
+{
+    assert(PanelGrey(255) == 0xFFFF && PanelGrey(0) == 0);
+    const uint16_t white = PanelGrey(255), black = PanelGrey(0);
+    assert(PanelMix(white, black, 0) == white && PanelMix(white, black, 256) == black);
+    const uint16_t half = PanelMix(white, black, 128);
+    const uint16_t c = static_cast<uint16_t>((half >> 8) | (half << 8));
+    assert(((c >> 11) & 31) == 16 && ((c >> 5) & 63) == 32);
 }
 
 // NVS pages as ESP-IDF 5.3 writes them: header, entry state table, 32-byte items.
@@ -211,7 +321,10 @@ int main()
     TestKeys();
     TestList();
     TestWords();
-    TestPaint();
+    TestFrames();
+    TestListFade();
+    TestCurtain();
+    TestPanel();
     TestNvs();
     std::puts("system menu: ok");
     return 0;

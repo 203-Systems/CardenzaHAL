@@ -1,9 +1,12 @@
 // The system menu (system/menu.h): long-press HOME in any firmware on the HAL.
 #include "system/menu.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 #include <driver/gpio.h>
 #include <driver/rtc_io.h>
@@ -21,10 +24,13 @@
 #include <soc/rtc_cntl_struct.h>
 
 #include "board/pins.h"
+#include "display/display.h"
 #include "display/internal/overlay.h"
 #include "keyboard/internal/overlay.h"
 #include "system/internal/hooks.h"
 #include "system/launcher.h"
+#include "system/menu/frame.h"
+#include "system/menu/launcher/motion.h"
 #include "system/menu/logic.h"
 #include "system/menu/test.h"
 
@@ -35,12 +41,16 @@ namespace {
 constexpr char kTag[] = "CardenzaHAL";
 constexpr uint32_t kPollMs = 20;      // the side key, while the menu is closed
 constexpr uint32_t kMenuPollMs = 10;  // keys while it is open
-constexpr uint32_t kStackBytes = 3072;
+// The Launcher's text code works with String and glyph buffers on the stack.
+constexpr uint32_t kStackBytes = 5120;
+// The menu at least this bright (0-255) while it shows, whatever the firmware's brightness.
+constexpr int kMenuBacklight = 128;
 // Above a firmware's UI loop (usually 1 to 3), below audio and USB: the menu answers while the firmware
 // is busy drawing, and the firmware's sound keeps going.
 constexpr UBaseType_t kPriority = 4;
 
 std::atomic<bool> g_started{false};
+TaskHandle_t g_task = nullptr;
 std::atomic<bool> g_enabled{true};
 std::atomic<bool> g_open{false};
 std::atomic<uint8_t> g_injectedKey{0};  // system/menu/test.h
@@ -54,6 +64,18 @@ uint32_t NowMs()
 {
     return static_cast<uint32_t>(esp_timer_get_time() / 1000);
 }
+
+}  // namespace
+
+// The Launcher's clock, for its ListFade (launcher/motion.h).
+namespace launcher {
+uint32_t launcherMillis()
+{
+    return NowMs();
+}
+}  // namespace launcher
+
+namespace {
 
 // ---- The Launcher's language: NVS launcher/lang, read page by page without the NVS library ----------
 
@@ -77,6 +99,120 @@ int ReadLauncherLanguage()
             found = detail::NvsFindU8(page, index, "lang", lang);
     heap_caps_free(page);
     return found ? lang : 0;
+}
+
+// ---- The picture ---------------------------------------------------------------------------------------
+
+// What the screen shows: the menu (drawn by the Launcher's code, frame.cpp), slid by `offset` while it is a
+// curtain, and right of `edge` the firmware's picture (its last frame, captured) mixed with it.
+struct Scene {
+    detail::View view;
+    launcher::ListFade fade;
+    bool useFade = false;
+    uint32_t now = 0;
+    int offset = 0;                     // the menu's column c is at x = c + offset (left of it: the rail)
+    int edge = detail::kWidth;          // from here on: firmware and menu mixed
+    int mix = 256;                      // 0 the firmware's picture, 256 the menu
+    const uint16_t* firmware = nullptr; // null: no picture (right of edge is the menu)
+    uint8_t grey[detail::kWidth * 8];   // one band of the menu
+};
+
+Scene* g_scene = nullptr;
+uint16_t* g_capture = nullptr;  // the firmware's frame, PSRAM (no PSRAM: no fades over its picture)
+int g_curtain = 0;              // the curtain's edge on the screen
+char g_firmwareName[80];
+
+void PaintScene(void* context, int x, int y, int width, int rows, uint16_t* out)
+{
+    Scene& scene = *static_cast<Scene*>(context);
+    detail::PaintGrey(scene.view, scene.useFade ? &scene.fade : nullptr, scene.now, y, rows, scene.grey);
+    for (int r = 0; r < rows; ++r)
+        for (int c = 0; c < width; ++c)
+        {
+            const int px = x + c, menuX = px - scene.offset;
+            const uint8_t grey = menuX < 0 ? 0 : menuX >= detail::kWidth ? 255 : scene.grey[r * detail::kWidth + menuX];
+            uint16_t pixel = detail::PanelGrey(grey);
+            if (px >= scene.edge && scene.firmware != nullptr)
+                pixel = detail::PanelMix(scene.firmware[(y + r) * detail::kWidth + px], pixel, scene.mix);
+            out[r * width + c] = pixel;
+        }
+}
+
+// The scene for a pull or the menu: the Launcher's language, the firmware's name, the first row selected;
+// and a buffer the firmware's frames are copied into (a fade needs its picture).
+bool Prepare()
+{
+    if (g_scene == nullptr)
+    {
+        g_scene = new (std::nothrow) Scene();
+        if (g_scene == nullptr)
+        {
+            ESP_LOGE(kTag, "system menu: no memory");
+            return false;
+        }
+    }
+    const esp_app_desc_t* app = esp_app_get_description();
+    std::snprintf(g_firmwareName, sizeof(g_firmwareName), "%.32s %.32s", app->project_name, app->version);
+    g_scene->view = detail::View{};
+    g_scene->view.language = detail::LanguageIndex(ReadLauncherLanguage());
+    g_scene->view.firmware = g_firmwareName;
+    g_scene->useFade = false;
+    if (g_capture == nullptr)
+    {
+        g_capture = static_cast<uint16_t*>(heap_caps_malloc(
+            std::size_t(detail::kWidth) * detail::kHeight * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (g_capture != nullptr) Display::detail::SetCapture(g_capture);
+    }
+    return true;
+}
+
+void Release()
+{
+    Display::detail::SetCapture(nullptr);
+    heap_caps_free(g_capture);
+    g_capture = nullptr;
+    delete g_scene;
+    g_scene = nullptr;
+}
+
+const uint16_t* FirmwarePicture()
+{
+    return g_capture != nullptr && Display::detail::CaptureValid() ? g_capture : nullptr;
+}
+
+// ---- The curtain ---------------------------------------------------------------------------------------
+
+// The curtain to `edge` pixels: the menu slides with its edge (only that strip is sent: the panel has no
+// tearing-effect line, and a narrow strip shows none), the firmware keeps the rest of the screen.
+void DrawCurtain(int edge)
+{
+    edge = std::clamp(edge, 0, detail::kWidth);
+    if (edge == g_curtain) return;
+    if (g_curtain == 0)
+    {
+        if (!Display::detail::Ready() || !Prepare()) return;
+    }
+    Scene& scene = *g_scene;
+    scene.now = NowMs();
+    scene.offset = detail::ClothOffset(edge);
+    scene.edge = edge;
+    scene.mix = 0;
+    scene.firmware = FirmwarePicture();
+    if (edge > g_curtain)
+    {
+        Display::detail::SetCurtain(edge, false);
+        (void)Display::detail::PaintColumns(PaintScene, &scene, 0, edge);
+    }
+    else
+    {
+        // Going back: the columns it leaves show the firmware's picture (its last frame) at once when there
+        // is one; else its next frame, sent whole, gives them back.
+        const bool picture = scene.firmware != nullptr;
+        (void)Display::detail::PaintColumns(PaintScene, &scene, 0, picture ? g_curtain : edge);
+        Display::detail::SetCurtain(edge, !picture);
+    }
+    g_curtain = edge;
+    if (edge == 0) Release();
 }
 
 // ---- Leaving -------------------------------------------------------------------------------------------
@@ -129,11 +265,6 @@ int ReadLauncherLanguage()
 
 // ---- The menu ------------------------------------------------------------------------------------------
 
-void PaintBand(void* context, int y, int rows, uint16_t* band)
-{
-    detail::Paint(*static_cast<const detail::View*>(context), y, rows, band);
-}
-
 void Notify(bool open)
 {
     Listener listener;
@@ -157,16 +288,31 @@ detail::Key HeldKey()
     return detail::Key::None;
 }
 
+int Between(int from, int to, float part)
+{
+    return from + int(std::lround((to - from) * std::clamp(part, 0.f, 1.f)));
+}
+
+// Frames of a fade, `ms` long, eased as the Launcher eases (ease: cubic out): frame(part) for each, the
+// last with part 1.
+template <typename Frame>
+void Fade(uint32_t ms, Frame frame)
+{
+    const uint32_t start = NowMs();
+    while (true)
+    {
+        const uint32_t elapsed = NowMs() - start;
+        const float part = elapsed >= ms ? 1.f : launcher::ease(float(elapsed) / float(ms));
+        frame(part);
+        if (elapsed >= ms) return;
+        vTaskDelay(1);
+    }
+}
+
 void RunMenu()
 {
-    static char firmware[80];
-    const esp_app_desc_t* app = esp_app_get_description();
-    std::snprintf(firmware, sizeof(firmware), "%.32s %.32s", app->project_name, app->version);
-    static detail::View view;
-    view = detail::View{};
-    view.language = detail::LanguageIndex(ReadLauncherLanguage());
-    view.firmware = firmware;
-
+    if (g_scene == nullptr && !Prepare()) return;
+    Scene& scene = *g_scene;
     ESP_LOGI(kTag, "system menu: open");
     System::detail::HoldFuncButton(true);
     g_open.store(true);
@@ -175,27 +321,67 @@ void RunMenu()
     for (const auto& key : detail::kNavigationKeys)
         lights[static_cast<std::size_t>(key.y) * Keyboard::LED_COLUMNS + key.x] = Keyboard::LED_BRIGHTNESS_MAX;
     Keyboard::detail::BeginOverlay(lights);
+    const auto close = [&] {
+        Keyboard::detail::EndOverlay();
+        g_open.store(false);
+        g_curtain = 0;
+        Release();
+        System::detail::HoldFuncButton(false);
+        Notify(false);
+    };
     if (!Display::detail::BeginOverlay())
     {
         // No screen to show it on (the firmware never set the display up): nothing to choose from.
         ESP_LOGE(kTag, "system menu: no display");
-        Keyboard::detail::EndOverlay();
-        g_open.store(false);
-        System::detail::HoldFuncButton(false);
-        Notify(false);
+        Display::detail::SetCurtain(0, true);
+        close();
         return;
     }
-    if (!Display::detail::PaintOverlay(PaintBand, &view)) ESP_LOGW(kTag, "system menu: a paint failed");
+
+    // The pop: the rest of the menu fades in over the firmware's picture (the curtain is already the menu's
+    // left part, where it will stay); without its picture the curtain opens the rest quickly instead.
+    const int firmwareBacklight = Display::GetBrightness();
+    const int menuBacklight = std::max(firmwareBacklight, kMenuBacklight);
+    scene.offset = 0;
+    scene.firmware = FirmwarePicture();
+    if (scene.firmware != nullptr)
+    {
+        scene.edge = g_curtain;
+        Fade(detail::kPopMs, [&](float part) {
+            scene.now = NowMs();
+            scene.mix = Between(0, 256, part);
+            Display::detail::SetBacklight(Between(firmwareBacklight, menuBacklight, part));
+            (void)Display::detail::PaintOverlay(PaintScene, &scene);
+        });
+    }
+    else
+    {
+        scene.edge = detail::kWidth;
+        const int from = g_curtain;
+        Fade(detail::kPopMs, [&](float part) {
+            scene.now = NowMs();
+            Display::detail::SetBacklight(Between(firmwareBacklight, menuBacklight, part));
+            (void)Display::detail::PaintColumns(PaintScene, &scene, 0, Between(from, detail::kWidth, part));
+        });
+    }
+    scene.edge = detail::kWidth;
+    scene.mix = 256;
+    scene.fade.reset(scene.view.state.selected, scene.view.state.scroll);
+    scene.useFade = true;
+    if (!Display::detail::PaintOverlay(PaintScene, &scene)) ESP_LOGW(kTag, "system menu: a paint failed");
 
     detail::KeyRepeat repeat;
     bool openingPress = true;  // the press that opened the menu: its release is no tap
     bool funcWasDown = true;
+    bool fading = false;
     detail::Item chosen = detail::Item::Continue;
     while (true)
     {
         vTaskDelay(pdMS_TO_TICKS(kMenuPollMs));
         if (!g_enabled.load()) break;
-        detail::Key act = repeat.Update(HeldKey(), NowMs());
+        const uint32_t now = NowMs();
+        const detail::Key held = HeldKey();
+        detail::Key act = repeat.Update(held, now);
         if (const auto injected = static_cast<detail::Key>(g_injectedKey.exchange(0)); injected != detail::Key::None)
             act = injected;
         const bool funcDown = System::detail::FuncButtonRaw();
@@ -205,9 +391,22 @@ void RunMenu()
             openingPress = false;
         }
         funcWasDown = funcDown;
-        const detail::Outcome outcome = detail::Apply(view.state, act);
-        if (outcome.changed && !Display::detail::PaintOverlay(PaintBand, &view))
-            ESP_LOGW(kTag, "system menu: a paint failed");
+        const detail::Outcome outcome = detail::Apply(scene.view.state, act);
+        // The Launcher's Cardenza lists: the selection crossfades, a scroll fades through (ListFade).
+        if (outcome.changed)
+        {
+            scene.fade.select(scene.view.state.selected, now);
+            scene.fade.scrollTo(scene.view.state.scroll, now);
+        }
+        const bool backHeld = held == detail::Key::Back;
+        const bool active = scene.fade.active(now);
+        if (outcome.changed || active || fading || backHeld != scene.view.backHeld)
+        {
+            scene.view.backHeld = backHeld;
+            scene.now = now;
+            if (!Display::detail::PaintOverlay(PaintScene, &scene)) ESP_LOGW(kTag, "system menu: a paint failed");
+        }
+        fading = active;  // one more frame after a fade, at its end
         if (outcome.chosen)
         {
             chosen = outcome.item;
@@ -220,11 +419,20 @@ void RunMenu()
         // HOME low at a restart is the ROM's download strap, and it would wake a sleep at once.
         if (System::detail::FuncButtonRaw())
         {
-            view.releasePrompt = true;
-            (void)Display::detail::PaintOverlay(PaintBand, &view);
+            scene.view.releasePrompt = true;
+            scene.now = NowMs();
+            (void)Display::detail::PaintOverlay(PaintScene, &scene);
             while (System::detail::FuncButtonRaw()) vTaskDelay(pdMS_TO_TICKS(kMenuPollMs));
             vTaskDelay(pdMS_TO_TICKS(50));
         }
+        // The screen goes dark as the Launcher's does when it turns the board off (its power-off fade).
+        const uint32_t start = NowMs();
+        for (uint32_t elapsed = 0; elapsed < launcher::kPowerOffFadeMs; elapsed = NowMs() - start)
+        {
+            Display::detail::SetBacklight(menuBacklight * launcher::powerOffBrightness(100, elapsed) / 100);
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        Display::detail::SetBacklight(0);
         switch (chosen)
         {
             case detail::Item::Launcher: Leave(Action::Launcher);
@@ -235,21 +443,68 @@ void RunMenu()
         }
     }
 
+    // Continue: the firmware's picture (its latest frame) fades back in, then its own frames go on.
+    if (const uint16_t* picture = FirmwarePicture(); picture != nullptr)
+    {
+        scene.firmware = picture;
+        scene.edge = 0;
+        scene.useFade = false;
+        Fade(detail::kCloseMs, [&](float part) {
+            scene.now = NowMs();
+            scene.mix = Between(256, 0, part);
+            Display::detail::SetBacklight(Between(menuBacklight, firmwareBacklight, part));
+            (void)Display::detail::PaintOverlay(PaintScene, &scene);
+        });
+    }
     Display::detail::EndOverlay();
-    Keyboard::detail::EndOverlay();
-    g_open.store(false);
-    System::detail::HoldFuncButton(false);
     ESP_LOGI(kTag, "system menu: closed");
-    Notify(false);
+    close();
 }
+
+// HOME's press: while it can still open the menu the curtain follows it; let go, it goes back (the
+// Launcher's return), and a new press takes it from where it is.
+struct Curtain {
+    bool returning = false;
+    float from = 0;
+    uint32_t releasedAt = 0;
+    float shown = 0;
+
+    void Update(const detail::HoldDetector& hold, uint32_t now)
+    {
+        float edge = 0;
+        if (returning)
+        {
+            const uint32_t since = now - releasedAt;
+            edge = since >= launcher::kPowerReturnMs ? 0.f : detail::ReturnEdge(from, since);
+            if (since >= launcher::kPowerReturnMs) returning = false;
+        }
+        if (hold.Pressing()) edge = std::max(edge, detail::PullEdge(hold.HeldMs(now)));
+        else if (!returning && shown > 0)
+        {
+            returning = true;
+            from = shown;
+            releasedAt = now;
+            edge = shown;
+        }
+        shown = edge;
+        DrawCurtain(int(std::lround(edge)));
+    }
+    void Reset()
+    {
+        returning = false;
+        shown = 0;
+    }
+};
 
 void MenuTask(void*)
 {
     detail::HoldDetector hold;
     hold.Reset(System::detail::FuncButtonRaw());
+    Curtain curtain;
     while (true)
     {
-        vTaskDelay(pdMS_TO_TICKS(kPollMs));
+        // Frames while the curtain moves, the side key every kPollMs otherwise.
+        vTaskDelay(pdMS_TO_TICKS(curtain.shown > 0 || hold.Pressing() ? kMenuPollMs : kPollMs));
         // Another driver may have reset GPIO0 (ESP-IDF's SD driver does, storage/storage.cpp): an input
         // turned off reads as always pressed. Give it back its input.
         if (!(REG_READ(IO_MUX_GPIO0_REG) & FUN_IE))
@@ -259,13 +514,22 @@ void MenuTask(void*)
             hold.Reset(System::detail::FuncButtonRaw());
         }
         const bool down = System::detail::FuncButtonRaw();
+        const uint32_t now = NowMs();
         if (!g_enabled.load())
         {
             hold.Reset(down);
+            curtain.Reset();
+            DrawCurtain(0);
             continue;
         }
-        if (!hold.Update(down, NowMs())) continue;
+        const bool fired = hold.Update(down, now);
+        if (!fired)
+        {
+            curtain.Update(hold, now);
+            continue;
+        }
         RunMenu();
+        curtain.Reset();
         hold.Reset(System::detail::FuncButtonRaw());
     }
 }
@@ -279,12 +543,27 @@ void InjectKey(Key key)
     g_injectedKey.store(static_cast<uint8_t>(key));
 }
 
+int CurtainEdge()
+{
+    return g_curtain;
+}
+
+bool HasFirmwarePicture()
+{
+    return FirmwarePicture() != nullptr;
+}
+
+uint32_t StackFree()
+{
+    return g_task != nullptr ? static_cast<uint32_t>(uxTaskGetStackHighWaterMark(g_task)) : 0;
+}
+
 }  // namespace detail
 
 void Start()
 {
     if (g_started.exchange(true)) return;
-    if (xTaskCreate(MenuTask, "sys_menu", kStackBytes, nullptr, kPriority, nullptr) != pdPASS)
+    if (xTaskCreate(MenuTask, "sys_menu", kStackBytes, nullptr, kPriority, &g_task) != pdPASS)
     {
         ESP_LOGE(kTag, "system menu: no task");
         g_started.store(false);

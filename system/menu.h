@@ -2,8 +2,10 @@
 
 #include <cstdint>
 
-// The system menu: in every firmware on CardenzaHAL, holding the side key (HOME, GPIO0) for a second
-// opens a menu drawn like the 203 Launcher's lists, over whatever the firmware shows:
+// The system menu: in every firmware on CardenzaHAL, holding the side key (HOME, GPIO0) for a second opens
+// the 203 Launcher's list (drawn by the Launcher's own code, system/menu/launcher/), over whatever the
+// firmware shows. While HOME is held its edge is pulled out from the left like a curtain (let go, it goes
+// back); at one second the rest fades in. Its items:
 //
 //   Continue           back to the firmware (also ESC or del)
 //   Back to Launcher   the Launcher's home screen, whatever its settings (the restart ticket,
@@ -23,8 +25,8 @@
 // menu's keys (setLED* keep the firmware's levels, restored when it closes). A firmware that draws through
 // the panel handles itself (Display::GetPanel, Present() without a framebuffer) should stop while IsOpen().
 //
-// CardenzaHAL::Init starts it (CONFIG_CARDENZA_HAL_SYSTEM_MENU, on by default): a task of 2.5 KB that
-// reads the side key every 20 ms. A firmware that needs HOME's long press for itself turns it off with
+// CardenzaHAL::Init starts it (CONFIG_CARDENZA_HAL_SYSTEM_MENU, on by default): a task of 5 KB that reads
+// the side key every 20 ms. While HOME is held, Display::Present* send only the columns right of the curtain. A firmware that needs HOME's long press for itself turns it off with
 // Enable(false) (or the Kconfig option); short presses of HOME are always the firmware's.
 namespace CardenzaHAL::SystemMenu {
 

@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "system/menu/text.inc"
+#include "system/menu/words.inc"
 
 // The system menu's decisions and drawing (system/menu.h), pure: no ESP-IDF, so the host tests check them
 // (tests/system_menu_test.cpp). system/menu.cpp runs them on the device.
@@ -11,9 +11,6 @@ namespace CardenzaHAL::SystemMenu::detail {
 
     // The side key (HOME, GPIO0) held this long opens the menu.
     inline constexpr uint32_t kHoldMs = 1000;
-    // A held navigation key repeats after this, then at this rate (the Launcher's lists feel).
-    inline constexpr uint32_t kRepeatDelayMs = 400;
-    inline constexpr uint32_t kRepeatMs = 110;
 
     // When the side key has been held kHoldMs. A press that was already down when watching began (the
     // firmware started with it held: the ROM's download strap, the Launcher's entry key) does not count
@@ -43,6 +40,9 @@ namespace CardenzaHAL::SystemMenu::detail {
             fired_ = true;
             return true;
         }
+        // HOME is down on a press that can still open the menu (the curtain follows it), held this long.
+        bool Pressing() const { return armed_ && wasDown_ && !fired_; }
+        uint32_t HeldMs(uint32_t nowMs) const { return nowMs - downSince_; }
 
       private:
         bool armed_ = false;
@@ -90,7 +90,8 @@ namespace CardenzaHAL::SystemMenu::detail {
     Outcome Apply(State& state, Key key);
 
     // A key held down, as the menu sees it: the first press at once, then repeats for Up and Down only (a
-    // held Select or Back must not run on into what comes after it).
+    // held Select or Back must not run on into what comes after it), when the Launcher's lists repeat
+    // (its uiKeyRepeatDue: after 400 ms every 110 ms, after 1.5 s every 50 ms).
     class KeyRepeat {
       public:
         // `held` is the key down now (None: none). Returns the key to act on at this moment, or None.
@@ -111,19 +112,37 @@ namespace CardenzaHAL::SystemMenu::detail {
         int language = 0;            // index into kTexts
         State state;
         const char* firmware = "";   // Continue's detail: the firmware's name and version (ASCII)
-        bool releasePrompt = false;  // "Release HOME" instead of the list
+        bool releasePrompt = false;  // "Release HOME" under the chosen row
+        bool backHeld = false;       // ESC or del down: the rail's back arrow dims, as in the Launcher
     };
 
     inline constexpr int kWidth = 240;
     inline constexpr int kHeight = 135;
-    // Paints screen rows [y, y + rows) into `band` (kWidth * rows pixels, RGB565 with its bytes swapped,
-    // as the panel takes them over SPI).
-    void Paint(const View& view, int y, int rows, uint16_t* band);
 
-    // Text on the menu's faces, for layout and tests. `face` Font5x7 draws only ASCII (others as '?').
-    int TextWidth(Face face, const char* text);
-    // Whether every character of `text` has a glyph in `face` (the tests check every word).
-    bool HasGlyphs(Face face, const char* text);
+    // ---- How it comes and goes (system/menu.cpp) ---------------------------------------------------------
+    // While HOME is held the menu is pulled out from the left like a curtain: after a tap's length it comes
+    // out (the Launcher's hold-to-act easing, power_state.h there), a little further than it will stay, and
+    // settles back to the rail and the rows' start (kClothWidth) by the time the hold is complete; then the
+    // rest fades in (kPopMs). Let go before that, it slides back out of sight (the Launcher's return: 300 ms,
+    // eased both ways). The panel has no tearing-effect line: only the narrow curtain moves, what
+    // covers the screen fades.
+    inline constexpr uint32_t kPullDelayMs = 120;  // a tap on HOME shows nothing
+    inline constexpr int kClothWidth = 44;         // the Launcher's rail (24) and 20 pixels of its rows
+    inline constexpr int kPullPeak = 56;           // how far it comes out before settling
+    inline constexpr float kPullPeakAt = 0.7f;     // of the hold
+    inline constexpr uint32_t kPopMs = 180;        // the rest of the menu fades in
+    inline constexpr uint32_t kCloseMs = 150;      // Continue: the firmware's picture fades back
+    // The curtain's edge (pixels from the left) when HOME has been held `heldMs`.
+    float PullEdge(uint32_t heldMs);
+    // The edge `sinceMs` after HOME was let go with the edge at `from`.
+    float ReturnEdge(float from, uint32_t sinceMs);
+    // While the curtain is out, the menu's column c is at x = c + ClothOffset(edge): it slides with its edge.
+    constexpr int ClothOffset(int edge) { return edge - kClothWidth; }
+
+    // A grey as the panel takes it: RGB565 with its bytes swapped (the Launcher's grey to RGB565).
+    uint16_t PanelGrey(uint8_t grey);
+    // Between two pixels as the panel takes them: weight 0 is a, 256 is b.
+    uint16_t PanelMix(uint16_t a, uint16_t b, int weight);
 
     // Reading one u8 value from the NVS partition without the NVS library (nothing is written). One page
     // (4096 bytes) at a time: first every page for the namespace's index, then every page for the value.
