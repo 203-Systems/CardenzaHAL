@@ -1,5 +1,5 @@
 // Copied from the 203 Launcher (https://github.com/203-Systems/203-launcher, MIT; LICENSE and
-// NOTICE.md there) by tools/launcher_ui.py: src/platform/lcd.cpp at 264061de6d32.
+// NOTICE.md there) by tools/launcher_ui.py: src/platform/lcd.cpp at c6649a770779.
 // Do not edit: change it in the Launcher and copy it again.
 // Included inside namespace CardenzaHAL::SystemMenu::launcher (see the files that include it).
 
@@ -11,13 +11,6 @@ void Lcd::greyRect(int x, int y, int w, int h, uint8_t g) {
     return;
   for (int row = std::max(y, y0_); row < std::min(y + h, y1_); ++row)
     memset(pixels_ + row * width() + left, g, right - left);
-}
-void Lcd::veil(int x, int y, int w, int h, uint8_t g, uint8_t opacity) {
-  if (!pixels_ || !opacity) return;
-  const int left = std::max(x, x0_), right = std::min(x + w, x1_);
-  for (int row = std::max(y, y0_); row < std::min(y + h, y1_); ++row)
-    for (uint8_t *p = pixels_ + row * width() + left, *end = pixels_ + row * width() + right; p < end; ++p)
-      *p = (unsigned(*p) * (255 - opacity) + unsigned(g) * opacity + 127) / 255;
 }
 void Lcd::text(const String &s, int x, int y, int scale, uint8_t g, uint8_t opacity) {
   if (!pixels_ || !opacity) return;

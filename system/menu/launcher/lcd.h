@@ -48,8 +48,6 @@ class Lcd {
         clip(left, top, std::max(0, std::min(x + w, x1_) - left), std::max(0, std::min(y + h, y1_) - top));
     }
     void greyRect(int x, int y, int w, int h, uint8_t grey);
-    // What is drawn in the rectangle (inside the clip) blended toward grey by opacity, in place.
-    void veil(int x, int y, int w, int h, uint8_t grey, uint8_t opacity);
     void text(const String& s, int x, int y, int scale, uint8_t grey, uint8_t opacity = 255);
     void textVertical(const String& s, int x, int y, uint8_t grey, int scale = 1);
     // The Launcher's grey to RGB565 (src/platform/lcd.h there).

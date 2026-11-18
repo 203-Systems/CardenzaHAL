@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <initializer_list>
 
-// The Launcher's motion for the system menu: its easing and the Cardenza lists' crossfade (ListFade),
-// copied from its src/display.cpp (motion.inc), and its hold-to-act sheet's curves (power_state.h).
+// The Launcher's motion for the system menu: its easing and its lists' selection bar, which slides by its
+// two edges (ListSlide), copied from its src/display.cpp (motion.inc), and its hold-to-act sheet's curves
+// (power_state.h).
 namespace CardenzaHAL::SystemMenu::launcher {
 
 // The Launcher's Settings > Display > Motion. Always on here.

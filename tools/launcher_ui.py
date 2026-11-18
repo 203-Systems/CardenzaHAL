@@ -12,9 +12,11 @@ font BSD-3-Clause), copied into system/menu/launcher/ unchanged, only wrapped in
 CardenzaHAL::SystemMenu::launcher (a firmware may have a String of its own):
 
   text.h, font5x7.h, i18n.h, text_ink.h, ui_layout.h, ui_motion.h, power_state.h   whole (src/platform/)
-  lcd_draw.inc     Lcd::greyRect, veil, text and textVertical (src/platform/lcd.cpp)
-  motion.inc       ease, Tween and ListFade (src/display.cpp): the lists' easing and crossfades
-  labels.inc       labelLines (src/display.cpp): a row's name on one or two lines
+  lcd_draw.inc     Lcd::greyRect, text and textVertical (src/platform/lcd.cpp)
+  motion.inc       ease, Tween and ListSlide (src/display.cpp): the lists' easing and the selection bar's
+                   slide
+  labels.inc       labelLines and barPass (src/display.cpp): a row's name on one or two lines, and the
+                   passes that draw a row's text white on the selection bar and dark off it
   i18n_text.inc    the language state, UTF-8 and text measuring of src/platform/i18n.cpp
 
 and generates glyphs.inc: the 12 px glyphs the menu's words need, read out of the Launcher's own tables
@@ -26,8 +28,10 @@ ported line by line).
 
 --check fails when the copy differs from what this checkout would give. --compare draws the menu in
 every language and position with the Launcher's real menuFrame and status() (as its tests/ui_render.cpp
-does) and with the HAL's frame.cpp, and fails on any pixel that differs; it also rewrites
-tests/system_menu_frames.inc, the frames' hashes the host tests check without a Launcher.
+does) and with the HAL's frame.cpp, and fails on any pixel that differs: the still frames, and the
+selection bar's slide frame by frame (SLIDES: a move, key repeat, a reversal, a scroll each way, every
+4 ms until it settles). It also rewrites tests/system_menu_frames.inc, the frames' hashes the host tests
+check without a Launcher.
 
 Needs a C++17 compiler (CXX, else c++/g++/clang++) and Python 3; no ESP-IDF.
 """
@@ -40,6 +44,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "system" / "menu" / "launcher"
@@ -60,7 +65,7 @@ PIECES = [
         ("float ease(float p) {", "bool buttonBackground("),
     ]),
     ("labels.inc", "src/display.cpp", [
-        ("struct LabelLines {", "void menuFrame("),
+        ("struct LabelLines {", "// selected: the row (between two"),
     ]),
     ("i18n_text.inc", "src/platform/i18n.cpp", [
         ("Language i18nLanguage()", "const char *i18nLanguageName("),
@@ -89,6 +94,22 @@ LANGUAGE_ENUM = {"en": "English", "zh-Hans": "SimplifiedChinese", "ja": "Japanes
 LATIN_FACE = {"vi"}  # its translations are drawn whole in the Latin face (the Launcher's kLatinFaceMark)
 TEXT_IDS = ["title", "continue", "launcher", "launcher.detail", "restart", "restart.detail", "off",
             "off.detail", "download", "download.detail", "release"]
+
+# The selection bar's slides --compare draws (the Launcher's ListSlide on the Cardenza: keep, the rows jump
+# to a scroll): presses (ms, selected row, scroll), the first placing the bar; a frame every SLIDE_FRAME_MS
+# from the first press until SLIDE_SETTLE_MS after the last (the trailing edge's 230 ms and a frame), each
+# drawn after the presses due by then, as the Launcher's loopMenu and the system menu's loop draw them.
+SLIDE_START = 5000
+SLIDE_FRAME_MS = 4
+SLIDE_SETTLE_MS = 240
+SLIDES = [
+    ("move", [(0, 1, 0), (0, 2, 0)]),
+    ("repeat", [(0, 1, 0), (0, 2, 0), (40, 3, 0)]),                 # a key repeat in the slide
+    ("reverse", [(0, 2, 0), (0, 3, 0), (60, 2, 0)]),                # back the way it came
+    ("scroll down", [(0, 2, 0), (0, 3, 0), (48, 4, 1)]),            # past the last row, still moving
+    ("scroll up", [(0, 4, 1), (0, 3, 1), (40, 2, 1), (80, 1, 1), (120, 0, 0)]),
+]
+SLIDE_PRESSES = 8
 
 HEADER = ("// Copied from the 203 Launcher (https://github.com/203-Systems/203-launcher, MIT; LICENSE and\n"
           "// NOTICE.md there) by tools/launcher_ui.py: {source} at {commit}.\n"
@@ -311,6 +332,49 @@ def everything(launcher):
 
 # ---- Comparing frames with the Launcher's own drawing ------------------------------------------------
 
+def slide_frames(presses):
+    """How many frames a slide draws: the bar placed, then one every SLIDE_FRAME_MS."""
+    return 1 + (presses[-1][0] + SLIDE_SETTLE_MS) // SLIDE_FRAME_MS + 1
+
+
+def slides_table():
+    """SLIDES as C++ (the reference, the HAL's program and tests/system_menu_frames.inc)."""
+    out = ["struct SlidePress { uint32_t ms; int selected, scroll; };",
+           f"struct SlideRun {{ const char *name; int count; SlidePress presses[{SLIDE_PRESSES}]; uint32_t length; }};",
+           f"static const uint32_t kSlideStart = {SLIDE_START}, kSlideFrameMs = {SLIDE_FRAME_MS};",
+           "static const SlideRun kSlideRuns[] = {"]
+    for name, presses in SLIDES:
+        assert len(presses) <= SLIDE_PRESSES and presses[0][0] == 0
+        out.append(f'    {{"{name}", {len(presses)}, {{' +
+                   ", ".join(f"{{{ms}, {row}, {scroll}}}" for ms, row, scroll in presses) +
+                   f"}}, {presses[-1][0] + SLIDE_SETTLE_MS}u}},")
+    out.append("};")
+    out.append("static const int kSlideRunCount = int(sizeof(kSlideRuns) / sizeof(kSlideRuns[0]));")
+    return "\n".join(out) + "\n"
+
+
+def slide_loop(slide, draw):
+    """The slides' frames as C++, the same in both programs: `slide` declares a ListSlide `slide`, `draw`
+    draws the frame of `row` and `scroll` at `now` and writes it out."""
+    return f"""
+  for (const SlideRun &run : kSlideRuns) {{
+    {slide}
+    slide.keep = true;  // the Cardenza: the rows jump to a scroll, the bar keeps its place on screen
+    int row = run.presses[0].selected, scroll = run.presses[0].scroll, next = 1;
+    now = kSlideStart;
+    {draw};
+    for (uint32_t ms = 0; ms <= run.length; ms += kSlideFrameMs) {{
+      now = kSlideStart + ms;
+      for (; next < run.count && run.presses[next].ms <= ms; ++next) {{
+        row = run.presses[next].selected;
+        scroll = run.presses[next].scroll;
+      }}
+      {draw};
+    }}
+  }}
+"""
+
+
 def launcher_reference(launcher, strings, work):
     """tests/ui_render.cpp's world with the menu's words: the Launcher's menuFrame and status()."""
     tests = launcher / "tests"
@@ -336,8 +400,10 @@ def launcher_reference(launcher, strings, work):
     (work / "ui_render_draw.inc").write_text("\n".join(draw), encoding="utf-8")
 
     render = (tests / "ui_render.cpp").read_text(encoding="utf-8")
-    head = render[:render.index("int main(int argc")]
-    main = ["int main(int argc, char **argv) {", "  motion = false;", "  depth = 1;"]
+    # The world above its main (which list_slide_tests leaves out with UI_RENDER_NO_MAIN).
+    cut = render.find("#ifndef UI_RENDER_NO_MAIN")
+    head = render[:cut if cut >= 0 else render.index("int main(int argc")]
+    main = [slides_table(), "int main(int argc, char **argv) {", "  motion = false;", "  depth = 1;"]
     for language in LANGUAGES:
         def w(key):
             return c_string(shown(strings, key, language))
@@ -352,7 +418,15 @@ def launcher_reference(launcher, strings, work):
                  "      menuFrame(menu, selected, selected < 4 ? 0 : selected - 3);",
                  "      status();",
                  "      fwrite(screen.canvas.data(), 1, screen.canvas.size(), stdout);",
-                 "    }", "  }"]
+                 "    }",
+                 # The slides: loopMenu on the Cardenza (selection and viewport set at once, the bar aimed at
+                 # the row as menuFrame draws).
+                 "    motion = true;",
+                 slide_loop("ListSlide slide;",
+                            "menuFrame(menu, row, scroll, true, false, 0, &slide, row); status(); "
+                            "fwrite(screen.canvas.data(), 1, screen.canvas.size(), stdout)"),
+                 "    motion = false;",
+                 "  }"]
     main += ["  return 0;", "}"]
     (work / "reference.cpp").write_text(head + "\n".join(main) + "\n", encoding="utf-8")
     binary = work / "reference"
@@ -368,27 +442,39 @@ def launcher_reference(launcher, strings, work):
 
 HAL_FRAMES = r'''
 #include "system/menu/frame.h"
+#include "system/menu/launcher/motion.h"
 #include <cstdio>
 #include <vector>
 using namespace CardenzaHAL::SystemMenu;
+uint32_t CardenzaHAL::SystemMenu::launcher::launcherMillis() { return 0; }
+SLIDES_TABLE
 int main() {
   std::vector<uint8_t> canvas(detail::kWidth * detail::kHeight);
-  for (int language = 0; language < detail::kLanguageCount; ++language)
+  for (int language = 0; language < detail::kLanguageCount; ++language) {
+    detail::View view;
+    view.language = language;
+    view.firmware = "CardenzaSynthFirmware 0.2.1";
     for (int selected = 0; selected < detail::kItemCount; ++selected) {
-      detail::View view;
-      view.language = language;
       view.state.selected = selected;
       view.state.scroll = selected < detail::kVisibleRows ? 0 : selected - detail::kVisibleRows + 1;
-      view.firmware = "CardenzaSynthFirmware 0.2.1";
       detail::PaintGrey(view, nullptr, 0, 0, detail::kHeight, canvas.data());
       fwrite(canvas.data(), 1, canvas.size(), stdout);
     }
+    // The slides: system/menu.cpp's loop (the bar aimed at the selected row as each frame is drawn).
+    uint32_t now = 0;
+SLIDE_LOOP
+  }
 }
 '''
 
 
 def hal_frames(work):
-    (work / "hal_frames.cpp").write_text(HAL_FRAMES)
+    program = HAL_FRAMES.replace("SLIDES_TABLE", slides_table()).replace(
+        "SLIDE_LOOP", slide_loop("launcher::ListSlide slide;",
+                                 "view.state.selected = row; view.state.scroll = scroll; "
+                                 "detail::PaintGrey(view, &slide, now, 0, detail::kHeight, canvas.data()); "
+                                 "fwrite(canvas.data(), 1, canvas.size(), stdout)"))
+    (work / "hal_frames.cpp").write_text(program)
     binary = work / "hal_frames"
     sources = [str(work / "hal_frames.cpp"), str(ROOT / "system" / "menu" / "logic.cpp"),
                str(ROOT / "system" / "menu" / "frame.cpp"), str(ROOT / "system" / "menu" / "launcher" / "glyphs.cpp"),
@@ -410,32 +496,69 @@ def compare(launcher, strings):
         work = pathlib.Path(tmp)
         reference = launcher_reference(launcher, strings, work)
         ours = hal_frames(work)
-    count = len(LANGUAGES) * 5
+    stills = 5
+    slides = [slide_frames(presses) for _, presses in SLIDES]
+    per_language = stills + sum(slides)
+    count = len(LANGUAGES) * per_language
     if len(reference) != count * size or len(ours) != count * size:
         sys.exit(f"frame sizes differ: Launcher {len(reference)} bytes, HAL {len(ours)} (expected {count * size})")
+
+    def frame(data, index):
+        return data[index * size:(index + 1) * size]
+
+    def name(index):
+        language, at = LANGUAGES[index // per_language], index % per_language
+        if at < stills:
+            return f"{language} selected {at}"
+        at -= stills
+        for (run, presses), frames in zip(SLIDES, slides):
+            if at < frames:
+                return f"{language} slide '{run}' frame {at} ({max(0, at - 1) * SLIDE_FRAME_MS} ms)"
+            at -= frames
+        return f"{language} frame {at}"
+
     bad = 0
-    hashes = []
     for i in range(count):
-        a, b = reference[i * size:(i + 1) * size], ours[i * size:(i + 1) * size]
-        language, selected = LANGUAGES[i // 5], i % 5
-        diff = [p for p in range(size) if a[p] != b[p]]
-        if diff:
-            bad += 1
+        a, b = frame(reference, i), frame(ours, i)
+        if a == b:
+            continue
+        bad += 1
+        if bad <= 10:
+            diff = [p for p in range(size) if a[p] != b[p]]
             first = diff[0]
-            print(f"{language} selected {selected}: {len(diff)} pixels differ, first at x {first % 240} y {first // 240}"
+            print(f"{name(i)}: {len(diff)} pixels differ, first at x {first % 240} y {first // 240}"
                   f" (Launcher {a[first]}, HAL {b[first]})")
-        hashes.append(fnv1a64(a))
     if bad:
         sys.exit(f"{bad} of {count} frames differ from the Launcher's")
-    out = ["// Generated by tools/launcher_ui.py --compare: FNV-1a (64 bits) of the grey frames the",
-           "// Launcher's own menuFrame and status() draw for the system menu, by language (" + ", ".join(LANGUAGES) +
-           ")", "// and selected row; tests/system_menu_test.cpp draws them with the HAL's copy. Do not edit.",
+    hashes, crcs = [], []
+    for language in range(len(LANGUAGES)):
+        base = language * per_language
+        hashes += [fnv1a64(frame(reference, base + i)) for i in range(stills)]
+        at = base + stills
+        for frames in slides:
+            crcs.append(zlib.crc32(reference[at * size:(at + frames) * size]))
+            at += frames
+    out = ["// Generated by tools/launcher_ui.py --compare. Do not edit. tests/system_menu_test.cpp draws these",
+           "// frames with the HAL's copy and checks them against what the Launcher's own menuFrame and status()",
+           "// drew, by language (" + ", ".join(LANGUAGES) + ").",
+           "",
+           "// FNV-1a (64 bits) of each still frame, by language and selected row.",
            "static const uint64_t kLauncherFrameHashes[] = {"]
-    for i in range(0, count, 5):
-        out.append("    " + ", ".join(f"0x{h:016x}ull" for h in hashes[i:i + 5]) + ",")
+    for i in range(0, len(hashes), stills):
+        out.append("    " + ", ".join(f"0x{h:016x}ull" for h in hashes[i:i + stills]) + ",")
+    out += ["};", "",
+            "// The selection bar's slides (SLIDES there): the bar placed at kSlideStart on the first press's row,",
+            "// then a frame every kSlideFrameMs until `length`, each after the presses due by then.",
+            slides_table().rstrip("\n"),
+            "// CRC-32 (zlib's) of each slide's frames one after another, by language and slide.",
+            "static const uint32_t kLauncherSlideCrcs[] = {"]
+    for i in range(0, len(crcs), len(SLIDES)):
+        out.append("    " + ", ".join(f"0x{c:08x}u" for c in crcs[i:i + len(SLIDES)]) + ",")
     out.append("};")
     FRAMES.write_text("\n".join(out) + "\n", encoding="utf-8")
-    print(f"all {count} frames are the Launcher's, pixel for pixel; {FRAMES.relative_to(ROOT)} written")
+    print(f"all {count} frames are the Launcher's, pixel for pixel ({len(LANGUAGES) * stills} still, "
+          f"{len(LANGUAGES) * sum(slides)} of {len(LANGUAGES) * len(SLIDES)} slides); "
+          f"{FRAMES.relative_to(ROOT)} written")
 
 
 def main():

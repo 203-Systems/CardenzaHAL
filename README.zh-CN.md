@@ -303,16 +303,16 @@ void ReadSettings()
 
 按键和 Launcher 一样：`;`、`,` 向上，`.`、`/` 向下，ENTER 或单击 HOME 确定，ESC 或 del 返回；菜单打开时这几个键会亮。
 
-动效（这块屏没有防撕裂信号线，所以不让大面积的东西在屏上移动）：
+动效（这块屏没有防撕裂信号线，任何一帧都可能在扫描中途写进去：会动的东西每帧只变几个像素，盖住整屏的东西用渐变）：
 
 - **像拉窗帘一样拉出来。** HOME 按住超过单击的时间后，菜单的边（侧栏和列表的开头）从左边滑出来，先多出来一点，随着一秒走完再慢慢缩回一点；到时间后，其余部分在固件画面上快速渐变出来（180 ms）。中途松手，它滑回去（300 ms，两头慢中间快）。缓动曲线就是 Launcher“按住执行”的曲线和它的回弹（Launcher 的 `power_state.h`）。
-- **菜单里**选中项在行与行之间淡入淡出，翻过一屏时整列淡出再淡入，和 Launcher 在 Cardenza 上的列表一样（它的 `ListFade`）。
+- **菜单里**深色的选中条靠上下两条边滑过去，和 Launcher 的列表一样（它的 `ListSlide`）：朝移动方向的那条边先走（Launcher 的缓出曲线，150 ms），另一条从静止开始跟上（230 ms），所以选中条先朝新的一行拉长，再缩回到这一行的高度；滑动途中再按，从两条边当时的位置接着走。文字在边经过的地方逐像素变白或变黑，一行的说明随选中条盖住它而展开。翻过最后一行时，各行一下子换好，选中条从它在屏上的位置接着滑。滑动时一帧画完，隔一个 tick 就画下一帧（有 PSRAM 时每帧在 PSRAM 里只画一次；没有时每 10 ms 一帧），每 8 行一条带子只发送变了的部分，也就是边和文字扫过的那几行、那几段 30 像素：平均每帧约 1-3 KB，最多 16 KB；以前整条带子发送，平均 3-9 KB，最多 35 KB（`tests/system_menu_test.cpp` 对 `--compare` 的每一段滑动都量了一遍）。
 - **继续**：固件画面淡回来（150 ms）。**其他项**：屏幕像 Launcher 关机时那样渐暗（600 ms）后再执行。
 
-- 屏幕初始化成功后由 `CardenzaHAL::Init` 启动（`CONFIG_CARDENZA_HAL_SYSTEM_MENU`，默认开）：一个 5 KB 栈的任务，每 20 ms 读一次 GPIO0；约占 30 KB flash。按住 HOME 和菜单打开期间临时借用 2 KB 内存，固件有 PSRAM 时再在 PSRAM 里借 64 KB 存一份固件最新的画面（渐变要用；没有 PSRAM 时，其余部分改为拉开而不是渐变），和 32 KB 的菜单画面（每次拉出只画一次；没有 PSRAM 时逐条画）。
+- 屏幕初始化成功后由 `CardenzaHAL::Init` 启动（`CONFIG_CARDENZA_HAL_SYSTEM_MENU`，默认开）：一个 5 KB 栈的任务，每 20 ms 读一次 GPIO0；约占 30 KB flash。按住 HOME 和菜单打开期间临时借用 2 KB 内存，固件有 PSRAM 时再在 PSRAM 里借 64 KB 存一份固件最新的画面（渐变要用；没有 PSRAM 时，其余部分改为拉开而不是渐变），和 32 KB 的菜单画面（每次拉出只画一次，滑动时每帧画一次；没有 PSRAM 时逐条画）；菜单打开期间再借一张 4 KB 的表，记着已经发出去的画面（有 PSRAM 时放在 PSRAM 里）。
 - 按住 HOME 期间，`Display::Present*` 只发送窗帘右边的部分。菜单打开期间固件照常运行（任务和声音都不停），但 HAL 会挡住会干扰菜单的东西：`Display::Present*` 不发送并返回 `true`（菜单关闭后的下一帧整屏发送，固件画面自己回来）；`Keyboard::updateKeyList` 不报任何按键（关闭时还按着的键，松开之前都不报）；按键灯显示菜单的键（固件 `setLED*` 设的亮度会保留，关闭后恢复）。直接用面板句柄画屏的固件，应在 `SystemMenu::IsOpen()` 时暂停绘制。
 - `SystemMenu::SetListener` 在菜单打开和关闭时通知；`SystemMenu::SetLeaveHook` 在重启、关机或进入下载模式之前调用（保存需要留下的东西）。自己要用 HOME 长按的固件，调用 `SystemMenu::Enable(false)`。
-- Launcher 的代码在 [system/menu/launcher/](system/menu/launcher/)，由 `tools/launcher_ui.py --launcher <203-launcher 检出目录>` 原样复制（MIT，[licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)）：文字和字形、画布绘制、缓动和列表淡入淡出；[system/menu/frame.cpp](system/menu/frame.cpp) 是它在 Cardenza 上的 `menuFrame` 和侧栏，逐行移植。`--check` 检查复制是否最新，`--compare` 再用 Launcher 真正的 `menuFrame` 画每一帧，有任何一个像素不同就失败（主机测试里存着这些帧的哈希）。文字在 `system/menu/strings.json`。
+- Launcher 的代码在 [system/menu/launcher/](system/menu/launcher/)，由 `tools/launcher_ui.py --launcher <203-launcher 检出目录>` 原样复制（MIT，[licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)）：文字和字形、画布绘制、缓动和选中条的滑动；[system/menu/frame.cpp](system/menu/frame.cpp) 是它在 Cardenza 上的 `menuFrame` 和侧栏，逐行移植。`--check` 检查复制是否最新，`--compare` 再用 Launcher 真正的 `menuFrame` 画每一帧：静止的画面，加上逐帧的滑动（移一行、连按、中途折返、往下和往上翻过一屏，每 4 ms 一帧直到停稳：五种语言共 1910 帧），有任何一个像素不同就失败（主机测试里存着这些帧的哈希）。文字在 `system/menu/strings.json`。
 - 中文、日文和越南文用的是 203 Launcher 里由 **HarmonyOS Sans**（12 像素）生成的点阵，由同一个工具只为菜单的文字从 Launcher 的字形表里取出；点阵是用该字体制作的作品，授权允许分发（[licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)），仓库里不含字体文件。5x7 字体来自 NullPerator（BSD-3-Clause，声明见 [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)）。
 
 ## USB 设备用法

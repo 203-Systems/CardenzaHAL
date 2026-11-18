@@ -124,8 +124,9 @@ namespace CardenzaHAL::SystemMenu::detail {
     // out (the Launcher's hold-to-act easing, power_state.h there), a little further than it will stay, and
     // settles back to the rail and the rows' start (kClothWidth) by the time the hold is complete; then the
     // rest fades in (kPopMs). Let go before that, it slides back out of sight (the Launcher's return: 300 ms,
-    // eased both ways). The panel has no tearing-effect line: only the narrow curtain moves, what
-    // covers the screen fades.
+    // eased both ways). The panel has no tearing-effect line: only the narrow curtain moves (and, in the
+    // menu, the selection bar's edges, a few pixels a frame: the Launcher's ListSlide), what covers the
+    // screen fades.
     inline constexpr uint32_t kPullDelayMs = 120;  // a tap on HOME shows nothing
     inline constexpr int kClothWidth = 44;         // the Launcher's rail (24) and 20 pixels of its rows
     inline constexpr int kPullPeak = 56;           // how far it comes out before settling

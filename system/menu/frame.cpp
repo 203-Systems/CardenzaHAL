@@ -1,6 +1,7 @@
 // The system menu's frame: the 203 Launcher's menuFrame and status rail on the Cardenza (its src/display.cpp,
 // with `wide` and `square` false), ported line by line onto the Launcher's own drawing code (launcher/).
-// Only what the menu's rows use is here: a label and its description; no values, buttons or signal bars.
+// Only what the menu's rows use is here: a label and its description; no values, buttons, signal bars or
+// software rows (Launch / More).
 // tools/launcher_ui.py --compare checks every frame against the Launcher's real menuFrame, pixel for pixel.
 #include "system/menu/frame.h"
 
@@ -49,86 +50,92 @@ void status(const String& title, bool backHeld)
     }
 }
 
-// The fade's weights out of line: inlined into menuFrame, the ESP-IDF 5.3 Xtensa compiler (GCC 13.2, -O2)
-// stops with an internal error (insn does not satisfy its constraints, a float constant in postreload).
-__attribute__((noinline)) float Lit(const ListFade& fade, int index, uint32_t now)
+// The bar's edges for this frame, out of line as the crossfade's weights had to be: inlined into
+// menuFrame, ListFade::weight made the ESP-IDF 5.3 Xtensa compiler (GCC 13.2, -O2) stop with an internal
+// error (insn does not satisfy its constraints, a float constant in postreload). The slide compiles inlined
+// too (-O2, 2026-11-18); out of line it is safe from that whatever the flags.
+struct BarEdges {
+    float top, bottom;
+};
+__attribute__((noinline)) BarEdges SlideBar(ListSlide& slide, float t, float b, float scroll, uint32_t now)
 {
-    return fade.weight(index, now);
-}
-__attribute__((noinline)) float Ink(ListFade& fade, uint32_t now)
-{
-    return fade.alpha(now);
+    slide.aim(t, b, scroll, now);
+    return {slide.topAt(now), slide.bottomAt(now)};
 }
 
-// menuFrame on the Cardenza (textAlpha 1): rows of 32 pixels, the selection a dark block with white text and
-// its description under it; with a ListFade nothing moves, the selection crossfades and a scroll fades
-// the rows out and the new ones in.
-void menuFrame(const std::vector<Option>& list, float selected, float scroll, ListFade* fade, uint32_t now)
+// menuFrame on the Cardenza (wide, square and software false): rows of 32 pixels, the selection a dark bar
+// with white text and its description under it. `index`: the row the bar goes to. `slide`: the bar's motion
+// (ListSlide, aimed at that row as the frame is drawn); without it the bar is on the selected row. Rows are
+// drawn in three passes (barPass), so text is white on the bar and dark off it pixel by pixel.
+void menuFrame(const std::vector<Option>& list, float selected, float scroll, ListSlide* slide, int index,
+               uint32_t now)
 {
-    constexpr float textAlpha = 1;
+    const int focusRow = std::clamp(index < 0 ? int(std::lround(selected)) : index, 0, int(list.size()) - 1);
     tft->greyRect(bx, by, cw, ch, 255);
     const int top = by + 4, rows = 4, bottom = SCREEN_HEIGHT, step = (bottom - top) / 4;
+    const int extra = 0;
     const int textX = bx + 12;
+    const int barX = bx + 6, barW = cw - 16;
     auto clip = tft->getClip();
     tft->intersectClip(bx, top, cw, bottom - top);
-    const float alpha = fade ? Ink(*fade, now) : 1.f;
-    if (fade) scroll = float(fade->shown);  // the rows drawn while a scroll fades
-    const uint8_t selectedGrey = kUiSelectedGrey;
-    const int highlight = top + int(std::lround((selected - scroll) * step));
-    if (!fade) tft->greyRect(bx + 6, highlight, cw - 16, step, selectedGrey);
-    // A row's text, lit (on the selection, at highlightTop, its detail shown as near selectedAt) or not, at
-    // an opacity.
-    const auto paint = [&](int i, int y, int highlight, float selected, float opacity) __attribute__((noinline)) {
+    const Lcd::Clip area = tft->getClip();
+    // The bar, in list pixels: the slide's, or on the selected row.
+    float barTop = selected * step, barBottom = barTop + step + extra;
+    if (slide)
+    {
+        const BarEdges edges = SlideBar(*slide, focusRow * step, focusRow * step + step + extra, scroll * step, now);
+        barTop = edges.top;
+        barBottom = edges.bottom;
+    }
+    const int hy = top + int(std::lround(barTop - scroll * step)), hb = top + int(std::lround(barBottom - scroll * step));
+    tft->greyRect(barX, hy, barW, hb - hy, kUiSelectedGrey);
+    // A row's label and detail: white on the bar, dark off it.
+    const auto paint = [&](int i, int y) __attribute__((noinline)) {
         const int scale = 1;
         const int labelWidth = std::max(6 * scale, (cw - 28) / (6 * scale) * 6 * scale);
         const LabelLines label = labelLines(list[i].label, labelWidth, scale);
         const int lines = label.count;
+        const int rowBottom = y + step;
+        // The detail opens as far as the bar covers the row: the label rises a pixel at a time to make
+        // room, and the detail shows on the bar alone.
+        const float covered = std::clamp(float(std::min(hb, rowBottom) - std::max(hy, y)) / step, 0.f, 1.f);
         const String& description = list[i].description;
-        const float detailVisibility =
-            description.isEmpty() ? 0.f : std::clamp(1.f - std::fabs(float(i) - selected), 0.f, 1.f);
+        const float detailVisibility = description.isEmpty() ? 0.f : covered;
         // Ink heights: the 5x7 font, or the taller CJK glyphs.
         const int labelHeight = (lines - 1) * uiLineStep(scale, 8 * scale) + uiTextHeight(scale);
         const int detailGap = uiCjkLayout() ? 2 : 5;
         const int detailHeight = int(std::lround((uiTextHeight(1) + detailGap) * detailVisibility));
         const int labelInk = y + (step - labelHeight - detailHeight) / 2;
-        const int labelTop = labelInk - uiTextTop(scale);
-        int baseline = labelTop;
-        for (int line = 0; line < lines; ++line)
-        {
-            const String& part = line == 0 ? label.first : label.second;
-            const bool dark = baseline >= highlight && baseline + 7 * scale <= highlight + step;
-            const uint8_t color = dark ? uint8_t(20 + 235 * textAlpha) : uint8_t(255 * (1 - textAlpha));
-            tft->text(part, textX, baseline, scale, color, uint8_t(std::lround(255 * opacity)));
-            baseline += uiLineStep(scale, 8 * scale);
-        }
+        String detail;
         if (detailVisibility > 0)
         {
             const int detailWidth = (cw - 28) / 6 * 6;
-            const String detail = uiFitText(description, detailWidth, 1);
-            const int detailY = labelInk + labelHeight + detailGap - uiTextTop(1);
-            const bool dark = detailY >= highlight && detailY + 7 <= highlight + step;
-            tft->text(detail, textX, detailY, 1, dark ? 170 : 110,
-                      uint8_t(std::lround(255 * detailVisibility * textAlpha * opacity)));
+            detail = uiFitText(description, detailWidth, 1);
         }
+        const int detailY = labelInk + labelHeight + detailGap - uiTextTop(1);
+        // The row alone while its detail opens or closes, so it never reaches into the next one.
+        const bool open = covered >= 1;
+        const int rowTop = std::max(area.y, y);
+        const int rowEnd = open ? area.y + area.h : std::min(area.y + area.h, rowBottom);
+        const Lcd::Clip rowArea = {area.x, rowTop, area.w, rowEnd - rowTop};
+        for (int pass = 0; pass < 3; ++pass)
+        {
+            const bool lit = barPass(pass, rowArea, hy, hb);
+            int baseline = labelInk - uiTextTop(scale);
+            for (int line = 0; line < lines; ++line)
+            {
+                tft->text(line == 0 ? label.first : label.second, textX, baseline, scale, lit ? 255 : 0);
+                baseline += uiLineStep(scale, 8 * scale);
+            }
+            if ((lit || open) && !detail.isEmpty()) tft->text(detail, textX, detailY, 1, lit ? 170 : 110);
+        }
+        tft->clip(area.x, area.y, area.w, area.h);
     };
     for (int i = std::max(0, int(scroll) - 1); i < std::min(int(list.size()), int(scroll) + rows + 2); ++i)
     {
-        const int y = top + int(std::lround((i - scroll) * step));
-        if (!fade)
-        {
-            paint(i, y, highlight, selected, 1);
-            continue;
-        }
-        // A crossfade: the row as it is without the selection, the highlight blended over it by its weight,
-        // then the lit row at that opacity.
-        const float lit = Lit(*fade, i, now);
-        if (lit < 1) paint(i, y, -10000, float(i) + 100, 1);
-        if (lit <= 0) continue;
-        tft->veil(bx + 6, y, cw - 16, step, selectedGrey, uint8_t(std::lround(255 * lit)));
-        paint(i, y, y, float(i), lit);
+        const int y = top + int(std::lround((i - scroll) * step + extra * std::clamp(float(i) - selected, 0.f, 1.f)));
+        paint(i, y);
     }
-    // A scroll: the rows fade out, and the new ones in.
-    if (fade && alpha < 1) tft->veil(bx, top, cw, bottom - top, 255, uint8_t(std::lround(255 * (1 - alpha))));
     tft->clip(clip.x, clip.y, clip.w, clip.h);
     if (list.size() > size_t(rows))
     {
@@ -147,7 +154,7 @@ void menuFrame(const std::vector<Option>& list, float selected, float scroll, Li
 
 namespace CardenzaHAL::SystemMenu::detail {
 
-void PaintGrey(const View& view, launcher::ListFade* fade, uint32_t now, int y, int rows, uint8_t* grey)
+void PaintGrey(const View& view, launcher::ListSlide* slide, uint32_t now, int y, int rows, uint8_t* grey)
 {
     using namespace launcher;
     Lcd canvas;
@@ -165,7 +172,7 @@ void PaintGrey(const View& view, launcher::ListFade* fade, uint32_t now, int y, 
     };
     const int selected = std::clamp(view.state.selected, 0, kItemCount - 1);
     if (view.releasePrompt) list[selected].description = texts[kRelease];
-    menuFrame(list, float(selected), float(view.state.scroll), fade, now);
+    menuFrame(list, float(selected), float(view.state.scroll), slide, selected, now);
     status(texts[kTitle], view.backHeld);
     tft = nullptr;
 }

@@ -1,5 +1,5 @@
 // Copied from the 203 Launcher (https://github.com/203-Systems/203-launcher, MIT; LICENSE and
-// NOTICE.md there) by tools/launcher_ui.py: src/display.cpp at 264061de6d32.
+// NOTICE.md there) by tools/launcher_ui.py: src/display.cpp at c6649a770779.
 // Do not edit: change it in the Launcher and copy it again.
 // Included inside namespace CardenzaHAL::SystemMenu::launcher (see the files that include it).
 // Changed here: labelLines is inline (included by more than one file).
@@ -21,4 +21,16 @@ inline LabelLines labelLines(const String &label, int width, int scale) {
   if (textWidth(second, scale) > width)
     second = second.substring(0, uiFitLine(second, width - 18 * scale, scale).fits) + "...";
   return {label.substring(0, split), second, 2};
+}
+// A list's rows are drawn in three passes, each clipped to its band of the
+// area: above the selection bar, on it (lit) and below it. Where an edge of
+// the bar crosses text, the text turns white or dark pixel by pixel, so a
+// frame of the slide changes only the strips the edges sweep. Clips to pass
+// 0, 1 or 2; true for the lit one.
+bool barPass(int pass, const Lcd::Clip &area, int barTop, int barBottom) {
+  const int from = pass == 0 ? area.y : pass == 1 ? barTop : barBottom;
+  const int to = pass == 0 ? barTop : pass == 1 ? barBottom : area.y + area.h;
+  tft->clip(area.x, area.y, area.w, area.h);
+  tft->intersectClip(area.x, from, area.w, to - from);
+  return pass == 1;
 }

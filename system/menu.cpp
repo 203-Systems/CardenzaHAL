@@ -67,7 +67,7 @@ uint32_t NowMs()
 
 }  // namespace
 
-// The Launcher's clock, for its ListFade (launcher/motion.h).
+// The Launcher's clock, for its motion (launcher/motion.h).
 namespace launcher {
 uint32_t launcherMillis()
 {
@@ -107,17 +107,18 @@ int ReadLauncherLanguage()
 // curtain, and right of `edge` the firmware's picture (its last frame, captured) mixed with it.
 struct Scene {
     detail::View view;
-    launcher::ListFade fade;
-    bool useFade = false;
-    uint32_t now = 0;
+    launcher::ListSlide slide;          // the selection bar's motion, once the menu is open
+    bool useSlide = false;
+    uint32_t now = 0;                   // the menu's frame is drawn at this time
     int offset = 0;                     // the menu's column c is at x = c + offset (left of it: the rail)
     int edge = detail::kWidth;          // from here on: firmware and menu mixed
     int mix = 256;                      // 0 the firmware's picture, 256 the menu
     const uint16_t* firmware = nullptr; // null: no picture (right of edge is the menu)
-    // The menu as the pull and the pop show it (the view Prepare set, no fade), drawn once (PSRAM): a pull
-    // moves it every 10 ms, and drawing the Launcher's frame again for every band of every step kept the
-    // CPU so busy that the firmware's own tasks below this one stalled (the board's self-test, 2026-11-18).
-    // Null without PSRAM: drawn band by band.
+    // The menu's picture, drawn once a frame (PSRAM): the pull and the pop show the one Prepare drew (the
+    // first row selected) as they move it every 10 ms, and drawing the Launcher's frame again for every
+    // band of every step kept the CPU so busy that the firmware's own tasks below this one stalled (the
+    // board's self-test, 2026-11-18); in the menu each frame of the selection bar's slide is drawn into it
+    // (DrawMenu). Null without PSRAM: every band draws the frame (the same `now`, the same picture).
     uint8_t* still = nullptr;
     uint8_t grey[detail::kWidth * 8];   // one band of the menu
 };
@@ -131,10 +132,10 @@ void PaintScene(void* context, int x, int y, int width, int rows, uint16_t* out)
 {
     Scene& scene = *static_cast<Scene*>(context);
     const uint8_t* menu = scene.grey;
-    if (scene.still != nullptr && !scene.useFade)
+    if (scene.still != nullptr)
         menu = scene.still + y * detail::kWidth;
     else
-        detail::PaintGrey(scene.view, scene.useFade ? &scene.fade : nullptr, scene.now, y, rows, scene.grey);
+        detail::PaintGrey(scene.view, scene.useSlide ? &scene.slide : nullptr, scene.now, y, rows, scene.grey);
     for (int r = 0; r < rows; ++r)
         for (int c = 0; c < width; ++c)
         {
@@ -165,7 +166,7 @@ bool Prepare()
     g_scene->view = detail::View{};
     g_scene->view.language = detail::LanguageIndex(ReadLauncherLanguage());
     g_scene->view.firmware = g_firmwareName;
-    g_scene->useFade = false;
+    g_scene->useSlide = false;
     if (g_scene->still == nullptr)
         g_scene->still = static_cast<uint8_t*>(heap_caps_malloc(std::size_t(detail::kWidth) * detail::kHeight,
                                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -193,6 +194,16 @@ void Release()
 const uint16_t* FirmwarePicture()
 {
     return g_capture != nullptr && Display::detail::CaptureValid() ? g_capture : nullptr;
+}
+
+// The menu's frame at `now`, then sent (only what changed of each band goes out, Display::detail::
+// PaintOverlay). With PSRAM the Launcher's frame is drawn once into `still`; without, every band draws it.
+bool DrawMenu(Scene& scene, uint32_t now)
+{
+    scene.now = now;
+    if (scene.still != nullptr)
+        detail::PaintGrey(scene.view, scene.useSlide ? &scene.slide : nullptr, now, 0, detail::kHeight, scene.still);
+    return Display::detail::PaintOverlay(PaintScene, &scene);
 }
 
 // ---- The curtain ---------------------------------------------------------------------------------------
@@ -381,18 +392,26 @@ void RunMenu()
     }
     scene.edge = detail::kWidth;
     scene.mix = 256;
-    scene.fade.reset(scene.view.state.selected, scene.view.state.scroll);
-    scene.useFade = true;
-    if (!Display::detail::PaintOverlay(PaintScene, &scene)) ESP_LOGW(kTag, "system menu: a paint failed");
+    // The Launcher's lists on the Cardenza: the selection bar slides by its edges (ListSlide), aimed at the
+    // selected row as each frame is drawn (the first frame places it); past the last row the rows change in
+    // one frame and the bar keeps its place on screen, sliding on from there (keep).
+    scene.slide = launcher::ListSlide{};
+    scene.slide.keep = true;
+    scene.useSlide = true;
+    if (!DrawMenu(scene, NowMs())) ESP_LOGW(kTag, "system menu: a paint failed");
 
     detail::KeyRepeat repeat;
     bool openingPress = true;  // the press that opened the menu: its release is no tap
     bool funcWasDown = true;
-    bool fading = false;
+    bool moving = false;       // the frame last drawn is not the bar's last: draw the next one soon
     detail::Item chosen = detail::Item::Continue;
     while (true)
     {
-        vTaskDelay(pdMS_TO_TICKS(kMenuPollMs));
+        // While the bar moves, frames follow one another (the Launcher's 1 ms; a tick here): the panel has
+        // no tearing-effect line, so a frame may be written across its scan, and the smaller each step, the
+        // less a seam can show. Each band sends only what changed: the strips the bar's edges swept. Without
+        // PSRAM every band draws the frame: one every kMenuPollMs then. Otherwise the keys every kMenuPollMs.
+        vTaskDelay(moving && scene.still != nullptr ? 1 : pdMS_TO_TICKS(kMenuPollMs));
         if (!g_enabled.load()) break;
         const uint32_t now = NowMs();
         const detail::Key held = HeldKey();
@@ -407,21 +426,14 @@ void RunMenu()
         }
         funcWasDown = funcDown;
         const detail::Outcome outcome = detail::Apply(scene.view.state, act);
-        // The Launcher's Cardenza lists: the selection crossfades, a scroll fades through (ListFade).
-        if (outcome.changed)
-        {
-            scene.fade.select(scene.view.state.selected, now);
-            scene.fade.scrollTo(scene.view.state.scroll, now);
-        }
         const bool backHeld = held == detail::Key::Back;
-        const bool active = scene.fade.active(now);
-        if (outcome.changed || active || fading || backHeld != scene.view.backHeld)
+        if (outcome.changed || moving || backHeld != scene.view.backHeld)
         {
             scene.view.backHeld = backHeld;
-            scene.now = now;
-            if (!Display::detail::PaintOverlay(PaintScene, &scene)) ESP_LOGW(kTag, "system menu: a paint failed");
+            if (!DrawMenu(scene, now)) ESP_LOGW(kTag, "system menu: a paint failed");
+            // Until a frame shows the bar at rest on its row (the one drawn when it stops moving is that).
+            moving = scene.slide.active(scene.now);
         }
-        fading = active;  // one more frame after a fade, at its end
         if (outcome.chosen)
         {
             chosen = outcome.item;
@@ -435,16 +447,21 @@ void RunMenu()
         if (System::detail::FuncButtonRaw())
         {
             scene.view.releasePrompt = true;
-            scene.now = NowMs();
-            (void)Display::detail::PaintOverlay(PaintScene, &scene);
-            while (System::detail::FuncButtonRaw()) vTaskDelay(pdMS_TO_TICKS(kMenuPollMs));
+            (void)DrawMenu(scene, NowMs());
+            while (System::detail::FuncButtonRaw())
+            {
+                vTaskDelay(pdMS_TO_TICKS(kMenuPollMs));
+                if (scene.slide.active(scene.now)) (void)DrawMenu(scene, NowMs());  // the bar comes to rest
+            }
             vTaskDelay(pdMS_TO_TICKS(50));
         }
-        // The screen goes dark as the Launcher's does when it turns the board off (its power-off fade).
+        // The screen goes dark as the Launcher's does when it turns the board off (its power-off fade); a
+        // bar still moving comes to rest on its row meanwhile.
         const uint32_t start = NowMs();
         for (uint32_t elapsed = 0; elapsed < launcher::kPowerOffFadeMs; elapsed = NowMs() - start)
         {
             Display::detail::SetBacklight(menuBacklight * launcher::powerOffBrightness(100, elapsed) / 100);
+            if (scene.slide.active(scene.now)) (void)DrawMenu(scene, NowMs());
             vTaskDelay(pdMS_TO_TICKS(10));
         }
         Display::detail::SetBacklight(0);
@@ -458,14 +475,13 @@ void RunMenu()
         }
     }
 
-    // Continue: the firmware's picture (its latest frame) fades back in, then its own frames go on.
+    // Continue: the firmware's picture (its latest frame) fades back in over the menu as it was last drawn
+    // (`now` stays: a bar still moving stays where it was), then its own frames go on.
     if (const uint16_t* picture = FirmwarePicture(); picture != nullptr)
     {
         scene.firmware = picture;
         scene.edge = 0;
-        scene.useFade = false;
         Fade(detail::kCloseMs, [&](float part) {
-            scene.now = NowMs();
             scene.mix = Between(256, 0, part);
             Display::detail::SetBacklight(Between(menuBacklight, firmwareBacklight, part));
             (void)Display::detail::PaintOverlay(PaintScene, &scene);
