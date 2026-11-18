@@ -18,7 +18,7 @@ with an Agent Skill for coding agents and every 203 device's guide (the Cardenza
 every step, for people and agents alike: [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md).
 
 ```sh
-curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh   # 203c (Node.js 18+); Windows: in Git Bash
+npm install -g 203c && 203c skill install                           # 203c and its Agent Skill (Node.js 18+, any OS)
 203c new "My firmware" --summary "What it does"                      # the project: this HAL as a submodule, the template
 cd my-firmware
 python3 components/CardenzaHAL/tools/cardenza.py doctor   # what this computer still needs (ESP-IDF 5.3.5, Emscripten, 203c)

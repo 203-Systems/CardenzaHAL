@@ -72,7 +72,7 @@ with tempfile.TemporaryDirectory() as folder:
     os.environ["PATH"] = os.path.join(folder, "empty")
     results = tool.checks(project)
     by = {c["name"]: c for c in results}
-    assert by["203c"]["status"] == "missing" and "install.sh" in by["203c"]["fix"], by["203c"]
+    assert by["203c"]["status"] == "missing" and "npm install -g 203c" in by["203c"]["fix"], by["203c"]
     assert by["version.txt"]["status"] == "warn"
     assert all("fix" not in c for c in results if c["status"] == "ok")
     assert {c["name"]: c for c in tool.checks(project, need_cli=False)}["203c"]["status"] == "warn"

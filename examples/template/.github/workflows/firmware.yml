@@ -58,6 +58,6 @@ jobs:
   #   steps:
   #     - uses: actions/download-artifact@v4      # the BIN: add an upload-artifact step for build/my_firmware.bin above
   #       with: {name: bin}
-  #     - run: curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
-  #     - run: ~/.local/bin/203c flash --bin my_firmware.bin --json
-  #     - run: ~/.local/bin/203c log --until "my_firmware .* ready" --seconds 60 --json
+  #     - run: npm install -g 203c
+  #     - run: 203c flash --bin my_firmware.bin --json
+  #     - run: 203c log --until "my_firmware .* ready" --seconds 60 --json

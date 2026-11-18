@@ -27,7 +27,7 @@ from it. It is written for people and for coding agents alike: imperative, with 
 "Make a metronome for the Cardenza" and the like: do these in order; stop and ask the user only where a step says so.
 
 1. Read this file to the end once. Then read the HAL's [README](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md): its [hardware table](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md#the-hardware) says what the Cardenza has and which header drives it.
-2. Install `203c` if `203c --version` fails ([Setup](#nodejs-and-203c)): it is required, for every step below.
+2. Install `203c` if `203c --version` fails: `npm install -g 203c`, then `203c skill install` ([Setup](#nodejs-and-203c)). It is required, for every step below.
 3. Set up the project: a new one with `203c new "<Name>" --summary "<what it does>"` ([Start a project](#start-a-project)); someone else's firmware with `203c fork <CODE> [DIR]` ([Forks](#7-forks-and-provenance)).
 4. `python3 components/CardenzaHAL/tools/cardenza.py doctor` in the project: it lists what this computer lacks (ESP-IDF 5.3.5, Emscripten, 203c, the sign-in) with the command for each. Install what is missing ([Setup](#1-dependencies-and-setup)).
 5. Sign in once: when doctor says "not signed in", run `203c login`: it opens the user's browser on the community, they approve, and it comes back signed in (tell the user to approve 203c in the browser). Not on the user's computer (SSH, CI, a remote agent): `203c login --no-browser`, give the user the link and the code it prints, then `203c login --wait`. Never ask for passwords or tokens.
@@ -125,17 +125,17 @@ CMake is missing; its message says how to install it.
 [203-CLI](https://github.com/203-Systems/203-CLI), which also holds each 203 device's development guide and hardware
 reference (`products/cardenza` is this one). It needs Node.js 18 or later.
 
+On macOS, Linux and Windows alike:
+
 ```sh
-curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
+npm install -g 203c
+203c skill install
 203c doctor
 203c login
 ```
 
-On Windows run the same line in Git Bash (Claude Code's shell there; it comes with Git for Windows), or
-`npm install -g github:203-Systems/203-CLI` for the command alone. 203c runs wherever Node does; it uses the USB
-cable (`flash`, `log`) on macOS and Linux, and on Windows the website does that in Chrome or Edge.
-
-- The installer puts the skill (203-CLI at the commit the community pins, its SHA-256 checked) in `~/.claude/skills/203-community` and a `203c` command in `~/.local/bin` (put that on `PATH`). Without the command: `node ~/.claude/skills/203-community/scripts/203c.mjs`. From a clone of 203-CLI instead: `sh 203-CLI/install.sh`.
+- `npm install -g 203c` gives the `203c` command (no dependencies, no install scripts); `203c skill install` puts its Agent Skill where coding agents read it (`~/.claude/skills/203-community`, and `~/.codex/skills` when Codex is there). Run both again to update; `203c doctor` says when the skill is older than the command.
+- 203c runs wherever Node does; it uses the USB cable (`flash`, `log`) on macOS and Linux, and on Windows the website does that in Chrome or Edge.
 - `203c login` opens the browser on the community's sign-in page: sign in there (GitHub) if it asks, approve "203c on <your computer>", and the browser goes back to 203c (OAuth's authorization code with PKCE and a redirect to 203c on `127.0.0.1`). Where no browser can be opened, make a personal token on the site (设置 › 个人令牌, `/me/tokens`) and run `203c login --with-token`: it asks for the token (not shown), checks it and saves it (a script pipes it in: `203c login --with-token < token.txt`). An agent running remotely signs in with `203c login --no-browser`: a link and a code to approve on the site. Every way saves a personal token, listed on the site under 设置 › 个人令牌, where you can delete it. You sign in once: it has no end.
 - Everything the community's API does for you, 203c does (`203c --help`; `203c api` for anything else): use 203c, not raw HTTP.
 - Every command except `login`, `logout`, `help`, `version`, `doctor` and `rules` needs that sign-in.

@@ -6,9 +6,10 @@
 
 ## 步骤
 
-1. 装 203-CLI（社区命令行 `203c`，**必须**，下面每一步都用它；公开仓库 [203-Systems/203-CLI](https://github.com/203-Systems/203-CLI)，里面还有每台 203 设备的开发指引和硬件资料，鸣片的在 `products/cardenza`）。Windows 在 Git Bash 里运行同一行，或者 `npm install -g github:203-Systems/203-CLI`：
+1. 装 203-CLI（社区命令行 `203c`，**必须**，下面每一步都用它；公开仓库 [203-Systems/203-CLI](https://github.com/203-Systems/203-CLI)，里面还有每台 203 设备的开发指引和硬件资料，鸣片的在 `products/cardenza`）。macOS、Linux、Windows 都一样（需要 Node.js 18+）：
    ```sh
-   curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh
+   npm install -g 203c
+   203c skill install     # 把 Agent Skill 放到 AI 读取的目录
    ```
 2. 建工程：`203c new "固件名" --summary "它做什么"`：生成一个 git 仓库，HAL 作为子模块放在 `components/CardenzaHAL`，从 [`examples/template`](https://github.com/203-Systems/CardenzaHAL/tree/main/examples/template) 复制并按固件名改好 `project()`、`203.json` 和发布工作流；直接能编译。改别人的固件：`203c fork <代码> [目录]`（克隆源码、建 Fork、写好 `203.json` 的 `forked_from`）。
 3. 检查环境：`python3 components/CardenzaHAL/tools/cardenza.py doctor` 列出这台电脑还缺什么（ESP-IDF **5.3.5**、Emscripten、`203c`、登录），每项给出安装命令。登录每台电脑只要一次：`203c login` 打开浏览器，在社区网站上批准（远程时加 --no-browser，用链接和验证码）。

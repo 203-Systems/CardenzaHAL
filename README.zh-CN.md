@@ -13,7 +13,7 @@ HAL 负责硬件初始化，并提供原生 ESP-IDF 句柄；应用负责界面�
 有两样是必须的：**这个 HAL**（每个固件都只通过它访问硬件）和 **[203-CLI](https://github.com/203-Systems/203-CLI)**，即 203 社区的命令行 `203c`：它建项目、把编译好的固件装到你的鸣片上、读日志，也是发布的唯一途径（手动或 CI）。它附带给 AI 编程助手用的 Agent Skill 和每台 203 设备的开发指引（鸣片的在 [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)）。每一步的规则（人和 AI 读同一份）：[`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md)（英文，唯一的规范；[中文摘要](docs/FIRMWARE-PROJECT.zh-CN.md)）。
 
 ```sh
-curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh   # 203c（需要 Node.js 18+）；Windows 在 Git Bash 里运行
+npm install -g 203c && 203c skill install                           # 203c 和它的 Agent Skill（Node.js 18+，各系统都一样）
 203c new "My firmware" --summary "它做什么"                           # 新项目：这个 HAL 作为子模块，加上模板
 cd my-firmware
 python3 components/CardenzaHAL/tools/cardenza.py doctor   # 这台电脑还缺什么（ESP-IDF 5.3.5、Emscripten、203c）

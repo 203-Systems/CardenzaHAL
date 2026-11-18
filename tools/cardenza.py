@@ -32,8 +32,7 @@ import sys
 
 HAL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RULES = "https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md"
-INSTALL_203C = "curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh"
-INSTALL_203C_NPM = "npm install -g github:203-Systems/203-CLI"
+INSTALL_203C = "npm install -g 203c && 203c skill install"
 IDF_WANTED = (5, 3)
 IDF_TESTED = "5.3.5"
 CLI_WANTED = (3, 5, 0)   # 203c new, log, inbox, link
@@ -187,7 +186,7 @@ def checks(project, need_cli=True):
     cli = find_203c()
     if not cli:
         add("203c", "missing" if need_cli else "warn", "203c, the 203 community's CLI, is not installed",
-            "%s   (Windows without a shell: %s)" % (INSTALL_203C, INSTALL_203C_NPM))
+            "%s   (Node.js 18 or later: https://nodejs.org)" % INSTALL_203C)
     else:
         said = run_quiet(cli + ["--version"])
         version = said.stdout.strip() if said and said.returncode == 0 else "?"
