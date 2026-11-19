@@ -27,7 +27,7 @@ from it. It is written for people and for coding agents alike: imperative, with 
 "Make a metronome for the Cardenza" and the like: do these in order; stop and ask the user only where a step says so.
 
 1. Read this file to the end once. Then read the HAL's [README](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md): its [hardware table](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md#the-hardware) says what the Cardenza has and which header drives it.
-2. Install `203c` if `203c --version` fails: `npm install -g 203c`, then `203c skill install` (until 203c is on npm: `npm install -g github:203-Systems/203-CLI`; [Setup](#nodejs-and-203c)). It is required, for every step below.
+2. Install `203c` if `203c --version` fails: `npm install -g 203c`, then `203c skill install` ([Setup](#nodejs-and-203c)). It is required, for every step below.
 3. Set up the project: a new one with `203c new "<Name>" --summary "<what it does>"` ([Start a project](#start-a-project)); someone else's firmware with `203c fork <CODE> [DIR]` ([Forks](#7-forks-and-provenance)).
 4. `python3 components/CardenzaHAL/tools/cardenza.py doctor` in the project: it lists what this computer lacks (ESP-IDF 5.3.5, Emscripten, 203c, the sign-in) with the command for each. Install what is missing ([Setup](#1-dependencies-and-setup)).
 5. Sign in once: when doctor says "not signed in", run `203c login`: it opens the user's browser on the community, they approve, and it comes back signed in (tell the user to approve 203c in the browser). Not on the user's computer (SSH, CI, a remote agent): `203c login --no-browser`, give the user the link and the code it prints, then `203c login --wait`. Never ask for passwords or tokens.
@@ -132,12 +132,6 @@ npm install -g 203c
 203c skill install
 203c doctor
 203c login
-```
-
-Until 203c is published on npm, install the same package from its repository (git needed) instead of the first line:
-
-```sh
-npm install -g github:203-Systems/203-CLI
 ```
 
 - `npm install -g 203c` gives the `203c` command (no dependencies, no install scripts); `203c skill install` puts its Agent Skill where coding agents read it (`~/.claude/skills/203-community`, and `~/.codex/skills` when Codex is there). Run both again to update; `203c doctor` says when the skill is older than the command.
