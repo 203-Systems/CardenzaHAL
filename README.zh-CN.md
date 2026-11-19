@@ -14,7 +14,6 @@ HAL 负责硬件初始化，并提供原生 ESP-IDF 句柄；应用负责界面�
 
 ```sh
 npm install -g 203c && 203c skill install                           # 203c 和它的 Agent Skill（Node.js 18+，各系统都一样）
-npm install -g github:203-Systems/203-CLI && 203c skill install    # 203c 上 npm 之前：从它的仓库装，内容相同
 203c new "My firmware" --summary "它做什么"                           # 新项目：这个 HAL 作为子模块，加上模板
 cd my-firmware
 python3 components/CardenzaHAL/tools/cardenza.py doctor   # 这台电脑还缺什么（ESP-IDF 5.3.5、Emscripten、203c）

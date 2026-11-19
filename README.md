@@ -19,7 +19,6 @@ every step, for people and agents alike: [`docs/FIRMWARE-PROJECT.md`](docs/FIRMW
 
 ```sh
 npm install -g 203c && 203c skill install                           # 203c and its Agent Skill (Node.js 18+, any OS)
-npm install -g github:203-Systems/203-CLI && 203c skill install    # until 203c is on npm: the same from its repository
 203c new "My firmware" --summary "What it does"                      # the project: this HAL as a submodule, the template
 cd my-firmware
 python3 components/CardenzaHAL/tools/cardenza.py doctor   # what this computer still needs (ESP-IDF 5.3.5, Emscripten, 203c)
