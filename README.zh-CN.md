@@ -27,7 +27,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方�
 203c sync                                                 # 之后：.203/community.md，大家提了什么需求、说了什么
 ```
 
-[`tools/cardenza.py`](tools/cardenza.py) 是首选的编译方式：编译前检查 ESP-IDF 5.3、这个 HAL 是干净的子模块、`203c` 已安装（并已登录），shell 没激活 ESP-IDF 时它自己导出环境再编译。其他编译方式也检查 `203c`：`idf.py build` 和网页目标没装它就停下，并说怎么装（[`cmake/require_203c.cmake`](cmake/require_203c.cmake)；CI 里不检查，发布那一步会自己装 203c）。**不要对鸣片 `idf.py flash`**：那会抹掉 203 Launcher 和它装过的所有固件；`203c flash` 通过 Launcher 安装。
+[`tools/cardenza.py`](tools/cardenza.py) 是首选的编译方式：编译前检查 ESP-IDF 5.3、这个 HAL 是干净的子模块、`203c` 已安装（并已登录），shell 没激活 ESP-IDF 时它自己导出环境再编译。其他编译方式也检查 `203c`：`idf.py build` 和网页目标没装它就停下，并说怎么装（[`cmake/require_203c.cmake`](cmake/require_203c.cmake)；CI 里不检查，发布那一步会自己装 203c），并把 203c 的更新提示作为警告打出来：有新版 `203c`、这个 HAL 落后于它的 `main` 或不是干净的副本（`203c updates`）。**不要对鸣片 `idf.py flash`**：那会抹掉 203 Launcher 和它装过的所有固件；`203c flash` 通过 Launcher 安装。
 
 ## 硬件一览
 

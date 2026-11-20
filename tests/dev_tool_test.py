@@ -1,6 +1,6 @@
 """tools/cardenza.py (the preferred build tool) without ESP-IDF or a board: the project and its BIN found, ESP-IDF 5.3
-found where it is installed (activated or not), 203c found on PATH or in the skill's folder, the sign-in, and the checks
-a build stops at."""
+found where it is installed (activated or not), 203c found on PATH or in the skill's folder, the sign-in, the checks
+a build stops at, and doctor's update notices (203c updates --json, from a 203c that has it)."""
 import importlib.util
 import io
 import json
@@ -68,6 +68,47 @@ with tempfile.TemporaryDirectory() as folder:
     write(os.path.join(folder, "config", "203c", "token"), "cct_x\n")
     assert tool.signed_in(env={"XDG_CONFIG_HOME": os.path.join(folder, "config")}, home=home)
 
+    # doctor asks a 203c that has `updates` (3.5.1 or later) for its notices: each one a warning, the one about the HAL's
+    # local changes left out (check_submodule.py's "hal" line says it); all current is one line; an older 203c, or a
+    # build's checks, do not ask.
+    LOCAL = "the HAL (x) has local changes, but it is a clean copy"
+    notices = ["203c 3.6.0 is out (you have 3.5.1): npm install -g 203c && 203c skill install",
+               "CardenzaHAL in this project (components/CardenzaHAL) is 3 commits behind its main: git submodule update --remote components/CardenzaHAL",
+               "CardenzaHAL in this project (components/CardenzaHAL) is not a clean copy of upstream main: " + LOCAL]
+    answers = {
+        "behind": {"cli": {"current": "3.5.1", "latest": "3.6.0", "outdated": True},
+                   "hal": {"path": "components/CardenzaHAL", "status": "ahead", "behind": 3, "local": LOCAL}, "notices": notices},
+        "current": {"cli": {"current": "3.5.1", "latest": "3.5.1", "outdated": False},
+                    "hal": {"path": "components/CardenzaHAL", "status": "identical", "behind": 0, "local": None}, "notices": []},
+        "offline": {"cli": {"current": "3.5.1", "latest": None, "outdated": False}, "hal": None, "notices": []},
+    }
+    asked = os.path.join(folder, "asked")
+
+    def doctor_updates(version, answer):
+        updates_bin = os.path.join(folder, "bin-" + version + "-" + answer)
+        write(os.path.join(updates_bin, "answer.json"), json.dumps(answers[answer]))
+        write(os.path.join(updates_bin, "203c"), '#!/bin/sh\ncase "$1" in --version) echo %s;; updates) echo "$@" > "%s"; cat "%s";; esac\n'
+              % (version, asked, os.path.join(updates_bin, "answer.json")))
+        os.chmod(os.path.join(updates_bin, "203c"), 0o755)
+        os.environ["PATH"] = updates_bin + os.pathsep + os.path.dirname(sys.executable)
+        if os.path.exists(asked):
+            os.remove(asked)
+        return [c for c in tool.checks(project, updates_too=True) if c["name"] == "updates"]
+
+    saved_path = os.environ.get("PATH", "")
+    got = doctor_updates("3.5.1", "behind")
+    assert [c["status"] for c in got] == ["warn", "warn"] and "3.6.0 is out" in got[0]["detail"] and "3 commits behind" in got[1]["detail"], got
+    with open(asked, encoding="utf-8") as f:
+        assert f.read().split() == ["updates", "--json", "--project", project]
+    got = doctor_updates("3.5.1", "current")
+    assert [(c["status"], c["detail"]) for c in got] == [("ok", "203c 3.5.1 is the newest; CardenzaHAL (components/CardenzaHAL) is at its main")], got
+    assert [c["status"] for c in doctor_updates("3.5.1", "offline")] == ["skip"]
+    assert doctor_updates("3.5.0", "behind") == [] and not os.path.exists(asked), "a 203c without updates is not asked"
+    doctor_updates("3.5.1", "behind")
+    os.remove(asked)
+    assert not [c for c in tool.checks(project) if c["name"] == "updates"] and not os.path.exists(asked), "a build's checks do not ask"
+    os.environ["PATH"] = saved_path
+
     # A build stops at what is missing and says how to install it; CI may build without 203c.
     os.environ["PATH"] = os.path.join(folder, "empty")
     results = tool.checks(project)
@@ -83,5 +124,5 @@ with tempfile.TemporaryDirectory() as folder:
         assert tool.main(["frobnicate"]) == 2
     assert "doctor" in out.getvalue() and "unknown command" in err.getvalue()
 
-print("tools/cardenza.py: project, BIN, ESP-IDF, 203c, sign-in and checks passed")
+print("tools/cardenza.py: project, BIN, ESP-IDF, 203c, sign-in, checks and doctor's update notices passed")
 sys.exit(0)

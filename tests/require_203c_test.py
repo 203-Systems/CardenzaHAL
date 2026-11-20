@@ -1,7 +1,8 @@
 """cmake/require_203c.cmake, the check every firmware's build makes (idf.py build, tools/cardenza.py build, the web
 target): without 203c the configure stops and says how to install it; 203c on PATH or the Agent Skill's copy run by
-node passes; an old 203c warns; one that does not run stops; CI skips the check. Runs the check in CMake's script
-mode with a PATH that holds only what each case puts there."""
+node passes; an old 203c warns; one that does not run stops; CI skips the check. A 203c with `updates` (3.5.1 or
+later) is asked for its update notices, which become a warning (nothing when it prints none, fails or hangs); an
+older one is not asked. Runs the check in CMake's script mode with a PATH that holds only what each case puts there."""
 import os
 import shutil
 import subprocess
@@ -66,11 +67,37 @@ assert code == 0 and "passed" in out and "older" not in out, out
 code, out = run("old", {"203c": 'echo "3.4.2"'})
 assert code == 0 and "passed" in out and "203c 3.4.2 is older" in out and INSTALL in out, out
 
+# 203c's update notices (203c updates --quiet --project <the project>): a warning with its lines.
+NOTICE = "203c 3.6.0 is out (you have 3.5.1): npm install -g 203c && 203c skill install"
+BEHIND = "CardenzaHAL in this project (components/CardenzaHAL) is 3 commits behind its main: git submodule update --remote components/CardenzaHAL"
+UPDATES = 'case "$1" in --version) echo 3.5.1;; updates) echo "$@" > "$HOME/asked"; %s;; esac'
+code, out = run("notices", {"203c": UPDATES % ('echo "%s"; echo "%s"' % (NOTICE, BEHIND))})
+assert code == 0 and "passed" in out and "CMake Warning" in out and NOTICE in out and BEHIND in out, out
+with open(os.path.join(work, "notices", "home", "asked"), encoding="utf-8") as f:
+    asked = f.read().split()
+assert asked[:3] == ["updates", "--quiet", "--project"] and len(asked) == 4, asked
+
+code, out = run("no-notices", {"203c": UPDATES % "true"})
+assert code == 0 and "passed" in out and "CMake Warning" not in out, out
+assert os.path.exists(os.path.join(work, "no-notices", "home", "asked")), "asked"
+
+code, out = run("updates-fails", {"203c": UPDATES % 'echo "Unknown command: updates"; exit 2'})
+assert code == 0 and "passed" in out and "CMake Warning" not in out and "Unknown command" not in out, out
+
+code, out = run("updates-hangs", {"203c": UPDATES % "exec /bin/sleep 30"})
+assert code == 0 and "passed" in out and "CMake Warning" not in out, out
+
+# Older than 3.5.1: not asked (it has no `updates`).
+code, out = run("before-updates", {"203c": 'case "$1" in --version) echo 3.5.0;; *) echo asked > "$HOME/asked";; esac'})
+assert code == 0 and "passed" in out and "CMake Warning" not in out, out
+assert not os.path.exists(os.path.join(work, "before-updates", "home", "asked")), "a 203c without updates was asked"
+
 code, out = run("broken", {"203c": "echo 'node: not found' >&2; exit 127"})
 assert code != 0 and "does not run" in out and INSTALL in out, out
 
-code, out = run("ci", env={"CI": "true"})
-assert code == 0 and "passed" in out, out
+code, out = run("ci", {"203c": UPDATES % ('echo "%s"' % NOTICE)}, env={"CI": "true"})
+assert code == 0 and "passed" in out and NOTICE not in out, out
+assert not os.path.exists(os.path.join(work, "ci", "home", "asked")), "asked in CI"
 
 code, out = run("github-actions", env={"GITHUB_ACTIONS": "true"})
 assert code == 0 and "passed" in out, out
@@ -82,4 +109,4 @@ if node:
     assert code != 0 and "203c is not installed" in out, out
 
 shutil.rmtree(work, ignore_errors=True)
-print("require_203c: missing, on PATH, newer, old, broken, CI and the skill's copy passed")
+print("require_203c: missing, on PATH, newer, old, the update notices, broken, CI and the skill's copy passed")

@@ -5,7 +5,8 @@ and Windows; Python 3.8 or later, standard library only.
 
 usage: python3 components/CardenzaHAL/tools/cardenza.py <command> [options]
 
-  doctor          everything the project needs on this computer, and how to install what is missing
+  doctor          everything the project needs on this computer, and how to install what is missing; whether
+                  203c or the HAL submodule has an update (203c updates)
   build [--web]   the checks, then the device build (idf.py build): build/<project>.bin and how much of the
                   203 Launcher's room it takes; --web also the browser version (build-web/site)
   web             the browser version only (tools/cardenza_web.py build .)
@@ -36,6 +37,7 @@ INSTALL_203C = "npm install -g 203c && 203c skill install"
 IDF_WANTED = (5, 3)
 IDF_TESTED = "5.3.5"
 CLI_WANTED = (3, 5, 0)   # 203c new, log, sync, link, skill install
+CLI_UPDATES = (3, 5, 1)  # 203c updates (a newer 203c, the HAL submodule behind its main): the release after 3.5.0
 APP_ROOM = 0x690000      # the 203 Launcher's room for one app on every Cardenza (0x170000 to 8 MB: boards
                          # flashed with Launcher 0.3.3 or earlier declare 8 MB in their bootloader; the chip has 16 MB)
 LOCAL_FLASH = "https://cardenza.203.io/community/firmware (Flash a local file / 烧录本地固件, in Chrome or Edge)"
@@ -138,15 +140,39 @@ def signed_in(env=os.environ, home=os.path.expanduser("~")):
         return False
 
 
-def run_quiet(command, **kwargs):
+def run_quiet(command, timeout=60, **kwargs):
     try:
-        return subprocess.run(command, capture_output=True, text=True, timeout=60, **kwargs)
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout, **kwargs)
     except (OSError, subprocess.TimeoutExpired):
         return None
 
 
-def checks(project, need_cli=True):
-    """Each check: {name, status: ok | missing | warn | skip, detail, fix}. missing stops a build."""
+def updates(cli, project):
+    """203c's update notices, asked now (`203c updates --json`): [(status, detail)], or [] when it does not answer.
+    The HAL's own check (check_submodule.py) is the "hal" line already: not said twice."""
+    said = run_quiet(cli + ["updates", "--json"] + (["--project", project] if project else []), timeout=15)
+    try:
+        answer = json.loads(said.stdout) if said and said.returncode == 0 else None
+    except ValueError:
+        answer = None
+    if not isinstance(answer, dict):
+        return []
+    hal = answer.get("hal") or {}
+    notices = [n for n in answer.get("notices") or [] if not (hal.get("local") and hal["local"] in n)]
+    if notices:
+        return [("warn", notice) for notice in notices]
+    cli_said = answer.get("cli") or {}
+    if not cli_said.get("latest"):
+        return [("skip", "npm did not answer (offline, or blocked here): not checked")]
+    detail = "203c %s is the newest" % cli_said.get("current")
+    if hal.get("status") in ("identical", "ahead"):
+        detail += "; CardenzaHAL (%s) is at its main" % hal.get("path")
+    return [("ok", detail)]
+
+
+def checks(project, need_cli=True, updates_too=False):
+    """Each check: {name, status: ok | missing | warn | skip, detail, fix}. missing stops a build. updates_too (doctor):
+    203c's update notices too (a newer 203c, the HAL submodule behind its main), asked now."""
     out = []
 
     def add(name, status, detail, fix=None):
@@ -197,6 +223,9 @@ def checks(project, need_cli=True):
             "update it: %s" % INSTALL_203C if old else None)
         add("sign-in", "ok" if signed_in() else "warn", "signed in" if signed_in() else "not signed in",
             None if signed_in() else "203c login (once on this computer: the browser asks you to approve; publishing needs it)")
+        if updates_too and version_tuple(version) >= CLI_UPDATES:
+            for status, detail in updates(cli, project):
+                add("updates", status, detail)
 
     emcc = shutil.which("emcc") or (os.environ.get("EMSDK") and os.path.isdir(os.environ["EMSDK"])) or os.path.isdir(os.path.expanduser("~/emsdk"))
     add("emscripten", "ok" if emcc else "skip", "found" if emcc else "not found (only for the browser version)",
@@ -304,7 +333,7 @@ def main(argv):
         return 0
     project = find_project(start)
     if command == "doctor":
-        results = checks(project)
+        results = checks(project, updates_too=True)
         if "--json" in options:
             print(json.dumps({"project": project, "hal": HAL, "checks": results}, indent=2))
         else:

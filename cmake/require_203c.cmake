@@ -3,7 +3,12 @@
 # every way of building stops on a computer without it (idf.py build, tools/cardenza.py build, the web target)
 # and says how to install it. 203c is found as tools/cardenza.py finds it: on PATH, else the Agent Skill's copy
 # run by node. CI builds skip the check: their publish step installs 203c itself.
+# Then it prints 203c's update notices (`203c updates --quiet`: a newer 203c, this firmware's CardenzaHAL submodule
+# behind its main or not a clean copy) as a warning: from 203c's answer of the day, nothing when all is current or
+# offline, and only from a 203c that has the command. It came after 3.5.0, so 3.5.1, the release after it, is the
+# first that can (an older 203c is not asked; one that refuses is not heard).
 set(CARDENZA_HAL_203C_WANTED 3.5.0)
+set(CARDENZA_HAL_203C_UPDATES 3.5.1)
 
 function(cardenza_hal_require_203c)
     if(CMAKE_BUILD_EARLY_EXPANSION OR DEFINED ENV{CI} OR DEFINED ENV{GITHUB_ACTIONS})
@@ -57,5 +62,18 @@ function(cardenza_hal_require_203c)
     endif()
     if(version VERSION_LESS CARDENZA_HAL_203C_WANTED)
         message(WARNING "CardenzaHAL: 203c ${version} is older than this HAL expects (${CARDENZA_HAL_203C_WANTED}); update it: ${install}")
+    elseif(NOT version VERSION_LESS CARDENZA_HAL_203C_UPDATES)
+        if(DEFINED PROJECT_DIR)
+            set(project "${PROJECT_DIR}")
+        else()
+            set(project "${CMAKE_SOURCE_DIR}")
+        endif()
+        execute_process(COMMAND ${command} updates --quiet --project "${project}"
+            OUTPUT_VARIABLE notices RESULT_VARIABLE result ERROR_QUIET
+            OUTPUT_STRIP_TRAILING_WHITESPACE TIMEOUT 5)
+        if(result EQUAL 0 AND NOT notices STREQUAL "")
+            string(REPLACE "\n" "\n   " notices "${notices}")
+            message(WARNING "CardenzaHAL: updates (from 203c updates; NO_UPDATE_NOTIFIER=1 turns this off):\n   ${notices}")
+        endif()
     endif()
 endfunction()
