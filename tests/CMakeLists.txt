@@ -2,6 +2,7 @@
 #   cmake -S tests -B build-tests && cmake --build build-tests && ctest --test-dir build-tests
 # - logic_test, key_count_guard_test: the pure calculations the HAL runs on the device (key debounce and
 #   the key-count guard, LED frames, the backlight curve).
+# - key_legends_test: keyboard/legends.h, the key caps' legends.
 # - net_test: the pure parts of net/ (the Launcher's settings format, request checks, connect order).
 # - presence_test: the presence service's decisions (net/presence_logic.h) and the Launcher's restart ticket.
 # - system_menu_test: the system menu's pure parts (system/menu/logic.h).
@@ -33,6 +34,11 @@ add_test(NAME CardenzaKeyCountGuardTests COMMAND CardenzaKeyCountGuardTests)
 add_executable(CardenzaKeyboardHelperTests keyboard_helpers_test.cpp ${cardenza_test_guard})
 target_include_directories(CardenzaKeyboardHelperTests PRIVATE ${hal_root})
 add_test(NAME CardenzaKeyboardHelperTests COMMAND CardenzaKeyboardHelperTests)
+
+# keyboard/legends.h: what each key cap says (names, characters, the arrows) against the board's caps.
+add_executable(CardenzaKeyLegendTests key_legends_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaKeyLegendTests PRIVATE ${hal_root})
+add_test(NAME CardenzaKeyLegendTests COMMAND CardenzaKeyLegendTests)
 
 # display/changed_regions.h: what PresentChanged sends.
 add_executable(CardenzaChangedRegionsTests changed_regions_test.cpp ${cardenza_test_guard})

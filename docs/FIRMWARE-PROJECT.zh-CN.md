@@ -16,6 +16,7 @@
 3. 检查环境：`python3 components/CardenzaHAL/tools/cardenza.py doctor` 列出这台电脑还缺什么（ESP-IDF **5.3.5**、Emscripten、`203c`、登录），每项给出安装命令。登录每台电脑只要一次：`203c login` 打开浏览器，在社区网站上批准（远程时加 --no-browser，用链接和验证码）。
 4. 写固件：只用 HAL 的公开头文件（硬件和对应头文件见 [README 的硬件一览](https://github.com/203-Systems/CardenzaHAL/blob/main/README.zh-CN.md#硬件一览)）；HAL 已有的驱动不要自己再写；只用 ESP-IDF；不引入传染性许可（copyleft）的代码；先调用 `CardenzaHAL::Init()`，缺硬件时报错但不要 abort 或重启。
    - **HOME 归系统**：按一下 HOME（侧键）弹出系统菜单（`system/menu.h`：继续、返回启动器、重新启动、关机、下载模式），是从任何固件回到 Launcher 的路。HOME 不要另作他用，给用户的固件也不要关掉菜单（`SystemMenu::Enable(false)`、`CONFIG_CARDENZA_HAL_SYSTEM_MENU`）。菜单打开期间固件的画面不发送、按键读作松开：不能在看不见时继续的事情先暂停（`SystemMenu::SetListener`），离开前要保存的在 `SystemMenu::SetLeaveHook` 里保存。
+   - **按键照键帽上印的用**（[`keyboard/legends.h`](https://github.com/203-Systems/CardenzaHAL/blob/main/keyboard/legends.h)；键帽图在 [README](https://github.com/203-Systems/CardenzaHAL/blob/main/README.zh-CN.md#键盘与按键灯)）。方向键是四个黄色三角：`;` 上、`.` 下、`,` 左、`/` 右；文字输入时是 fn + 这几个键，不打字的画面（列表、菜单、游戏）直接用这几个键，203 Launcher 和系统菜单就是这样。ok 确认，esc（或 del）返回；文字输入时每个键打出印着的字符（按住 shift 是黄色的那个；del 删除）。不要自己另编一套：方向键不用 HJKL、IJKL 或 WASD，确认和返回也不换别的键。左边一列从上到下是 esc、tab、fn、ctrl（fn 是第三个键，29；左下角是 ctrl）；侧键 HOME 归系统菜单。
 5. 编译（首选 HAL 的编译工具：先检查，shell 没激活时自己导出 ESP-IDF，再 `idf.py build`）：
    ```sh
    python3 components/CardenzaHAL/tools/cardenza.py build --web                # build/<工程名>.bin 和 build-web/site
