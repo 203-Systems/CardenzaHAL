@@ -4,6 +4,10 @@
 
 [Website](https://203.io/products/cardenza-mini-synthsiser) · [Learn Cardenza](https://cardenza.203.io) · [203 Community](https://cardenza.203.io/community) · [Firmware developer guide](https://cardenza.203.io/community/develop) · [203-CLI](https://github.com/203-Systems/203-CLI) · [Example firmware: CardenzaSynth](https://github.com/203-Systems/CardenzaSynth)
 
+**Making a firmware for the Cardenza? Install 203c first: it is required.** `npm install -g 203c && 203c skill install`
+(Node.js 18 or later; macOS, Linux and Windows alike). Every step below uses it, and a firmware on this HAL does not
+build without it. Cloning the 203-CLI repository does not install it.
+
 CardenzaHAL is the ESP-IDF hardware layer for Cardenza, an ESP32-S3 device. Use it to read the 56-key keyboard, drive individual key LEDs, draw to the 240 × 135 display, play PCM audio, access an SD card, add USB MIDI, audio, and HID to your firmware, and reach the internet over the Wi-Fi the 203 Launcher set up.
 
 The HAL provides hardware initialization and native ESP-IDF handles. Your application owns rendering, key mappings, audio processing, file formats, and the main loop. This repository is a component, not a standalone firmware; its web target builds your firmware into a browser simulator as well ([Web simulator](#web-simulator)).
@@ -32,7 +36,9 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # the preferred build:
 
 [`tools/cardenza.py`](tools/cardenza.py) is the preferred way to build: it checks ESP-IDF 5.3, that this HAL is a
 clean submodule and that `203c` is installed (and signed in) before it builds, and exports ESP-IDF for the build when
-the shell has not. **Never `idf.py flash` a Cardenza**: it erases the 203 Launcher and every firmware it installed;
+the shell has not. Every other way checks for `203c` too: `idf.py build` and the web target stop without it and say
+how to install it ([`cmake/require_203c.cmake`](cmake/require_203c.cmake); CI builds skip that check, their publish
+step installs 203c). **Never `idf.py flash` a Cardenza**: it erases the 203 Launcher and every firmware it installed;
 `203c flash` installs through the Launcher.
 
 ## The hardware

@@ -20,14 +20,14 @@ from it. It is written for people and for coding agents alike: imperative, with 
 - The HAL's API: [README](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md).
 - The chip and the toolchain, learnt the hard way: [docs/developing.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/developing.md).
 - A project to start from: [examples/template](https://github.com/203-Systems/CardenzaHAL/tree/main/examples/template).
-- `203c`, its Agent Skill, and the development guide and hardware reference of every 203 device (the Cardenza's included): [203-CLI](https://github.com/203-Systems/203-CLI).
+- **Required**: `203c`, the community's CLI, with its Agent Skill and the development guide and hardware reference of every 203 device (the Cardenza's included): [203-CLI](https://github.com/203-Systems/203-CLI). Install it with `npm install -g 203c && 203c skill install`; cloning the repository does not install it, and a firmware on the HAL does not build without it.
 
 ## If you are an AI agent
 
 "Make a metronome for the Cardenza" and the like: do these in order; stop and ask the user only where a step says so.
 
 1. Read this file to the end once. Then read the HAL's [README](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md): its [hardware table](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md#the-hardware) says what the Cardenza has and which header drives it.
-2. Install `203c` if `203c --version` fails: `npm install -g 203c`, then `203c skill install` ([Setup](#nodejs-and-203c)). It is required, for every step below.
+2. Install `203c` if `203c --version` fails: `npm install -g 203c`, then `203c skill install` ([Setup](#nodejs-and-203c)). It is required, for every step below: a firmware's build stops without it (cloning 203-CLI is not installing it).
 3. Set up the project: a new one with `203c new "<Name>" --summary "<what it does>"` ([Start a project](#start-a-project)); someone else's firmware with `203c fork <CODE> [DIR]` ([Forks](#7-forks-and-provenance)).
 4. `python3 components/CardenzaHAL/tools/cardenza.py doctor` in the project: it lists what this computer lacks (ESP-IDF 5.3.5, Emscripten, 203c, the sign-in) with the command for each. Install what is missing ([Setup](#1-dependencies-and-setup)).
 5. Sign in once: when doctor says "not signed in", run `203c login`: it opens the user's browser on the community, they approve, and it comes back signed in (tell the user to approve 203c in the browser). Not on the user's computer (SSH, CI, a remote agent): `203c login --no-browser`, give the user the link and the code it prints, then `203c login --wait`. Never ask for passwords or tokens.
@@ -123,7 +123,9 @@ CMake is missing; its message says how to install it.
 
 `203c` is the community's command line (an Agent Skill with its CLI), from the public repository
 [203-CLI](https://github.com/203-Systems/203-CLI), which also holds each 203 device's development guide and hardware
-reference (`products/cardenza` is this one). It needs Node.js 18 or later.
+reference (`products/cardenza` is this one). It needs Node.js 18 or later. It is required: every build of a firmware
+on the HAL checks for it (`idf.py build`, `tools/cardenza.py build` and the web target alike) and stops without it,
+with the command to install it; CI builds skip that check, since their publish step installs 203c.
 
 On macOS, Linux and Windows alike:
 
