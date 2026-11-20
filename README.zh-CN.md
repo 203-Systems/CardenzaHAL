@@ -4,6 +4,8 @@
 
 [官网](https://203.io/products/cardenza-mini-synthsiser) · [教程](https://cardenza.203.io/zh-Hans/) · [固件社区](https://cardenza.203.io/community) · [固件开发说明](https://cardenza.203.io/community/develop) · [203-CLI](https://github.com/203-Systems/203-CLI) · [示例固件：鸣片 CardenzaSynth](https://github.com/203-Systems/CardenzaSynth)
 
+**要给鸣片做固件？先装 203c，它是必须的。** `npm install -g 203c && 203c skill install`（Node.js 18 或更新；macOS、Linux、Windows 都一样）。下面每一步都用它，没装它，基于这个 HAL 的固件编译不了。只克隆 203-CLI 仓库不算安装。
+
 CardenzaHAL 是 Cardenza（ESP32-S3）的 ESP-IDF 硬件层。你可以用它读取 56 键键盘、控制每颗按键灯、向 240 × 135 屏幕绘图、播放 PCM 音频、访问 SD 卡，给固件加入 USB MIDI、音频和 HID 功能，以及通过 203 Launcher 设置好的 Wi-Fi 上网。
 
 HAL 负责硬件初始化，并提供原生 ESP-IDF 句柄；应用负责界面绘制、键位映射、音频处理、文件格式和主循环。本仓库是组件，需要接入固件工程使用；它的网页目标还能把你的固件编译成浏览器里的模拟器（见[网页模拟器](#网页模拟器)）。
@@ -25,7 +27,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方�
 203c sync                                                 # 之后：.203/community.md，大家提了什么需求、说了什么
 ```
 
-[`tools/cardenza.py`](tools/cardenza.py) 是首选的编译方式：编译前检查 ESP-IDF 5.3、这个 HAL 是干净的子模块、`203c` 已安装（并已登录），shell 没激活 ESP-IDF 时它自己导出环境再编译。**不要对鸣片 `idf.py flash`**：那会抹掉 203 Launcher 和它装过的所有固件；`203c flash` 通过 Launcher 安装。
+[`tools/cardenza.py`](tools/cardenza.py) 是首选的编译方式：编译前检查 ESP-IDF 5.3、这个 HAL 是干净的子模块、`203c` 已安装（并已登录），shell 没激活 ESP-IDF 时它自己导出环境再编译。其他编译方式也检查 `203c`：`idf.py build` 和网页目标没装它就停下，并说怎么装（[`cmake/require_203c.cmake`](cmake/require_203c.cmake)；CI 里不检查，发布那一步会自己装 203c）。**不要对鸣片 `idf.py flash`**：那会抹掉 203 Launcher 和它装过的所有固件；`203c flash` 通过 Launcher 安装。
 
 ## 硬件一览
 

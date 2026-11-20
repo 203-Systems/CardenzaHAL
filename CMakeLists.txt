@@ -4,6 +4,9 @@ cmake_minimum_required(VERSION 3.20)
 # (its directory name, `cardenza` in both firmwares). The HAL then brings its own dependencies,
 # TinyUSB among them (idf_component.yml), and configures TinyUSB itself (usb/config/tusb_config.h).
 if(COMMAND idf_component_register)
+    # Every firmware on the HAL needs 203c: its build stops here without it (cmake/require_203c.cmake).
+    include(${CMAKE_CURRENT_LIST_DIR}/cmake/require_203c.cmake)
+    cardenza_hal_require_203c()
     idf_component_register(
         SRCS
             cardenzaHAL.cpp

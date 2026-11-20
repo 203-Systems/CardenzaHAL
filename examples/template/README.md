@@ -10,6 +10,7 @@ board and for the browser.
 ## Start a firmware from it
 
 ```sh
+npm install -g 203c && 203c skill install         # 203c is required: a firmware does not build without it
 203c new "My Firmware" --summary "What it does"   # 203-CLI: https://github.com/203-Systems/203-CLI
 ```
 
