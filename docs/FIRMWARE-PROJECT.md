@@ -28,7 +28,7 @@ from it. It is written for people and for coding agents alike: imperative, with 
 "Make a metronome for the Cardenza" and the like: do these in order; stop and ask the user only where a step says so.
 
 1. Read this file to the end once. Then read the HAL's [README](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md): its [hardware table](https://github.com/203-Systems/CardenzaHAL/blob/main/README.md#the-hardware) says what the Cardenza has and which header drives it.
-2. Install `203c` if `203c --version` fails: `npm install -g 203c`, then `203c skill install` ([Setup](#nodejs-and-203c)). It is required, for every step below: a firmware's build stops without it (cloning 203-CLI is not installing it).
+2. Install `203c` if `203c --version` fails: `npm install -g 203c`, then `203c skill install` ([Setup](#nodejs-and-203c)). It is required, for every step below: a firmware's build stops without it (cloning 203-CLI is not installing it). In a sandboxed agent (Claude Code on the web, Codex cloud…) the community's hosts must be allowed first: `203c doctor` checks them, and when 203c says `network_blocked_sandbox`, ask the user to allow `cardenza.203.io` and `apps.203.io` in the environment's network settings ([Running in a sandboxed agent](#running-in-a-sandboxed-agent-claude-code-on-the-web-codex-cloud)); you cannot do it yourself.
 3. Set up the project: a new one with `203c new "<Name>" --summary "<what it does>"` ([Start a project](#start-a-project)); someone else's firmware with `203c fork <CODE> [DIR]` ([Forks](#7-forks-and-provenance)).
 4. `python3 components/CardenzaHAL/tools/cardenza.py doctor` in the project: it lists what this computer lacks (ESP-IDF 5.3.5, Emscripten, 203c, the sign-in) with the command for each. Install what is missing ([Setup](#1-dependencies-and-setup)).
 5. Sign in once: when doctor says "not signed in", run `203c login`: it opens the user's browser on the community, they approve, and it comes back signed in (tell the user to approve 203c in the browser). Not on the user's computer (SSH, CI, a remote agent): `203c login --no-browser`, give the user the link and the code it prints, then `203c login --wait`. Never ask for passwords or tokens.
@@ -143,6 +143,29 @@ npm install -g 203c
 - Everything the community's API does for you, 203c does (`203c --help`; `203c api` for anything else): use 203c, not raw HTTP.
 - Every command except `login`, `logout`, `help`, `version`, `doctor` and `rules` needs that sign-in.
 - 203c keeps its token in your home folder, never in the project. GitHub Actions needs no token at all: trusted publishing ([Publish from CI](#publish-from-ci-the-standard-release)).
+
+### Running in a sandboxed agent (Claude Code on the web, Codex cloud…)
+
+A coding agent in a cloud sandbox reaches only the hosts its environment allows, and only the user can change that,
+per environment (no file in the repository can). Package registries and GitHub are on Claude Code's default list, so
+`npm install -g 203c` and `203c skill install` work there; the 203 community is on no default list.
+
+- **Allow `cardenza.203.io` and `apps.203.io`** (the community and its twin). Claude Code on the web: at
+  <https://claude.ai/code>, the environment selector under the message box → Cloud → the environment's settings
+  (gear) icon → Network access: **Limited**, keep **Allow package managers** on, add both to **Allowed domains** (one
+  per line) → **Save changes** (or choose **Full**); a session already open follows within about a minute. A shared
+  Team or Enterprise environment: an Owner changes it in claude.ai's admin settings › Cloud environments. See
+  [Claude Code's cloud environments](https://code.claude.com/docs/en/cloud-environments.md#network-access). Codex
+  cloud and other sandboxes keep their own allowlist per environment (Codex cloud: the environment's internet
+  access): add the same two hosts there.
+- Building may need Espressif's hosts as well (the first build fetches TinyUSB from Espressif's component registry):
+  allow `*.espressif.com`, or install ESP-IDF and build once in the environment's setup script.
+- `203c doctor` checks both hosts. A blocked request is `network_blocked_sandbox` (the sandbox's allowlist, with these
+  steps in its `hint`) or `network_blocked_cdn` (the site's firewall, not the sandbox: report its Ray ID); a host
+  that does not resolve (`ENOTFOUND`) in a sandbox is usually the same allowlist. `203c help sandbox` has it all
+  (203c 3.5.0 and earlier say only `HTTP 403`: the same fix).
+- Until then, what needs no network still works: building, `203c rules`, `203c skill install`, and on a computer
+  with the Cardenza on its USB cable `203c flash --bin build/<project>.bin`, `203c log` and `203c board`.
 
 ## 2. The project: files and layout
 
