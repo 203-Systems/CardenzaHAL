@@ -9,6 +9,7 @@
   "publish": {
     "channel": "stable",
     "bins": {"cardenza": "build/my_firmware.bin"},
-    "notes_file": "CHANGELOG.md"
+    "notes_file": "CHANGELOG.md",
+    "description_file": "docs/description.md"
   }
 }

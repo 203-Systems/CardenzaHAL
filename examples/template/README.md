@@ -36,6 +36,16 @@ Inside the CardenzaHAL repository it builds in place: `python3 tools/cardenza.py
 
 ## Publish
 
+The page first: people who are not developers decide there whether to install it.
+
+- `docs/description.md` is its description (`publish.description_file`): fill in every `<…>` of the template, short
+  and for those people: what it is, 3–6 features, what it needs, how to start (aim for 800 characters; the guide:
+  `203c help description`, <https://cardenza.203.io/community/guide/description>). This README is for developers.
+- 3–5 different screenshots of it in `203.json`'s `publish.images`, e.g. `["docs/screens/1.png", "docs/screens/2.png",
+  "docs/screens/3.png"]`: `203c board screen --out docs/screens/1.png` takes one from a Cardenza on USB running it
+  (it needs CardenzaHAL's USB started, `CardenzaHAL::USB::Init()`, which this template leaves out). `203c publish`
+  needs them.
+
 The first version by hand (it makes the firmware and writes its code into `203.json`: commit that):
 
 ```sh

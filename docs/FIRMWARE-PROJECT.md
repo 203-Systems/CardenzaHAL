@@ -36,6 +36,7 @@ from it. It is written for people and for coding agents alike: imperative, with 
 7. Build with `python3 components/CardenzaHAL/tools/cardenza.py build --web` (the board and the browser; [Build](#4-build)); fix every error and warning of yours.
 8. When the user has a Cardenza on USB: `203c flash --bin build/<project>.bin`, then `203c log --until "<a line your firmware prints when it is ready>" --seconds 30` ([Trying it on a board](#trying-it-on-a-board)). Never `idf.py flash`: it erases the 203 Launcher.
 9. Raise `version.txt` and add a `## <version>` entry to `CHANGELOG.md` (the template starts at 0.1.0 with one).
+   The page ([The page](#the-page-a-short-description-and-35-screenshots)): fill in `docs/description.md` from what the firmware does (short, for people deciding to install: `203c help description`; ask the user what matters to them when you do not know), and with it running on the user's Cardenza take 3–5 different screenshots (`203c board screen --out docs/screens/1.png`, …) into `203.json`'s `publish.images`. Never use pictures that are not of this firmware.
 10. The first version: `203c publish --dry-run`, fix what it reports, then `203c publish` ([Publish](#8-publish)). Ask the user before the real publish, and before `--force`. Publishing goes through 203c only (by hand or from CI).
 11. When the checks send the version back, read the report ([Checks](#5-what-the-community-checks)); fix and publish the next version, or, only for a false positive, appeal.
 12. Commit `203.json` (203c writes the firmware's code into it). Never commit a secret ([Never commit](#9-never-commit)).
@@ -209,7 +210,10 @@ my-firmware/
 ├── version.txt              major.minor.patch: the version in the app description
 ├── CHANGELOG.md             "## <version>" entries: the release notes
 ├── LICENSE                  your code's licence
-├── README.md                what it is, how to use it, how to build it
+├── README.md                for developers: what it is, how to build and try it
+├── docs/
+│   ├── description.md       the page's description: short, for people deciding to install
+│   └── screens/             3–5 screenshots of it: the page's gallery (`203c board screen`)
 ├── .gitignore
 ├── dependencies.lock        written by the first build: commit it
 ├── components/
@@ -266,7 +270,8 @@ back into it after the first publish: commit that.
   "forked_from": {"code": "V6QK28", "version": "0.2.0"},
   "publish_source": true,
   "publish": {"channel": "stable", "bins": {"cardenza": "build/my_synth.bin"}, "notes_file": "CHANGELOG.md",
-              "cover": "docs/cover.png", "description_file": "README.md"}
+              "cover": "docs/cover.png", "description_file": "docs/description.md",
+              "images": ["docs/screens/home.png", "docs/screens/seq.png", "docs/screens/mix.png"]}
 }
 ```
 
@@ -284,7 +289,7 @@ back into it after the first publish: commit that.
 | `license` | an SPDX identifier (`MIT`, `Apache-2.0`, `GPL-3.0-only`, …) or `proprietary` | |
 | `forked_from` | `{"code", "version"}`: the firmware and version this one was made from; absent or `null` for an original | for forks |
 | `publish_source` | `true`: every published version carries a source archive of the commit | default `false` |
-| `publish` | what `203c publish` reads: `channel`, `bins` (`{device: path}`), `notes_file`, `cover`, `description_file`, `notices`, `sim` (a built web folder), `project` (the ESP-IDF project folder), `private` | |
+| `publish` | what `203c publish` reads: `channel`, `bins` (`{device: path}`), `notes_file`, `cover`, `description_file` (the page's description: `docs/description.md`, [The page](#the-page-a-short-description-and-35-screenshots)), `images` (the gallery: 3–5 screenshots, each a path or `{"file", "caption"}`), `notices`, `sim` (a built web folder), `project` (the ESP-IDF project folder), `private` | |
 | `$schema`, `x-…` | for editors and tools; ignored | |
 
 Never a secret in it: no token, no password (203c refuses the file). Older projects may have `203c.json`;
@@ -386,7 +391,7 @@ put `version` in `203.json` and `PROJECT_VER` in CMake ([above](#203json)).
 ### `LICENSE`, `README.md`, `CHANGELOG.md`
 
 - `LICENSE`: your code's licence, with its SPDX identifier in `203.json` `license`. A fork keeps the original's licence terms ([Forks](#7-forks-and-provenance)). Code you vendor keeps its own licence and notices (`publish.notices` uploads a notices file with the BIN).
-- `README.md`: what the firmware does, how to play it (the keys), how to build it. `publish.description_file` may make it the firmware's page.
+- `README.md`: for developers: what the firmware is, how to build and try it, how its source is laid out. It is not the firmware's page: a README with every key's table and the build steps made a 13,000-character page nobody read to the end (2026-11-20). The page's description is `docs/description.md` ([The page](#the-page-a-short-description-and-35-screenshots)); the keys go in the firmware's tutorial on the community.
 - `CHANGELOG.md`: one `## <version>` entry per version, newest first. 203c takes a version's release notes from its entry; a stable version needs notes.
 
 ```markdown
@@ -625,7 +630,32 @@ Publishing goes through 203c, by hand or from CI (the action runs it). A project
 - For a CardenzaHAL firmware it also builds the simulator version (`cardenza_web.py build`) and uploads it with the BIN, so the version shows Play once its web build boots. It needs Emscripten for that; without it, install it ([Setup](#emscripten-the-simulator-version)).
 - With `"publish_source": true` it attaches a source archive of the commit (`git archive` of the tracked files): commit first, and nothing secret may be tracked (the server refuses the archive). `203c source upload <VCODE>` adds one to an existing version.
 - It waits for the checks and prints the firmware's and the version's codes, the version's page and its Play link; a version sent back makes it exit with an error ([Checks](#5-what-the-community-checks)).
+- Signed in yourself it also needs the page below: the gallery it leaves must hold 3–5 different screenshots, and a description over 3000 characters is refused; both are checked before anything is uploaded.
 - `203c publish --json` answers in JSON (for agents and CI). `203c help` lists every command; `203c rules` prints this file.
+
+### The page: a short description and 3–5 screenshots
+
+People who are not developers decide on the firmware's page whether to install it: it reads like a product page,
+not a manual. [The guide](https://cardenza.203.io/community/guide/description) (`203c help description`) has the
+template and an example.
+
+- **The description**, `docs/description.md` (`publish.description_file`; `203c new` and `203c init` write it from the
+  template: fill in every `<…>`): one or two sentences on what it is and who it is for, `## Features` with 3–6 one-line
+  bullets, `## Needs` when it needs something (the Launcher's version, an SD card, an accessory), `## Get started` in
+  1–3 lines, and a line pointing to its tutorial. Aim for 800 characters (pictures not counted); 203c and the site warn
+  over 1500, and a new or changed description over 3000 is refused. Not in it: key tables and every mode's keys (the
+  tutorial), building it (the README), what changed (the release notes), long FAQs.
+- **The gallery**, the large pictures above the description: 3–5 different screenshots of the firmware itself, the
+  screen people see first and then its main features. With it running on a Cardenza on USB (it starts CardenzaHAL's
+  USB, `CardenzaHAL::USB::Init()`; the template does not), `203c board screen --out docs/screens/home.png` saves the
+  screen as a PNG (the page enlarges it pixel for pixel; a firmware that draws through the panel's handles instead of
+  `Present` has none: a photo then); list them in `publish.images` (or `203c publish --image …`).
+  `203c publish` signed in yourself stops before uploading anything unless the gallery it leaves holds 3–5 pictures,
+  all different (`gallery_pictures`); on the website they are only suggested. The browser simulator has no screenshot
+  of its own.
+- CI cannot change pictures (its credential publishes versions only), so a release never fails for them: 203c warns
+  (`gallery_short`) and the `community-publish` action shows it on the run; the owner adds them once, on the site
+  (the firmware's edit page, 图片 / Pictures) or with their own sign-in.
 
 ### Publish from CI (the standard release)
 
@@ -681,7 +711,7 @@ jobs:
 - It installs 203c from the community, signs in with the job's OIDC token, publishes and waits for the checks (a version sent back fails the job, with the report); a run again resumes the same version, never a second one. It builds the simulator version when the runner has Emscripten (the step above), else publishes the BIN alone with a notice.
 - `elf:` keeps the ELF as the run's artifact `elf-<label>` (90 days; the community does not take it). Keep the ELF of every release yourself too (a GitHub Release): a crash's backtrace needs it.
 - Outside the HAL's submodule, `uses: 203-Systems/CardenzaHAL/.github/actions/community-publish@<a commit on main>`.
-- Change the firmware's page (name, summary, tags, links, cover) on the site: CI does not touch it, and `203.json`'s page fields only matter for the first publish.
+- Change the firmware's page (name, summary, tags, links, cover, pictures) on the site: CI does not touch it, and `203.json`'s page fields only matter for the first publish. A gallery without 3–5 different screenshots is a warning on the run (above), never a failure.
 - **On your own Cardenza** (optional): a self-hosted runner on a computer with a Cardenza on its USB cable (labels `self-hosted, cardenza`) installs every build and checks that it starts; the template's workflow has the job (`on-device`, commented out): `203c flash --bin build/<project>.bin` and `203c log --until "<ready line>" --seconds 60`, which fails the job at a panic or when the line never comes.
 - Not on GitHub Actions (or a repository that cannot be linked): a personal token (设置 › 个人令牌, `/me/tokens`, scope `write`) as the CI system's secret `COMMUNITY_TOKEN`, and `203c publish --channel dev --version "$(tr -d '[:space:]' < version.txt)-dev.<n>" --commit <sha> --json` (the action's `token:` input does the same on GitHub).
 
@@ -722,6 +752,8 @@ deleting the line does not remove it from the history.
 - [ ] `version.txt` raised; `CHANGELOG.md` has its `## <version>` entry.
 - [ ] `203.json`: `name`, `summary`, `tags`, `license`, `source`; `forked_from` for a fork.
 - [ ] `LICENSE` and `README.md` present; a fork keeps the original's licence and credits it.
+- [ ] `docs/description.md` by [the guide](https://cardenza.203.io/community/guide/description): what it is, 3–6 features, what it needs, how to start; no key tables, build steps or history (aim for 800 characters, at most 3000).
+- [ ] 3–5 different screenshots of it in `publish.images` (`203c board screen`).
 - [ ] No secret tracked (`git ls-files` shows none of [the list](#9-never-commit)).
 - [ ] `203c publish --dry-run` reports nothing left to fix.
 - [ ] Releases: the workflow with the `community-publish` action and `id-token: write`; the repository linked on the firmware's page (自动发布); beta and dev turned on if you use them.

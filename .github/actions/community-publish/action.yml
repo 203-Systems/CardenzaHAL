@@ -30,7 +30,9 @@
 # project: 203.json names the firmware (its `code`: publish the first version by hand, commit 203.json) and
 # its BINs, version.txt the version, CHANGELOG.md's "## <version>" entry the release notes (stable needs
 # them). Turn the beta and dev channels on once on the firmware's page. The credential publishes versions
-# only: the firmware's page (name, summary, tags, links, cover) is edited on the site, not from CI.
+# only: the firmware's page (name, summary, tags, links, cover, pictures) is edited on the site, not from CI. A
+# gallery without 3-5 different screenshots (which `203c publish` signed in by hand requires) is a warning on the
+# run, never a failure: the owner adds them once.
 # Building from source and flashing a board yourself stay possible; this is the standard way out.
 name: Publish to the 203 community
 description: Publishes a firmware version to the 203 community with 203c (trusted publishing), on dev (push to main), beta (vX.Y.Z-beta.N tag) or stable (vX.Y.Z tag).
@@ -271,7 +273,13 @@ runs:
           const line = `${fw.name ?? "firmware"} ${v.version ?? ""} on ${v.channel ?? process.env.CHANNEL}: ${r.status}` +
             `${v.code ? ` (version ${v.code}, firmware ${fw.code})` : ""}${o.url ? " " + o.url : ""}`;
           console.log(line);
-          if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "### 203 community\n\n" + line + "\n");
+          // What the page lacks that this credential cannot change (the warning gallery_short: not 3-5 different
+          // screenshots): a warning on the run for the owner, never a failure.
+          const advice = (r.warnings ?? []).filter(w => w.code === "gallery_short").map(w => w.message + ". " + (w.hint ?? ""));
+          const escape = t => String(t).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+          for (const a of advice) console.log("::warning title=203 community%3A the gallery::" + escape(a));
+          if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "### 203 community\n\n" + line + "\n" +
+            advice.map(a => "\n> " + a + "\n").join(""));
         ' "$out"
     - if: inputs.elf != '' && (steps.publish.outputs.status == 'published' || steps.publish.outputs.status == 'already_published')
       uses: actions/upload-artifact@v4
