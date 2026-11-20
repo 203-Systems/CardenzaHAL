@@ -1,4 +1,4 @@
-# Builds: the device (idf.py) and the browser (cardenza_web.py); 203c's working folder (203c sync: .203/community.md)
+# Builds: the device (idf.py) and the browser (cardenza_web.py); 203cli's working folder (203cli sync: .203/community.md)
 build/
 build-*/
 .203/
@@ -7,7 +7,7 @@ sdkconfig
 sdkconfig.old
 # Downloaded by the component manager (dependencies.lock pins them: commit the lock)
 managed_components/
-# Secrets never go into the repository (203c refuses a source archive that has them)
+# Secrets never go into the repository (203cli refuses a source archive that has them)
 .env
 .env.*
 !.env.example

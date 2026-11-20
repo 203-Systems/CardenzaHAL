@@ -1,4 +1,4 @@
-# Publishes a firmware version to the 203 community with 203c, on the channel the Git ref names. This is the
+# Publishes a firmware version to the 203 community with 203cli, on the channel the Git ref names. This is the
 # standard release of every firmware on the HAL, 203 Systems' own and everyone else's: the community is
 # where devices get firmware (the 203 Launcher installs and updates it by the firmware's code).
 #
@@ -9,9 +9,9 @@
 #
 # Trusted publishing, no stored secret: the job asks GitHub for its OIDC identity token and the community
 # trades it for a credential that lasts 15 minutes and only publishes versions of this one firmware
-# (`203c login --github-oidc`). The firmware's owner links the repository once: on the firmware's page
+# (`203cli login --github-oidc`). The firmware's owner links the repository once: on the firmware's page
 # (自动发布 / Trusted publishing: owner/name, the workflow file, optionally an environment and the channels)
-# or `203c firmware publishers add <CODE> ...`. A tag vX.Y.Z may publish stable, beta and dev; a beta tag
+# or `203cli firmware publishers add <CODE> ...`. A tag vX.Y.Z may publish stable, beta and dev; a beta tag
 # beta and dev; any other ref dev only.
 #
 #   jobs:
@@ -31,11 +31,11 @@
 # its BINs, version.txt the version, CHANGELOG.md's "## <version>" entry the release notes (stable needs
 # them). Turn the beta and dev channels on once on the firmware's page. The credential publishes versions
 # only: the firmware's page (name, summary, tags, links, cover, pictures) is edited on the site, not from CI. A
-# gallery without 3-5 different screenshots (which `203c publish` signed in by hand requires) is a warning on the
+# gallery without 3-5 different screenshots (which `203cli publish` signed in by hand requires) is a warning on the
 # run, never a failure: the owner adds them once.
 # Building from source and flashing a board yourself stay possible; this is the standard way out.
 name: Publish to the 203 community
-description: Publishes a firmware version to the 203 community with 203c (trusted publishing), on dev (push to main), beta (vX.Y.Z-beta.N tag) or stable (vX.Y.Z tag).
+description: Publishes a firmware version to the 203 community with 203cli (trusted publishing), on dev (push to main), beta (vX.Y.Z-beta.N tag) or stable (vX.Y.Z tag).
 inputs:
   working-directory:
     description: The project's folder, where 203.json is.
@@ -98,11 +98,11 @@ inputs:
     required: false
     default: ""
   api:
-    description: The community's API. Default 203c's (the live community).
+    description: The community's API. Default 203cli's (the live community).
     required: false
     default: ""
   skill-url:
-    description: Where 203c is installed from.
+    description: Where 203cli is installed from.
     required: false
     default: https://cardenza.203.io/community/skill
 outputs:
@@ -127,7 +127,7 @@ outputs:
 runs:
   using: composite
   steps:
-    # The channel from the ref; Node 18+ for 203c.
+    # The channel from the ref; Node 18+ for 203cli.
     - id: plan
       shell: bash
       env:
@@ -181,7 +181,7 @@ runs:
         json() { node -p "const j = require('./203.json'); String(j.$1 ?? '')" 2> /dev/null || true; }
         # The firmware and the version: the inputs, else 203.json and version.txt.
         firmware=${FIRMWARE:-$(json code)}
-        [ -n "$firmware" ] || { echo "::error::no firmware code: publish the first version by hand (203c publish), commit 203.json with its code, then link this repository on the firmware's page"; exit 1; }
+        [ -n "$firmware" ] || { echo "::error::no firmware code: publish the first version by hand (203cli publish), commit 203.json with its code, then link this repository on the firmware's page"; exit 1; }
         version=$VERSION
         if [ -z "$version" ] && [ -f version.txt ]; then version=$(tr -d '[:space:]' < version.txt); fi
         [ -n "$version" ] || version=$(json version)
@@ -200,14 +200,18 @@ runs:
         esac
         echo "label=$label" >> "$GITHUB_OUTPUT"
 
-        # 203c from the community (the installer checks the download's SHA-256), outside the project; its
+        # 203cli from the community (the installer checks the download's SHA-256), outside the project; its
         # sign-in stays in this run's temporary folder.
-        home="$RUNNER_TEMP/203c"
+        home="$RUNNER_TEMP/203cli"
         export PATH="$home/bin:$PATH"
         curl -fsSL --retry 3 "${COMMUNITY_SKILL_URL%/}/install.sh" |
           CLAUDE_SKILLS_DIR="$home/skills" COMMUNITY_BIN_DIR="$home/bin" sh > /dev/null
         export XDG_CONFIG_HOME="$home/config"
-        cli() { node "$home/skills/203-community/scripts/203c.mjs" "$@"; }
+        # (A community that still serves the skill from before the rename, when 203cli was called 203c, has
+        # scripts/203c.mjs only: that one then.)
+        script="$home/skills/203-community/scripts/203cli.mjs"
+        [ -f "$script" ] || script="$home/skills/203-community/scripts/203c.mjs"
+        cli() { node "$script" "$@"; }
         if [ -n "$TOKEN" ]; then
           export COMMUNITY_TOKEN=$TOKEN
         elif [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
@@ -215,16 +219,16 @@ runs:
         fi
         signin() {
           [ -z "${COMMUNITY_TOKEN:-}" ] || return 0
-          cli login --github-oidc --firmware "$firmware" --json > /dev/null 2> "$RUNNER_TEMP/203c-login.err" || {
-            cat "$RUNNER_TEMP/203c-login.err" >&2
-            echo "::error::the community did not trust this run for $firmware: link this repository (and workflow) on the firmware's page, 自动发布 / Trusted publishing, or 203c firmware publishers add $firmware"
+          cli login --github-oidc --firmware "$firmware" --json > /dev/null 2> "$RUNNER_TEMP/203cli-login.err" || {
+            cat "$RUNNER_TEMP/203cli-login.err" >&2
+            echo "::error::the community did not trust this run for $firmware: link this repository (and workflow) on the firmware's page, 自动发布 / Trusted publishing, or 203cli firmware publishers add $firmware"
             return 1; }
         }
 
         set -- publish --json --firmware "$firmware" --channel "$CHANNEL" --version "$label" --commit "$GITHUB_SHA" --timeout "$TIMEOUT"
         while read -r bin; do [ -z "$bin" ] || set -- "$@" --bin "$bin"; done <<< "$(printf '%s\n' "$BINS" | tr ' ' '\n')"
         # Notes: the "## <label>" entry of the notes file (stable needs one); a beta without its own entry
-        # gets a line naming it (203c asks for notes on beta), a dev version none.
+        # gets a line naming it (203cli asks for notes on beta), a dev version none.
         notes_file=${NOTES_FILE:-$(json publish.notes_file)}
         notes_file=${notes_file:-CHANGELOG.md}
         if [ "$CHANNEL" = beta ] && ! grep -Eqs "^#{1,3} +v?${label//./\\.}( |$)" "$notes_file"; then
@@ -246,20 +250,20 @@ runs:
 
         # Exit 3 (try again: the network, the checks still running) and 4 (the 15-minute credential ran
         # out) sign in again and run it again: a run again resumes the same version, never a second one.
-        out="$RUNNER_TEMP/203c-publish.json" err="$RUNNER_TEMP/203c-publish.err"
+        out="$RUNNER_TEMP/203cli-publish.json" err="$RUNNER_TEMP/203cli-publish.err"
         for attempt in 1 2 3; do
           signin
           code=0
           cli "$@" > "$out" 2> "$err" || code=$?
-          case "$code" in 3|4) [ "$attempt" = 3 ] || { echo "::warning::203c: $(tail -n 1 "$err" | cut -c1-300)"; sleep 20; continue; } ;; esac
+          case "$code" in 3|4) [ "$attempt" = 3 ] || { echo "::warning::203cli: $(tail -n 1 "$err" | cut -c1-300)"; sleep 20; continue; } ;; esac
           break
         done
         if [ "$code" != 0 ]; then
           cat "$out" "$err" >&2
           case "$code" in
-            5) echo "::error::$label was sent back by the community's checks (the report above; 203c versions check <version code>)" ;;
+            5) echo "::error::$label was sent back by the community's checks (the report above; 203cli versions check <version code>)" ;;
             6) echo "::error::$label needs a decision (the hint above): fix it, or publish it by hand" ;;
-            *) echo "::error::203c publish failed (exit $code): $(tail -n 1 "$err" | cut -c1-400)" ;;
+            *) echo "::error::203cli publish failed (exit $code): $(tail -n 1 "$err" | cut -c1-400)" ;;
           esac
           exit 1
         fi

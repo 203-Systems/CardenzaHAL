@@ -14,11 +14,11 @@ menu "CardenzaHAL"
             switches it off, for a firmware that needs HOME itself.
 
     config CARDENZA_HAL_USB_DEV
-        bool "Development channel over USB: a computer's questions about the firmware (203c board)"
+        bool "Development channel over USB: a computer's questions about the firmware (203cli board)"
         default y
         help
             With USB started (USB::Init), the HAL answers a computer's questions about this firmware on its
-            system channel (docs/usb-dev.md; the computer's side is 203c board): what it is and how it was
+            system channel (docs/usb-dev.md; the computer's side is 203cli board): what it is and how it was
             built, the partition table and how full it is, memory and tasks, the SD card, the I2C bus, a
             screenshot, its last crash (the core dump), keys pressed from the computer, and files on the card.
 

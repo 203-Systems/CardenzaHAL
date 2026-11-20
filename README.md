@@ -4,7 +4,7 @@
 
 [Website](https://203.io/products/cardenza-mini-synthsiser) · [Learn Cardenza](https://cardenza.203.io) · [203 Community](https://cardenza.203.io/community) · [Firmware developer guide](https://cardenza.203.io/community/develop) · [203-CLI](https://github.com/203-Systems/203-CLI) · [Example firmware: CardenzaSynth](https://github.com/203-Systems/CardenzaSynth)
 
-**Making a firmware for the Cardenza? Install 203c first: it is required.** `npm install -g 203c && 203c skill install`
+**Making a firmware for the Cardenza? Install 203cli first: it is required.** `npm install -g 203cli && 203cli skill install`
 (Node.js 18 or later; macOS, Linux and Windows alike). Every step below uses it, and a firmware on this HAL does not
 build without it. Cloning the 203-CLI repository does not install it.
 
@@ -15,32 +15,32 @@ The HAL provides hardware initialization and native ESP-IDF handles. Your applic
 ## Making a firmware on CardenzaHAL
 
 Two things are required: **this HAL** (every firmware reaches the hardware only through it) and
-**[203-CLI](https://github.com/203-Systems/203-CLI)**, `203c`, the 203 community's command line: it makes the
+**[203-CLI](https://github.com/203-Systems/203-CLI)**, `203cli`, the 203 community's command line: it makes the
 project, puts a build on your Cardenza, reads its log and is the only way to publish (by hand or from CI). It comes
 with an Agent Skill for coding agents and every 203 device's guide (the Cardenza's:
 [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)). The rules for
 every step, for people and agents alike: [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md).
 
 ```sh
-npm install -g 203c && 203c skill install                           # 203c and its Agent Skill (Node.js 18+, any OS)
-203c new "My firmware" --summary "What it does"                      # the project: this HAL as a submodule, the template
+npm install -g 203cli && 203cli skill install                       # 203cli and its Agent Skill (Node.js 18+, any OS)
+203cli new "My firmware" --summary "What it does"                    # the project: this HAL as a submodule, the template
 cd my-firmware
-python3 components/CardenzaHAL/tools/cardenza.py doctor   # what this computer still needs (ESP-IDF 5.3.5, Emscripten, 203c)
+python3 components/CardenzaHAL/tools/cardenza.py doctor   # what this computer still needs (ESP-IDF 5.3.5, Emscripten, 203cli)
 python3 components/CardenzaHAL/tools/cardenza.py build    # the preferred build: the checks, then idf.py build
-203c flash --bin build/my_firmware.bin                    # onto your Cardenza over USB, through the 203 Launcher
-203c log                                                  # what it prints
-203c login                                                # once on a computer: the browser asks you to approve
-203c publish --dry-run && 203c publish                    # the first version; then CI publishes (Releasing)
-203c sync                                                 # later: .203/community.md, what people asked for and said
+203cli flash --bin build/my_firmware.bin                  # onto your Cardenza over USB, through the 203 Launcher
+203cli log                                                # what it prints
+203cli login                                              # once on a computer: the browser asks you to approve
+203cli publish --dry-run && 203cli publish                # the first version; then CI publishes (Releasing)
+203cli sync                                               # later: .203/community.md, what people asked for and said
 ```
 
 [`tools/cardenza.py`](tools/cardenza.py) is the preferred way to build: it checks ESP-IDF 5.3, that this HAL is a
-clean submodule and that `203c` is installed (and signed in) before it builds, and exports ESP-IDF for the build when
-the shell has not. Every other way checks for `203c` too: `idf.py build` and the web target stop without it and say
-how to install it ([`cmake/require_203c.cmake`](cmake/require_203c.cmake); CI builds skip that check, their publish
-step installs 203c), and print 203c's update notices as a warning: a newer `203c`, this HAL behind its `main` or not a
-clean copy (`203c updates`; [Updates](docs/FIRMWARE-PROJECT.md#updates-203c-and-the-hal)). **Never `idf.py flash` a Cardenza**: it erases the 203 Launcher and every firmware it installed;
-`203c flash` installs through the Launcher.
+clean submodule and that `203cli` is installed (and signed in) before it builds, and exports ESP-IDF for the build when
+the shell has not. Every other way checks for `203cli` too: `idf.py build` and the web target stop without it and say
+how to install it ([`cmake/require_203cli.cmake`](cmake/require_203cli.cmake); CI builds skip that check, their publish
+step installs 203cli), and print 203cli's update notices as a warning: a newer `203cli`, this HAL behind its `main` or not a
+clean copy (`203cli updates`; [Updates](docs/FIRMWARE-PROJECT.md#updates-203cli-and-the-hal)). **Never `idf.py flash` a Cardenza**: it erases the 203 Launcher and every firmware it installed;
+`203cli flash` installs through the Launcher.
 
 ## The hardware
 
@@ -60,7 +60,7 @@ What the Cardenza has, and where it is in the HAL. Pins: [`board/pins.h`](board/
 | HOME | the side key (GPIO0; a press opens the [system menu](#system-menu-press-home-in-any-firmware); held while plugging in USB or at a reset: the ROM's download mode) | [`system/system.h`](system/system.h): `GetFuncButton`; [Func button, I2C, and IR](#func-button-i2c-and-ir) |
 | I2C | the shared bus (GPIO1/2), the codec on it | [`system/system.h`](system/system.h): `GetI2CBus` |
 | IR | a transmitter (GPIO44, NEC at 38 kHz) | [`ir/ir.h`](ir/ir.h): `Send` |
-| USB | the chip's USB PHY: USB-Serial-JTAG (the log, esptool), or the HAL's device: MIDI, audio both ways, HID, the system channel (log, restart into the Launcher) | [`usb/usb.h`](usb/usb.h); [USB device usage](#usb-device-usage); on the computer: `203c log`, [`tools/cardenza_usb.py`](tools/cardenza_usb.py) |
+| USB | the chip's USB PHY: USB-Serial-JTAG (the log, esptool), or the HAL's device: MIDI, audio both ways, HID, the system channel (log, restart into the Launcher) | [`usb/usb.h`](usb/usb.h); [USB device usage](#usb-device-usage); on the computer: `203cli log`, [`tools/cardenza_usb.py`](tools/cardenza_usb.py) |
 | Wi-Fi, Bluetooth | the chip's radios (2.4 GHz Wi-Fi, Bluetooth 5 LE) | ESP-IDF's own drivers, not the HAL (the browser simulator has none: [Web simulator](#web-simulator)) |
 
 ## Releasing
@@ -69,8 +69,8 @@ Every firmware on the HAL, 203 Systems' own (Cardenza Synth, the 203 Launcher) a
 the same way: to the 203 community, whose channels the 203 Launcher installs and updates from.
 
 - Channels follow the Git ref, from CI with [`.github/actions/community-publish`](.github/actions/community-publish/action.yml): a push to `main` is **dev** (`<version>-dev.<run>`), a tag `vX.Y.Z` equal to `version.txt` is **stable** (its notes are `CHANGELOG.md`'s `## X.Y.Z`), a tag `vX.Y.Z-beta.N` is **beta**.
-- Trusted publishing, no stored secret: the job (`permissions: id-token: write`) signs in with its GitHub OIDC token, which the community accepts for the repositories the firmware's owner linked on its page (自动发布 / Trusted publishing) or with `203c firmware publishers add`.
-- The first version is published by hand (`203c publish`), which gives the firmware its code; [`examples/template`](examples/template) has the workflow. The details: [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md#8-publish).
+- Trusted publishing, no stored secret: the job (`permissions: id-token: write`) signs in with its GitHub OIDC token, which the community accepts for the repositories the firmware's owner linked on its page (自动发布 / Trusted publishing) or with `203cli firmware publishers add`.
+- The first version is published by hand (`203cli publish`), which gives the firmware its code; [`examples/template`](examples/template) has the workflow. The details: [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md#8-publish).
 - Building from source and flashing your own board stay possible; they are not releases.
 
 ## Requirements
@@ -178,8 +178,8 @@ From the firmware root (ESP-IDF 5.3 found and exported by the tool):
 
 ```sh
 python3 components/CardenzaHAL/tools/cardenza.py build   # or, in an activated ESP-IDF shell: idf.py build
-203c flash --bin build/cardenza_hello.bin                # through the 203 Launcher (never idf.py flash: it erases the Launcher)
-203c log                                                 # its log over USB
+203cli flash --bin build/cardenza_hello.bin              # through the 203 Launcher (never idf.py flash: it erases the Launcher)
+203cli log                                               # its log over USB
 ```
 
 A board without the 203 Launcher (a bare chip): `idf.py -p <PORT> flash monitor`. The example shows a white strip on a black screen; held keys light up and turn off when released. A missing SD card is allowed. This example initializes the audio hardware but does not play sound.
@@ -434,7 +434,7 @@ USB audio does not automatically route to the speaker or microphone. Bridge it i
 
 ### USB protocol and platform notes
 
-`CardenzaHAL::USB::Init()` (`usb/usb.h`) turns the USB port into one composite device: USB MIDI 1.0, USB Audio 2.0 (stereo 16-bit, 44.1 kHz, both ways, asynchronous with feedback: the host follows the device's clock) and HID (keyboard, consumer keys, a system channel and the firmware's own raw reports). VID 0x0203 (203 Systems). Report IDs and command bytes follow Matrix OS: report 0xCB carries system commands (0x40 Launcher / update mode, 0x41 reboot, 0x42 ROM download mode, 0x43 console, 0x44 identify, 0x45 the [development channel](#development-channel-203c-board); answers come back as command | 0x80), and the same commands work as SysEx `F0 23 <command> F7`. The firmware's own reports (0xFF) also come as SysEx `F0 23 7F <bytes> F7` from a host without HID access (a web page with Web MIDI), and `SendAppReport` answers the way the last one came (`F0 24 7F <bytes> F7`, 7-bit). MIDI packets from the firmware and the HAL's SysEx are written one sender at a time, so a SysEx reaches the host whole.
+`CardenzaHAL::USB::Init()` (`usb/usb.h`) turns the USB port into one composite device: USB MIDI 1.0, USB Audio 2.0 (stereo 16-bit, 44.1 kHz, both ways, asynchronous with feedback: the host follows the device's clock) and HID (keyboard, consumer keys, a system channel and the firmware's own raw reports). VID 0x0203 (203 Systems). Report IDs and command bytes follow Matrix OS: report 0xCB carries system commands (0x40 Launcher / update mode, 0x41 reboot, 0x42 ROM download mode, 0x43 console, 0x44 identify, 0x45 the [development channel](#development-channel-203cli-board); answers come back as command | 0x80), and the same commands work as SysEx `F0 23 <command> F7`. The firmware's own reports (0xFF) also come as SysEx `F0 23 7F <bytes> F7` from a host without HID access (a web page with Web MIDI), and `SendAppReport` answers the way the last one came (`F0 24 7F <bytes> F7`, 7-bit). MIDI packets from the firmware and the HAL's SysEx are written one sender at a time, so a SysEx reaches the host whole.
 
 - It takes the chip's only USB PHY from USB-Serial-JTAG: the console moves to the system channel and esptool's port is gone until a restart into the Launcher or the ROM download mode.
 - The ESP32-S3 has four IN endpoints besides EP0, and the device uses all of them (MIDI, audio in, audio feedback, HID). There is no room for CDC.
@@ -443,11 +443,11 @@ USB audio does not automatically route to the speaker or microphone. Bridge it i
 - With `keyboard = true`, macOS asks the user to identify the keyboard once, and a host tool may open the HID interface (system channel included) only with the Input Monitoring permission. SysEx needs no permission.
 - Tested on macOS (2026-11-02): MIDI both ways, system commands over HID and SysEx, the console, audio both ways at 44.1 kHz. On full speed the feedback goes out as 10.14 in 3 bytes (macOS stops playing after 128 ms on TinyUSB's 16.16); a host that asks for the Microsoft OS string gets 16.16 (Windows, not tested). TinyUSB's DWC2 driver does not restart an isochronous OUT transfer that missed its frame; the HAL restarts the playback endpoint after 20 ms without data.
 
-### Development channel (`203c board`)
+### Development channel (`203cli board`)
 
-With USB started, every firmware on the HAL answers a computer's questions about itself, with no code of its own: command 0x45 on the system channel ([`docs/usb-dev.md`](docs/usb-dev.md), the protocol), read with `203c board` from [203-CLI](https://github.com/203-Systems/203-CLI):
+With USB started, every firmware on the HAL answers a computer's questions about itself, with no code of its own: command 0x45 on the system channel ([`docs/usb-dev.md`](docs/usb-dev.md), the protocol), read with `203cli board` from [203-CLI](https://github.com/203-Systems/203-CLI):
 
-| `203c board` | What it shows or does |
+| `203cli board` | What it shows or does |
 | --- | --- |
 | `info` | The firmware (name, version, community code, ESP-IDF, build time, the ELF's SHA-256 a backtrace is decoded with), the HAL's commit, the 203 Launcher's version, the chip (revision, MAC, flash, PSRAM), uptime and why it last restarted |
 | `partitions` | The partition table on the board, each application's image size against its partition, NVS use, flash left |
@@ -670,7 +670,7 @@ The HAL ships what the board is, as defaults a firmware can take (none is enforc
 
 Command-line tools for the computer the board is plugged into (Python 3, no board needed to read them):
 
-- [`tools/cardenza.py`](tools/cardenza.py): the preferred way to build a firmware. `doctor` says what the project and the computer lack (ESP-IDF 5.3, git, a clean HAL submodule, `203c` and its sign-in, Emscripten) and how to install it; `build` checks first, then runs `idf.py build` (exporting ESP-IDF when the shell has not) and says how much of the Launcher's room the image takes (`--web`: the browser version too); `web` builds the browser version; `flash` and `log` hand the build to `203c flash --bin` and `203c log`. Standard library only, Linux, macOS and Windows.
+- [`tools/cardenza.py`](tools/cardenza.py): the preferred way to build a firmware. `doctor` says what the project and the computer lack (ESP-IDF 5.3, git, a clean HAL submodule, `203cli` and its sign-in, Emscripten) and how to install it; `build` checks first, then runs `idf.py build` (exporting ESP-IDF when the shell has not) and says how much of the Launcher's room the image takes (`--web`: the browser version too); `web` builds the browser version; `flash` and `log` hand the build to `203cli flash --bin` and `203cli log`. Standard library only, Linux, macOS and Windows.
 
 - [`tools/cardenza_usb.py`](tools/cardenza_usb.py): the host side of `usb/usb.h`. `list` shows the board's HID, MIDI and audio devices; `command identify|reboot|launcher|download` restarts it (into the Launcher, or into ROM download mode, the way to flash a firmware that runs USB and so has no serial port); `console <seconds>` prints its console and log; `app <text>` talks to the firmware's own app channel. A firmware's own tool can import it. Needs `pip install hidapi`; MIDI goes through macOS CoreMIDI.
 - [`tools/cardenza_flash.py`](tools/cardenza_flash.py): flashes a build without erasing the Launcher (above).
@@ -692,15 +692,15 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 ## Developer notes, examples and publishing
 
 - [`docs/developing.md`](docs/developing.md): what the chip and its toolchain do that is easy to miss (two RAMs, atomics with PSRAM, `memcpy` and division in hot code, what a flash write stops, reading files, USB and the serial port, debugging a hang), and how a firmware behaves under the 203 Launcher.
-- [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md): the rules for a firmware project on the HAL and for publishing it on the 203 community with `203c` (the community serves this file at `/develop.md`).
+- [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md): the rules for a firmware project on the HAL and for publishing it on the 203 community with `203cli` (the community serves this file at `/develop.md`).
 - [`examples/template`](examples/template): a firmware project to start from: the HAL as a submodule, the board's defaults, a partition table that keeps the Launcher, `version.txt`, `CHANGELOG.md` and `203.json`. It builds for the board and the browser.
 - [`examples/psram_heap`](examples/psram_heap): a small firmware that adds the PSRAM to the heap only for code that asks for it, and replaces `new` so a failed allocation is a null pointer instead of a reboot. `idf.py -C examples/psram_heap build`.
 - [`examples/launcher_net`](examples/launcher_net): reads the Launcher's settings, joins its Wi-Fi, makes one HTTPS request and takes everything down, logging time and RAM at each step; its `sdkconfig.defaults` is the reference set of options for a firmware using Net. `idf.py -C examples/launcher_net build`.
 - [`examples/community_presence`](examples/community_presence): `CardenzaHAL::Init()` with the presence service, a handover hook, the service's state in the log. `idf.py -C examples/community_presence build`.
 - [`examples/hal_check`](examples/hal_check): the board through the HAL, key by key: every key's cell and LED, a tone per held key from an audio task, HOME. It builds for the board and for the browser alike.
-- [`.github/actions/community-publish`](.github/actions/community-publish/action.yml): the standard release of every firmware, a GitHub Action that publishes a version to the 203 community with `203c` and trusted publishing (dev for a push to main, beta and stable for `vX.Y.Z-beta.N` and `vX.Y.Z` tags; [Releasing](#releasing)).
+- [`.github/actions/community-publish`](.github/actions/community-publish/action.yml): the standard release of every firmware, a GitHub Action that publishes a version to the 203 community with `203cli` and trusted publishing (dev for a push to main, beta and stable for `vX.Y.Z-beta.N` and `vX.Y.Z` tags; [Releasing](#releasing)).
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml): the old Launcher hub, only for the transition: 203 Systems' official firmware mirror their releases there while 203 Launchers 0.2.0, which read only the hub's catalog, are still in use. New firmware do not use it.
-- **AI agents and the 203 community**: for publishing a firmware's versions, reading its feature requests, check reports or sending it to a device, install the 203 community skill once: `curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh` (into `~/.claude/skills/203-community`; details on https://community.203.io/agents).
+- **AI agents and the 203 community**: for publishing a firmware's versions, reading its feature requests, check reports or sending it to a device, install 203cli and its Agent Skill once: `npm install -g 203cli && 203cli skill install` (the skill goes into `~/.claude/skills/203-community`; details on https://community.203.io/agents). 203cli was called `203c`: where a script or an old note says `203c`, use `203cli`.
 
 ## Web simulator
 
