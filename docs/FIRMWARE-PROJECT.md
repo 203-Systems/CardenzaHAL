@@ -41,6 +41,7 @@ from it. It is written for people and for coding agents alike: imperative, with 
 12. Commit `203.json` (203c writes the firmware's code into it). Never commit a secret ([Never commit](#9-never-commit)).
 13. The standard release ([Publish from CI](#publish-from-ci-the-standard-release)): once the repository is on GitHub, `203c link` makes it the firmware's trusted publisher (the template has the workflow). From then on a push to `main` is a dev version and a tag `vX.Y.Z` the release.
 14. Before every change to a published firmware: `203c sync`, then read `.203/community.md`: the page, every version's notes, what users asked for and said (requests with votes and their discussion, comments with replies), merge requests and forks, new ones marked. Work from it, answer with `203c comments add …`, release the next version. `203c project diff <FORK>` shows what a fork changed.
+15. When 203c or the build says an update is out ("203c X is out", "CardenzaHAL in this project is N commits behind its main"): update 203c at once as the line says; update the HAL as a change of its own, built and tried, its pointer committed alone, after the task at hand or when the user agrees ([Updates](#updates-203c-and-the-hal)).
 
 ## 1. Dependencies and setup
 
@@ -92,7 +93,7 @@ git commit -m "Add CardenzaHAL"
 ```
 
 - After cloning a project that has it: `git clone --recursive <url>`, or `git submodule update --init --recursive`.
-- Update it: `git submodule update --remote components/CardenzaHAL`, build and test, then commit the new pointer (`git add components/CardenzaHAL`).
+- Update it: `git submodule update --remote components/CardenzaHAL`, build and test, then commit the new pointer (`git add components/CardenzaHAL`). 203c and the build say when it is behind its `main` ([Updates](#updates-203c-and-the-hal)).
 - Keep it a clean copy of upstream: never edit, commit or push inside it, and never pin it to a commit that is not on upstream `main`. `python3 components/CardenzaHAL/tools/check_submodule.py --fetch` fails when it is not (run it before builds; it also makes pushes from the submodule impossible).
 - Missing or wrong in the HAL? Open an issue or a pull request at <https://github.com/203-Systems/CardenzaHAL>; do not patch your copy.
 - Elsewhere than `components/`? Put the folder in `EXTRA_COMPONENT_DIRS` **before** `include($ENV{IDF_PATH}/tools/cmake/project.cmake)`, and keep the folder named `CardenzaHAL` (the official CardenzaSynth keeps it at `Devices/Cardenza/CardenzaHAL`).
@@ -137,12 +138,42 @@ npm install -g 203c
 203c login
 ```
 
-- `npm install -g 203c` gives the `203c` command (no dependencies, no install scripts); `203c skill install` puts its Agent Skill where coding agents read it (`~/.claude/skills/203-community`, and `~/.codex/skills` when Codex is there). Run both again to update; `203c doctor` says when the skill is older than the command.
+- `npm install -g 203c` gives the `203c` command (no dependencies, no install scripts); `203c skill install` puts its Agent Skill where coding agents read it (`~/.claude/skills/203-community`, and `~/.codex/skills` when Codex is there). Run both again to update; 203c says when a newer one is out ([Updates](#updates-203c-and-the-hal)), and `203c doctor` when the skill is older than the command.
 - 203c runs wherever Node does; it uses the USB cable (`flash`, `log`) on macOS and Linux, and on Windows the website does that in Chrome or Edge.
 - `203c login` opens the browser on the community's sign-in page: sign in there (GitHub) if it asks, approve "203c on <your computer>", and the browser goes back to 203c (OAuth's authorization code with PKCE and a redirect to 203c on `127.0.0.1`). Where no browser can be opened, make a personal token on the site (设置 › 个人令牌, `/me/tokens`) and run `203c login --with-token`: it asks for the token (not shown), checks it and saves it (a script pipes it in: `203c login --with-token < token.txt`). An agent running remotely signs in with `203c login --no-browser`: a link and a code to approve on the site. Every way saves a personal token, listed on the site under 设置 › 个人令牌, where you can delete it. You sign in once: it has no end.
 - Everything the community's API does for you, 203c does (`203c --help`; `203c api` for anything else): use 203c, not raw HTTP.
 - Every command except `login`, `logout`, `help`, `version`, `doctor` and `rules` needs that sign-in.
 - 203c keeps its token in your home folder, never in the project. GitHub Actions needs no token at all: trusted publishing ([Publish from CI](#publish-from-ci-the-standard-release)).
+
+### Updates: 203c and the HAL
+
+203c and every build say when one of the two is out of date: 203c against its newest release on npm, the HAL
+submodule against CardenzaHAL's `main` on GitHub, each asked at most once a day, silently when there is no answer
+(offline, a sandbox's allowlist), never in CI.
+
+- `203c 3.6.0 is out (you have 3.5.1): npm install -g 203c && 203c skill install`: run both (the skill is the
+  command's own copy), then go on.
+- `CardenzaHAL in this project (components/CardenzaHAL) is 12 commits behind its main: …`: update it as a change of
+  its own, built and tried before it is committed:
+
+  ```sh
+  git submodule update --remote components/CardenzaHAL
+  python3 components/CardenzaHAL/tools/cardenza.py build --web    # then 203c flash --bin … and 203c log on a board
+  git add components/CardenzaHAL
+  git commit -m "CardenzaHAL: up to its main"
+  ```
+
+  What changed: the HAL's commits since the old pointer (`git -C components/CardenzaHAL log --oneline <old>..HEAD`,
+  or <https://github.com/203-Systems/CardenzaHAL/commits/main>). An agent in the middle of a task finishes it first, or
+  asks the user.
+- `CardenzaHAL in this project (…) is not a clean copy of upstream main: …` (the HAL's own `check_submodule.py`): put
+  it back as the line says; a change to the HAL goes upstream ([the submodule](#cardenzahal-as-a-git-submodule)).
+
+Where they appear: on stderr when 203c's commands of the work end (`sim`, `flash`, `log`, `board`, `new`, `fork`,
+`clone`, `init`, `link`, `publish`, `rules`, `source`, `sync`); as a CMake warning in `idf.py build`,
+`tools/cardenza.py build` and the web build (`cmake/require_203c.cmake` runs `203c updates --quiet`, with 203c 3.5.1
+or later); listed by `203c doctor` and `tools/cardenza.py doctor`; `203c updates` asks now. They never change a
+command's answer or exit code. Off with `NO_UPDATE_NOTIFIER=1` (or `C203_NO_UPDATE_CHECK=1`).
 
 ### Running in a sandboxed agent (Claude Code on the web, Codex cloud…)
 
@@ -686,7 +717,7 @@ deleting the line does not remove it from the history.
 - [ ] `tools/cardenza.py build --web` succeeds (the board and the browser); the BIN is `build/<project>.bin`.
 - [ ] On a Cardenza: `203c flash --bin build/<project>.bin` and `203c log` show it starting, without a panic.
 - [ ] `CardenzaHAL::Init()` runs first; missing hardware is reported, never aborts or restarts the firmware.
-- [ ] The HAL submodule is clean and on upstream `main` (`check_submodule.py --fetch`).
+- [ ] The HAL submodule is clean and on upstream `main` (`check_submodule.py --fetch`), and current (`203c updates`).
 - [ ] The partition table keeps the Launcher's regions; the image is well under 0x690000 bytes.
 - [ ] `version.txt` raised; `CHANGELOG.md` has its `## <version>` entry.
 - [ ] `203.json`: `name`, `summary`, `tags`, `license`, `source`; `forked_from` for a fork.

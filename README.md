@@ -38,7 +38,8 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # the preferred build:
 clean submodule and that `203c` is installed (and signed in) before it builds, and exports ESP-IDF for the build when
 the shell has not. Every other way checks for `203c` too: `idf.py build` and the web target stop without it and say
 how to install it ([`cmake/require_203c.cmake`](cmake/require_203c.cmake); CI builds skip that check, their publish
-step installs 203c). **Never `idf.py flash` a Cardenza**: it erases the 203 Launcher and every firmware it installed;
+step installs 203c), and print 203c's update notices as a warning: a newer `203c`, this HAL behind its `main` or not a
+clean copy (`203c updates`; [Updates](docs/FIRMWARE-PROJECT.md#updates-203c-and-the-hal)). **Never `idf.py flash` a Cardenza**: it erases the 203 Launcher and every firmware it installed;
 `203c flash` installs through the Launcher.
 
 ## The hardware
