@@ -33,18 +33,21 @@
    ```
    Windows 用网站（Chrome 或 Edge）的「烧录本地固件」；日志用 `pip install hidapi` 后 `python components/CardenzaHAL/tools/cardenza_usb.py console 60`。
    `203c board` 通过 USB 查询正在运行的固件，固件不用写代码：`info`（是什么、怎么编译的、Launcher、芯片、上次为什么重启）、`partitions`（板子上的分区表和占用）、`memory`（内存、PSRAM、每个任务的栈和 CPU）、`storage`、`status`、`i2c`、`screen`（截图 PNG）、`press`（从电脑按键，不碰板子也能测界面）、`coredump`（上次崩溃）、`files`（SD 卡上的 `ls`、`get`、`put`、`rm`、`mkdir`、`mv`）。要先启动 USB：在 `CardenzaHAL::Init()` 之后加一行 `CardenzaHAL::USB::Init();`（模板没有启动）。任务、CPU 占用和崩溃转储要用板子的调试配置（`board/sdkconfig.debug`）。协议：[docs/usb-dev.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/usb-dev.md)。
-7. 第一个版本手动发布（只能通过 203c：手动或 CI）：提高 `version.txt`，在 `CHANGELOG.md` 写 `## <版本>`，然后
+7. 先把固件页准备好：看固件页决定装不装的是普通用户，不是开发者，所以固件页要像产品介绍，不是说明书（[写法](https://cardenza.203.io/community/guide/description)，`203c help description`）。
+   - **简介**是 `docs/description.md`（`publish.description_file`；`203c new`、`203c init` 会按模板写好，把每个 `<…>` 换成自己的内容）：一两句话说清它是什么、给谁用，`## 功能` 3–6 条，有要求时写 `## 需要`，`## 开始` 1–3 行，最后一行指向它的教程。目标 800 个字符以内（插图不算）；超过 1500 时 203c 和网站会提醒，新写或改过的简介超过 3000 就保存不了。不写进简介：键位表和每个模式的按键（放教程）、怎么编译（放 README，README 是给开发者的，不是固件页）、版本变化（放发布说明）。
+   - **图片**（简介上面的大图）：3–5 张不同的固件截图，第一张是用户最先看到的画面，然后每个主要功能一张。固件在 USB 线连着的鸣片上运行时（要启动 USB：`CardenzaHAL::USB::Init()`），`203c board screen --out docs/screens/home.png` 存一张 PNG；写进 `203.json` 的 `publish.images`（或者 `203c publish --image …`）。用自己的登录 `203c publish` 时，图片不是 3–5 张不同的就在上传任何东西之前停下（`gallery_pictures`）；在网页上发布只是建议。CI 的凭证不能改图片，所以发布不会因为图片失败：203c 给出警告（`gallery_short`），`community-publish` action 把它显示在运行页上，由固件的主人补一次（网站上固件的编辑页 › 图片，或者用自己的登录）。网页模拟器没有截图功能。
+8. 第一个版本手动发布（只能通过 203c：手动或 CI）：提高 `version.txt`，在 `CHANGELOG.md` 写 `## <版本>`，然后
    ```sh
    203c publish --dry-run
    203c publish
    ```
    第一次发布后 203c 把固件代码写回 `203.json`：提交它。
-8. 之后用 CI 发布（标准方式，203 Systems 的官方固件也一样）：模板里的 `.github/workflows/firmware.yml`（HAL 的 `community-publish` action）。仓库上了 GitHub 后运行 `203c link`：把这个仓库关联为固件的受信任发布者（也可以在固件页的「自动发布」里关联），并在固件页打开 beta、dev 渠道。推送到 `main` 发 dev，打 `vX.Y.Z` 标签发 stable，`vX.Y.Z-beta.N` 发 beta。受信任发布：作业用 GitHub 的 OIDC 令牌登录（`permissions: id-token: write`），不存任何密钥；CI 只发布版本，不改固件页。仓库搬家后 `203c link --move`。可选：自托管 runner 接一台鸣片，每次构建都装上去并用 `203c log --until` 检查能启动（模板里注释掉的 `on-device` 作业）。
-9. 用户反馈和魔改版：每次改已发布的固件之前先运行 `203c sync`，读 `.203/community.md`：固件页、每个版本的更新说明、用户的需求（投票、讨论）和评论（回复、点赞）、合并请求和魔改版，上次之后的新内容有标记。`203c project diff <魔改版代码>` 看某个魔改版改了什么，`203c project diff 1.0.0 1.1.0` 比较两个版本；`203c comments add …` 回复用户。
+9. 之后用 CI 发布（标准方式，203 Systems 的官方固件也一样）：模板里的 `.github/workflows/firmware.yml`（HAL 的 `community-publish` action）。仓库上了 GitHub 后运行 `203c link`：把这个仓库关联为固件的受信任发布者（也可以在固件页的「自动发布」里关联），并在固件页打开 beta、dev 渠道。推送到 `main` 发 dev，打 `vX.Y.Z` 标签发 stable，`vX.Y.Z-beta.N` 发 beta。受信任发布：作业用 GitHub 的 OIDC 令牌登录（`permissions: id-token: write`），不存任何密钥；CI 只发布版本，不改固件页。仓库搬家后 `203c link --move`。可选：自托管 runner 接一台鸣片，每次构建都装上去并用 `203c log --until` 检查能启动（模板里注释掉的 `on-device` 作业）。
+10. 用户反馈和魔改版：每次改已发布的固件之前先运行 `203c sync`，读 `.203/community.md`：固件页、每个版本的更新说明、用户的需求（投票、讨论）和评论（回复、点赞）、合并请求和魔改版，上次之后的新内容有标记。`203c project diff <魔改版代码>` 看某个魔改版改了什么，`203c project diff 1.0.0 1.1.0` 比较两个版本；`203c comments add …` 回复用户。
 
 ## 必须有的文件
 
-`203.json`（`format`、`name` 必填；`code` 首次发布前是 `null`；有 `version.txt` 时可不写 `version`；不能放任何密钥）、`CMakeLists.txt`（先列 HAL 的 `board/sdkconfig.defaults`）、`sdkconfig.defaults`、保留 Launcher 分区的分区表（同 HAL 的 `board/partitions.csv`，固件从 0x170000 开始）、`version.txt`、`LICENSE`、`README.md`、`CHANGELOG.md`、`.gitignore`（`build/`、`build-*/`、`.203/`、`sdkconfig`、`managed_components/`、`.env`、密钥文件）。
+`203.json`（`format`、`name` 必填；`code` 首次发布前是 `null`；有 `version.txt` 时可不写 `version`；不能放任何密钥）、`CMakeLists.txt`（先列 HAL 的 `board/sdkconfig.defaults`）、`sdkconfig.defaults`、保留 Launcher 分区的分区表（同 HAL 的 `board/partitions.csv`，固件从 0x170000 开始）、`version.txt`、`LICENSE`、`README.md`（给开发者：怎么编译、怎么试）、`docs/description.md`（固件页的简介）、`CHANGELOG.md`、`.gitignore`（`build/`、`build-*/`、`.203/`、`sdkconfig`、`managed_components/`、`.env`、密钥文件）。
 
 ## 社区发布前检查什么
 
