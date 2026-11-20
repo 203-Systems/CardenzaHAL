@@ -3,6 +3,8 @@
 // - The screen shows the firmware's name and version and the 4 x 14 keys; a held key fills its cell and
 //   lights its LED, the others glow faintly.
 // - HOME (the side key) inverts the screen.
+// - Keys: keyboard/legends.h says what each cap prints (Legend, Typed; the arrows are ; . , / and ok
+//   confirms, esc goes back). Use it rather than a layout of your own.
 //
 // It reaches the hardware only through the HAL's public headers, so the same source builds for the board
 // (idf.py build) and for the browser (CardenzaHAL tools/cardenza_web.py build). Keep CardenzaHAL::Init()

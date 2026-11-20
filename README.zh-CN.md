@@ -37,7 +37,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方�
 | --- | --- | --- |
 | 芯片 | ESP32-S3，双核 240 MHz；512 KB 内部 RAM，2 MB 四线 PSRAM | ESP-IDF 本身；[板子默认配置](#板子默认配置分区表与刷机)、[`docs/developing.md`](docs/developing.md)（两种 RAM） |
 | Flash | 16 MB，四线 120 MHz；0x170000 以下归 203 Launcher，一个应用最多 0x690000 字节 | [`board/partitions.csv`](board/partitions.csv)、[`board/sdkconfig.defaults`](board/sdkconfig.defaults) |
-| 按键 | 56 键，4 行 × 14 列（编号 1..56）；同时最多可靠读出 4 个 | [`keyboard/keyboard.h`](keyboard/keyboard.h)：`updateKeyList`、`keyList`、`isKeyPressing`；[键盘与按键灯](#键盘与按键灯) |
+| 按键 | 56 键，4 行 × 14 列（编号 1..56）；同时最多可靠读出 4 个；键帽印着字符和 shift 后的字符，方向键在 `;` `.` `,` `/` 上 | [`keyboard/keyboard.h`](keyboard/keyboard.h)：`updateKeyList`、`keyList`、`isKeyPressing`；键帽：[`keyboard/legends.h`](keyboard/legends.h)；[键盘与按键灯](#键盘与按键灯) |
 | 按键灯 | 每个键下一颗单色 LED，16 级，外加总亮度 | [`keyboard/keyboard.h`](keyboard/keyboard.h)：`setLED`、`setLEDFrame`、`setLEDGlobalBrightness`、`enableLED`；[`keyboard/led_light.h`](keyboard/led_light.h) |
 | 屏幕 | 240 × 135 彩屏（RGB565），SPI 接口的 ST7789，背光走 LEDC；整屏一帧 17 ms | [`display/display.h`](display/display.h)：`Present`、`PresentChanged`、`SetBrightness`、`GetPanel`；[屏幕显示](#屏幕显示) |
 | 喇叭 | ES8156 解码器，I2S，44.1 kHz 16 位，单声道喇叭（可用立体声声道） | [`audio/audio.h`](audio/audio.h)：`Init`、`GetTxChannel`、`SetVolume`；[音频输出](#音频输出) |
@@ -192,9 +192,45 @@ python3 components/CardenzaHAL/tools/cardenza.py build   # 或者在激活了 ES
 
 ## 键盘与按键灯
 
-接口：[`keyboard/keyboard.h`](keyboard/keyboard.h)、[`keyboard/types.h`](keyboard/types.h)。
+接口：[`keyboard/keyboard.h`](keyboard/keyboard.h)、[`keyboard/types.h`](keyboard/types.h)；键帽上印的是什么：[`keyboard/legends.h`](keyboard/legends.h)。
 
-- 坐标范围为 `x = 0..13`、`y = 0..3`。按键编号为 **1..56**，公式是 `y * 14 + x + 1`。字符映射由应用定义。
+鸣片的键帽，从上到下一行一行（`y`），带按键编号。每个键自己的字符或名字印成黑色，按住 shift 时打出的字符印成黄色（下面写在第二个），另有四个键印着黄色箭头（up 上、down 下、left 左、right 右）：
+
+```text
+y   keys   x=0   1      2    3    4    5    6    7    8    9    10        11        12         13
+0   1..14  esc   1 !    2 @  3 #  4 $  5 %  6 ^  7 &  8 *  9 (  0 )       - _       = +        del
+1  15..28  tab   q      w    e    r    t    y    u    i    o    p         [ {       ] }        \ |
+2  29..42  fn    shift  a    s    d    f    g    h    j    k    l         ; : up    ' "        ok
+3  43..56  ctrl  opt    alt  z    x    c    v    b    n    m    , < left  . > down  / ? right  space
+```
+
+del 印的是 ←（退格），shift 印 ⇧，space 印 ␣；ok 就是回车。左边一列从上到下是 esc、tab、fn、ctrl：fn 是第三个键（29），左下角的键是 ctrl（43）。屏幕左侧的侧键 HOME 不在矩阵里（[HOME 键](#home-键i2c-与红外)）。
+
+用键帽上印的，不要自己另编一套：
+
+- **方向键是 `;` 上、`.` 下、`,` 左、`/` 右**，就是那四个黄色三角；不是 HJKL、IJKL 或 WASD。
+- **文字输入**：每个键打出它的字符，按住 shift 打出黄色的那个；这时方向键是 fn + `;` `.` `,` `/`。del 删除光标前的字符，ok 结束输入。
+- 不打字的画面（列表、菜单、游戏）可以直接用 `;` `.` `,` `/` 当方向键，203 Launcher 和系统菜单就是这样。
+- **ok 确认，esc（或 del）返回。** HOME 归系统菜单。
+
+[`keyboard/legends.h`](keyboard/legends.h)（纯头文件，模拟器和测试也能用）按编号给出这些：`Legend(key)` 或 `Legend({x, y})` 给出这个键的 `name`（`"esc"`、`"q"`、`";"`、`"ok"`、`"space"`）、`character` 和 `shifted`（可打印 ASCII；不打字的键是 `0`：esc、del、tab、fn、shift、ok、ctrl、opt、alt）以及 `arrow`；`Typed(key, shift)` 是它打出的字符；`KeyNumber({x, y})`、`KeyPosition(key)` 互相换算；`kKeyUp`、`kKeyDown`、`kKeyLeft`、`kKeyRight`、`kKeyEsc`、`kKeyOk`、`kKeyDel`、`kKeyTab`、`kKeyFn`、`kKeyShift`、`kKeyCtrl`、`kKeyOpt`、`kKeyAlt`、`kKeySpace` 是各个键的编号：
+
+```cpp
+#include "keyboard/legends.h"
+namespace Keyboard = CardenzaHAL::Keyboard;
+
+// 刚按下的键（keyList() 里上一帧还没有的 Point2D_t），在列表画面里：
+switch (Keyboard::KeyNumber(key)) {
+    case Keyboard::kKeyUp: MoveUp(); break;      // ;
+    case Keyboard::kKeyDown: MoveDown(); break;  // .
+    case Keyboard::kKeyOk: Open(); break;
+    case Keyboard::kKeyEsc: Back(); break;
+}
+// 在输入框里：esc、del、tab、ok 和修饰键是 0。
+const char typed = Keyboard::Typed(key, Keyboard::isKeyPressing(Keyboard::kKeyShift));
+```
+
+- 坐标范围为 `x = 0..13`、`y = 0..3`。按键编号为 **1..56**，公式是 `y * 14 + x + 1`。
 - 读取 `keyList()`、`isPressed()`（当前按下数量）、`isKeyPressing(number)` 前，先调用 `updateKeyList()`。把返回的列表当作只读快照；需要保留时自行复制。
 - `getKey()` 会更新快照并返回第一个按住的坐标，无按键时返回 `{-1, -1}`。`getKeyNum()` 对负坐标返回 `0`，其他情况只应传有效坐标。
 - `isChanged()` **只比较按键数量**。同时松开一个键、按下另一个键时，数量可能不变。需要按下/松开事件时，比较前后两次完整快照。

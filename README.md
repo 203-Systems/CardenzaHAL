@@ -50,7 +50,7 @@ What the Cardenza has, and where it is in the HAL. Pins: [`board/pins.h`](board/
 | --- | --- | --- |
 | Chip | ESP32-S3, two cores at 240 MHz; 512 KB internal RAM, 2 MB quad PSRAM | ESP-IDF itself; [board defaults](#board-defaults-partitions-and-flashing), [`docs/developing.md`](docs/developing.md) (the two RAMs) |
 | Flash | 16 MB, quad I/O at 120 MHz; the 203 Launcher keeps everything below 0x170000, an app gets at most 0x690000 bytes | [`board/partitions.csv`](board/partitions.csv), [`board/sdkconfig.defaults`](board/sdkconfig.defaults) |
-| Keys | 56 keys, 4 rows × 14 columns (numbers 1..56); at most 4 held at once are read reliably | [`keyboard/keyboard.h`](keyboard/keyboard.h): `updateKeyList`, `keyList`, `isKeyPressing`; [Keyboard and key LEDs](#keyboard-and-key-leds) |
+| Keys | 56 keys, 4 rows × 14 columns (numbers 1..56); at most 4 held at once are read reliably; the caps print a character and a shifted one, the arrows are on `;` `.` `,` `/` | [`keyboard/keyboard.h`](keyboard/keyboard.h): `updateKeyList`, `keyList`, `isKeyPressing`; the caps: [`keyboard/legends.h`](keyboard/legends.h); [Keyboard and key LEDs](#keyboard-and-key-leds) |
 | Key lights | a single-colour LED under each key, 16 levels, and a global brightness | [`keyboard/keyboard.h`](keyboard/keyboard.h): `setLED`, `setLEDFrame`, `setLEDGlobalBrightness`, `enableLED`; [`keyboard/led_light.h`](keyboard/led_light.h) |
 | Screen | 240 × 135 colour (RGB565), ST7789 on SPI, backlight on LEDC; a whole frame is 17 ms | [`display/display.h`](display/display.h): `Present`, `PresentChanged`, `SetBrightness`, `GetPanel`; [Display](#display) |
 | Speaker | ES8156 codec, I2S, 44.1 kHz 16-bit, mono speaker (stereo slots available) | [`audio/audio.h`](audio/audio.h): `Init`, `GetTxChannel`, `SetVolume`; [Audio output](#audio-output) |
@@ -204,9 +204,45 @@ You can initialize individual modules for a smaller application. Call `System::I
 
 ## Keyboard and key LEDs
 
-Public API: [`keyboard/keyboard.h`](keyboard/keyboard.h), [`keyboard/types.h`](keyboard/types.h).
+Public API: [`keyboard/keyboard.h`](keyboard/keyboard.h), [`keyboard/types.h`](keyboard/types.h); what the key caps say: [`keyboard/legends.h`](keyboard/legends.h).
 
-- Coordinates are `x = 0..13`, `y = 0..3`. Key numbers are **1..56**, calculated as `y * 14 + x + 1`. Character mappings belong in your application.
+The key caps, row by row from the top (`y`), with their key numbers. Each key's own character or name is printed in black, its shifted character in yellow (written second here), and four keys carry a yellow arrow (up, down, left, right):
+
+```text
+y   keys   x=0   1      2    3    4    5    6    7    8    9    10        11        12         13
+0   1..14  esc   1 !    2 @  3 #  4 $  5 %  6 ^  7 &  8 *  9 (  0 )       - _       = +        del
+1  15..28  tab   q      w    e    r    t    y    u    i    o    p         [ {       ] }        \ |
+2  29..42  fn    shift  a    s    d    f    g    h    j    k    l         ; : up    ' "        ok
+3  43..56  ctrl  opt    alt  z    x    c    v    b    n    m    , < left  . > down  / ? right  space
+```
+
+del is printed ← (backspace), shift ⇧, space ␣; ok is enter. The left column is esc, tab, fn, ctrl from the top: fn is the third key (29), the bottom-left key is ctrl (43). HOME, the side key left of the screen, is not in the matrix ([HOME button](#home-button-i2c-and-ir)).
+
+Use these legends; never invent a layout of your own:
+
+- **The arrows are `;` up, `.` down, `,` left, `/` right**, the yellow triangles; not HJKL, IJKL or WASD.
+- **Text input**: every key types its character, with shift its yellow one; the arrows are then fn + `;` `.` `,` `/`. del erases the character before the cursor, ok ends the input.
+- A screen that types nothing (a list, a menu, a game) may take `;` `.` `,` `/` alone as the arrows, as the 203 Launcher and the system menu do.
+- **ok confirms, esc (or del) goes back.** HOME is the system menu's.
+
+[`keyboard/legends.h`](keyboard/legends.h) (a plain header, for a simulator or a test too) has them by key number: `Legend(key)` or `Legend({x, y})` gives the key's `name` (`"esc"`, `"q"`, `";"`, `"ok"`, `"space"`), `character` and `shifted` (printable ASCII; `0` for the keys that type nothing: esc, del, tab, fn, shift, ok, ctrl, opt, alt) and `arrow`; `Typed(key, shift)` is the character it types; `KeyNumber({x, y})` and `KeyPosition(key)` convert; `kKeyUp`, `kKeyDown`, `kKeyLeft`, `kKeyRight`, `kKeyEsc`, `kKeyOk`, `kKeyDel`, `kKeyTab`, `kKeyFn`, `kKeyShift`, `kKeyCtrl`, `kKeyOpt`, `kKeyAlt`, `kKeySpace` name the keys:
+
+```cpp
+#include "keyboard/legends.h"
+namespace Keyboard = CardenzaHAL::Keyboard;
+
+// A key that went down (a Point2D_t from keyList() that was not there the frame before), on a list:
+switch (Keyboard::KeyNumber(key)) {
+    case Keyboard::kKeyUp: MoveUp(); break;      // ;
+    case Keyboard::kKeyDown: MoveDown(); break;  // .
+    case Keyboard::kKeyOk: Open(); break;
+    case Keyboard::kKeyEsc: Back(); break;
+}
+// In a text field: 0 for esc, del, tab, ok and the modifiers.
+const char typed = Keyboard::Typed(key, Keyboard::isKeyPressing(Keyboard::kKeyShift));
+```
+
+- Coordinates are `x = 0..13`, `y = 0..3`. Key numbers are **1..56**, calculated as `y * 14 + x + 1`.
 - Call `updateKeyList()` before reading `keyList()`, `isPressed()` (held-key count), or `isKeyPressing(number)`. Treat the returned list as a read-only snapshot; copy it if you need to retain it.
 - `getKey()` refreshes the snapshot and returns the first held coordinate, or `{-1, -1}`. `getKeyNum()` returns `0` for negative coordinates; pass only valid coordinates otherwise.
 - `isChanged()` compares the **key count**, not the complete set. For press/release events, compare successive snapshots; replacing one key with another can leave the count unchanged.
