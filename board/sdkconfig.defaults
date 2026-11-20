@@ -5,6 +5,10 @@
 # Checked with ESP-IDF 5.3.5.
 
 CONFIG_IDF_TARGET="esp32s3"
+# 16 MB (W25Q128JV). Under the 203 Launcher a firmware sees the size the Launcher's bootloader declares,
+# whatever this says: 8 MB on a board flashed with Launcher 0.3.3 or earlier, until its bootloader is
+# written again over USB.
+# Never set CONFIG_SPI_FLASH_SIZE_OVERRIDE, and touch no flash outside your own partitions.
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 # W25Q128JV with IO2 / IO3 wired: quad I/O, as the 203 Launcher's bootloader runs it. The bootloader
 # decides how the cache reads the flash, so a firmware the Launcher starts runs QIO whatever it was built

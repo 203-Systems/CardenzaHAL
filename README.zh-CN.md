@@ -36,7 +36,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方�
 | 部件 | 是什么 | 在 HAL 里 |
 | --- | --- | --- |
 | 芯片 | ESP32-S3，双核 240 MHz；512 KB 内部 RAM，2 MB 四线 PSRAM | ESP-IDF 本身；[板子默认配置](#板子默认配置分区表与刷机)、[`docs/developing.md`](docs/developing.md)（两种 RAM） |
-| Flash | 16 MB，四线 120 MHz；0x170000 以下归 203 Launcher，一个应用最多 0x690000 字节 | [`board/partitions.csv`](board/partitions.csv)、[`board/sdkconfig.defaults`](board/sdkconfig.defaults) |
+| Flash | 16 MB，四线 120 MHz；0x170000 以下归 203 Launcher，其余由它划分，到它的 bootloader 声明的大小为止（16 MB；用 0.3.3 及以前的 Launcher 刷的板子是 8 MB，直到用 USB 重新写它的 bootloader）；一个应用最多 0x690000 字节，每台 Cardenza 都装得下 | [`board/partitions.csv`](board/partitions.csv)、[`board/sdkconfig.defaults`](board/sdkconfig.defaults) |
 | 按键 | 56 键，4 行 × 14 列（编号 1..56）；同时最多可靠读出 4 个；键帽印着字符和 shift 后的字符，方向键在 `;` `.` `,` `/` 上 | [`keyboard/keyboard.h`](keyboard/keyboard.h)：`updateKeyList`、`keyList`、`isKeyPressing`；键帽：[`keyboard/legends.h`](keyboard/legends.h)；[键盘与按键灯](#键盘与按键灯) |
 | 按键灯 | 每个键下一颗单色 LED，16 级，外加总亮度 | [`keyboard/keyboard.h`](keyboard/keyboard.h)：`setLED`、`setLEDFrame`、`setLEDGlobalBrightness`、`enableLED`；[`keyboard/led_light.h`](keyboard/led_light.h) |
 | 屏幕 | 240 × 135 彩屏（RGB565），SPI 接口的 ST7789，背光走 LEDC；整屏一帧 17 ms | [`display/display.h`](display/display.h)：`Present`、`PresentChanged`、`SetBrightness`、`GetPanel`；[屏幕显示](#屏幕显示) |

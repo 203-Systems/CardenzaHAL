@@ -52,7 +52,7 @@ Cardenza 平时运行 203 Launcher，由它安装和启动各个固件。被它�
 
 - 装在 Launcher 划出的分区里：从不改分区表、otadata 和 Launcher 自己的分区。在电脑上用 [`tools/uploader`](../tools/uploader/README.zh-CN.md) 把编好的固件交给 Launcher 安装（`serial_flasher.py`），再登记名称、UUID 和版本（`register_app.py`）。只有没装 Launcher 的板子才直接刷（即使那样，[`board/partitions.csv`](../board/partitions.csv) 也保留 Launcher 的区域，[`tools/cardenza_flash.py`](../tools/cardenza_flash.py) 拒绝抹掉 Launcher）；
 - 数据放在 SD 卡上自己的文件夹里，不碰 Launcher 的 NVS 记录（见上）；可以通过 `net/net.h` 读取 Launcher 保存的 Wi-Fi 网络和社区账号；
-- 运行在 Launcher 的 bootloader 下，闪存是 QIO：按 QIO 构建；
+- 运行在 Launcher 的 bootloader 下，闪存是 QIO：按 QIO 构建。固件看到的闪存大小（`esp_flash_get_size`）也由这个 bootloader 的镜像头决定：16 MB；用 0.3.3 及以前的 Launcher 刷的板子是 8 MB（直到用 USB 重新写它的 bootloader），虽然每台 Cardenza 都有 16 MB。按 16 MB 构建（[`board/sdkconfig.defaults`](../board/sdkconfig.defaults)），不要开 `CONFIG_SPI_FLASH_SIZE_OVERRIDE`，也不要碰自己分区以外的闪存；
 - 在 app 描述里带上版本号：`PROJECT_VER`（`cardenza_read_version`）就是 Launcher 在它下面显示的版本。列表里的名字不是项目名，而是登记或安装时用的名字；直接刷进去的固件显示分区名；
 - 用 [`System::RestartIntoLauncher()`](../system/launcher.h) 回到 Launcher（Launcher 的重启票据：即使打开了“Resume after reset”也进入 Launcher 首页，而普通的 `esp_restart()` 在这时会重新启动固件；从电脑上用 USB 的 `command launcher` 效果相同；用手：按一下 HOME 打开系统菜单选“返回启动器”，或开机、复位时按住 FN）；
 - 运行时也在 203 社区在线：在线服务（[`net/presence.h`](../net/presence.h)，默认打开）让设备保持在线，把网站发来的固件（以及 Launcher 自己的升级）交给 Launcher。给它一个钩子先保存工作（或者拒绝）；告诉它你在做什么（`Presence::SetActivity`：出声时 `RealTime`，需要收回 Wi-Fi 的内存和时间时 `Quiet`）以及你要留多少内部内存（`SetRamFloor`）；固件要自己运行 Wi-Fi 之前把它关掉（`Presence::Enable(false)` 或 Kconfig）；

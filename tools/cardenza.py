@@ -36,7 +36,8 @@ INSTALL_203C = "npm install -g 203c && 203c skill install"
 IDF_WANTED = (5, 3)
 IDF_TESTED = "5.3.5"
 CLI_WANTED = (3, 5, 0)   # 203c new, log, sync, link, skill install
-APP_ROOM = 0x690000      # the 203 Launcher's room for one app on the Cardenza (from 0x170000)
+APP_ROOM = 0x690000      # the 203 Launcher's room for one app on every Cardenza (0x170000 to 8 MB: boards
+                         # flashed with Launcher 0.3.3 or earlier declare 8 MB in their bootloader; the chip has 16 MB)
 LOCAL_FLASH = "https://cardenza.203.io/community/firmware (Flash a local file / 烧录本地固件, in Chrome or Edge)"
 WINDOWS = os.name == "nt"
 PY = "python" if WINDOWS else "python3"   # what to type: Windows has python (and py), rarely python3

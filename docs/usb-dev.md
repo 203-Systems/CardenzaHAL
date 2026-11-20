@@ -98,7 +98,9 @@ ELF's SHA-256, the one a backtrace is decoded with) and `code` the community cod
 changes). `launcher` is read from the Launcher's own image (`null` on a board without it). `reset` is
 `esp_reset_reason`: `power-on`, `external`, `software`, `panic`, `interrupt-watchdog`, `task-watchdog`,
 `watchdog`, `deep-sleep`, `brownout`, `sdio`, `usb`, `jtag`, `efuse`, `power-glitch`, `cpu-lockup` or
-`unknown`; `wakeup` the deep-sleep wake cause after `deep-sleep`.
+`unknown`; `wakeup` the deep-sleep wake cause after `deep-sleep`. `flash_bytes` is the flash size the firmware sees
+(`esp_flash_get_size`): what the bootloader declares, so 8388608 on a board flashed with Launcher 0.3.3 or
+earlier (every Cardenza has 16 MB).
 
 ### PARTITIONS
 

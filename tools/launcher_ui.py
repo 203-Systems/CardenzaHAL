@@ -218,7 +218,8 @@ def build_probe(launcher, work):
     source = work / "probe.cpp"
     source.write_text(PROBE)
     binary = work / "probe"
-    # PART_08MB: the Cardenza's build of the tables (8 MB of flash).
+    # PART_08MB: the Cardenza's build of the tables (the compact ones for its Launcher partition of
+    # 0x150000; the name is older than its 16 MB of flash).
     subprocess.run([compiler(), "-std=c++17", "-O1", "-DPART_08MB=1", "-I", str(launcher / "src"),
                     str(source), str(launcher / "src" / "platform" / "i18n.cpp"), "-o", str(binary)], check=True)
     return binary
