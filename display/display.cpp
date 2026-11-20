@@ -2,6 +2,7 @@
 #include "changed_regions.h"
 #include "backlight_brightness.h"
 #include "internal/overlay.h"
+#include "internal/snapshot.h"
 #include "../board/pins.h"
 
 #include <algorithm>
@@ -63,6 +64,11 @@ bool transferPending = false;
 //   screen as it does in the Launcher (the backlight's driver takes 400 us to rise: the same duty is dimmer in
 //   shorter pulses).
 bool overlayActive = false;
+// The development channel's screenshot (internal/snapshot.h): the framebuffer last presented, and a frame to
+// copy the next one into.
+const uint16_t* lastFramebuffer = nullptr;
+uint16_t* snapshotFrame = nullptr;
+bool snapshotTaken = false;
 uint16_t* captureFrame = nullptr;
 bool captureValid = false;
 int overlayDuty = -1;
@@ -116,6 +122,13 @@ uint16_t ShownDuty(uint8_t requested)
 
 void Capture(const uint16_t* framebuffer)
 {
+    lastFramebuffer = framebuffer;
+    if (snapshotFrame != nullptr)
+    {
+        std::memcpy(snapshotFrame, framebuffer, static_cast<std::size_t>(WIDTH) * HEIGHT * sizeof(uint16_t));
+        snapshotFrame = nullptr;
+        snapshotTaken = true;
+    }
     if (captureFrame == nullptr) return;
     std::memcpy(captureFrame, framebuffer, static_cast<std::size_t>(WIDTH) * HEIGHT * sizeof(uint16_t));
     captureValid = true;
@@ -570,6 +583,27 @@ bool CaptureValid()
 {
     DisplayLock lock;
     return captureFrame != nullptr && captureValid;
+}
+
+void RequestSnapshot(uint16_t* frame)
+{
+    DisplayLock lock;
+    snapshotFrame = frame;
+    snapshotTaken = false;
+}
+
+bool SnapshotTaken()
+{
+    DisplayLock lock;
+    const bool taken = snapshotTaken;
+    snapshotTaken = false;
+    return taken;
+}
+
+const uint16_t* LastFramebuffer()
+{
+    DisplayLock lock;
+    return lastFramebuffer;
 }
 
 bool BeginOverlay()

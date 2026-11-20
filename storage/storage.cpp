@@ -17,8 +17,6 @@ uint64_t capacity = 0;
 sdmmc_card_t* card = nullptr;
 std::mutex stateMutex;
 
-constexpr char kMountPoint[] = "/sdcard";
-
 }  // namespace
 
 bool Init()

@@ -1,0 +1,37 @@
+# What a firmware's build knows of itself for the development channel's INFO (usb/dev.cpp, docs/usb-dev.md):
+# the HAL's Git commit (and whether it had local changes) and the firmware's community code, from the 203.json
+# nearest above the ESP-IDF project (the project's own directory or a parent, as in a repository whose firmware
+# lives in a subdirectory). Read when the build is configured.
+function(cardenza_hal_build_info out)
+    set(commit "")
+    set(dirty 0)
+    find_package(Git QUIET)
+    if(GIT_FOUND)
+        execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.. rev-parse --short=12 HEAD
+            OUTPUT_VARIABLE commit OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE status)
+        if(NOT status EQUAL 0)
+            set(commit "")
+        else()
+            execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.. status --porcelain --untracked-files=no
+                OUTPUT_VARIABLE changes OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+            if(changes)
+                set(dirty 1)
+            endif()
+        endif()
+    endif()
+    set(code "")
+    idf_build_get_property(project_dir PROJECT_DIR)
+    set(dir "${project_dir}")
+    foreach(level RANGE 4)
+        if(EXISTS "${dir}/203.json")
+            file(READ "${dir}/203.json" json)
+            string(JSON code ERROR_VARIABLE error GET "${json}" code)
+            if(error OR NOT code MATCHES "^[A-Za-z0-9]+$")
+                set(code "")
+            endif()
+            break()
+        endif()
+        get_filename_component(dir "${dir}" DIRECTORY)
+    endforeach()
+    set(${out} "CARDENZA_HAL_COMMIT=\"${commit}\";CARDENZA_HAL_DIRTY=${dirty};CARDENZA_FIRMWARE_CODE=\"${code}\"" PARENT_SCOPE)
+endfunction()

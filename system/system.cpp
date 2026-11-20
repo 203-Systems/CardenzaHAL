@@ -69,6 +69,7 @@ namespace {
 // it released), 2 hidden until it is let go (the press that opened or closed the menu).
 std::atomic<uint8_t> funcHold{0};
 std::atomic<void (*)()> usbStop{nullptr};
+std::atomic<bool> homeInjected{false};  // HOME held from a computer (detail::InjectHome)
 
 }  // namespace
 
@@ -90,7 +91,12 @@ namespace detail {
 
 bool HomeButtonRaw()
 {
-    return gpio_get_level(static_cast<gpio_num_t>(Pins::kHomeButton)) == 0;
+    return homeInjected.load(std::memory_order_relaxed) || gpio_get_level(static_cast<gpio_num_t>(Pins::kHomeButton)) == 0;
+}
+
+void InjectHome(bool down)
+{
+    homeInjected.store(down, std::memory_order_relaxed);
 }
 
 void RestoreHomeButton()

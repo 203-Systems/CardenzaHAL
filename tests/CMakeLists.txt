@@ -40,6 +40,12 @@ add_executable(CardenzaKeyLegendTests key_legends_test.cpp ${cardenza_test_guard
 target_include_directories(CardenzaKeyLegendTests PRIVATE ${hal_root})
 add_test(NAME CardenzaKeyLegendTests COMMAND CardenzaKeyLegendTests)
 
+# usb/dev_logic.h and keyboard/internal/inject.h: the development channel's framing, packing, run-length
+# code, JSON, card paths, image length, NVS pages, and the key numbers a computer presses (docs/usb-dev.md).
+add_executable(CardenzaUsbDevTests usb_dev_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaUsbDevTests PRIVATE ${hal_root})
+add_test(NAME CardenzaUsbDevTests COMMAND CardenzaUsbDevTests)
+
 # display/changed_regions.h: what PresentChanged sends.
 add_executable(CardenzaChangedRegionsTests changed_regions_test.cpp ${cardenza_test_guard})
 target_include_directories(CardenzaChangedRegionsTests PRIVATE ${hal_root})

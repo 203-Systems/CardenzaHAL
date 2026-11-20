@@ -33,6 +33,7 @@ if(COMMAND idf_component_register)
             system/menu/launcher/lcd.cpp
             system/menu/logic.cpp
             system/system.cpp
+            usb/dev.cpp
             usb/usb.cpp
         INCLUDE_DIRS
             .
@@ -62,7 +63,18 @@ if(COMMAND idf_component_register)
             esp_wifi
             mbedtls
             nvs_flash
+            # The development channel (usb/dev.cpp): memory-mapped flash, the core dump's summary, PSRAM's size.
+            espcoredump
+            esp_psram
+            spi_flash
     )
+    # What the development channel's INFO says of the build (usb/dev.cpp): the HAL's commit, and the firmware's
+    # community code from the 203.json nearest above the project.
+    if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+        include(${CMAKE_CURRENT_LIST_DIR}/cmake/build_info.cmake)
+        cardenza_hal_build_info(cardenza_hal_dev_definitions)
+        set_source_files_properties(usb/dev.cpp PROPERTIES COMPILE_DEFINITIONS "${cardenza_hal_dev_definitions}")
+    endif()
     target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
     # Two TinyUSB calls are wrapped for the audio feedback endpoint (usb/usb.cpp): its TX FIFO size and the
     # format of its value on full speed.

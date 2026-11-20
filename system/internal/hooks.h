@@ -5,8 +5,10 @@
 // What the system menu (system/menu.h) needs from the rest of the HAL. Internal to the HAL.
 namespace CardenzaHAL::System::detail {
 
-    // The side key (HOME, GPIO0) as the pad reads it.
+    // The side key (HOME, GPIO0) as the pad reads it, or held from a computer (InjectHome).
     bool HomeButtonRaw();
+    // HOME held (true) or let go from a computer: the development channel (usb/dev.cpp).
+    void InjectHome(bool down);
     // The menu has the side key (true): GetHomeButton reports it released. Then false: hidden until it is
     // let go, so the press that opened or closed the menu never reaches the firmware.
     void HoldHomeButton(bool held);

@@ -14,3 +14,9 @@ CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+# For the development channel (203c board memory and coredump, docs/usb-dev.md): each task's core, and a core
+# dump (ELF) written into the coredump partition the 203 Launcher's layout has (64 KB) when the firmware
+# crashes. Not in the board's defaults: they cost about 5 KB of internal RAM (a release build keeps it).
+CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y

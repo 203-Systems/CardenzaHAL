@@ -433,7 +433,7 @@ USB audio does not automatically route to the speaker or microphone. Bridge it i
 
 ### USB protocol and platform notes
 
-`CardenzaHAL::USB::Init()` (`usb/usb.h`) turns the USB port into one composite device: USB MIDI 1.0, USB Audio 2.0 (stereo 16-bit, 44.1 kHz, both ways, asynchronous with feedback: the host follows the device's clock) and HID (keyboard, consumer keys, a system channel and the firmware's own raw reports). VID 0x0203 (203 Systems). Report IDs and command bytes follow Matrix OS: report 0xCB carries system commands (0x40 Launcher / update mode, 0x41 reboot, 0x42 ROM download mode, 0x43 console, 0x44 identify; answers come back as command | 0x80), and the same commands work as SysEx `F0 23 <command> F7`. The firmware's own reports (0xFF) also come as SysEx `F0 23 7F <bytes> F7` from a host without HID access (a web page with Web MIDI), and `SendAppReport` answers the way the last one came (`F0 24 7F <bytes> F7`, 7-bit). MIDI packets from the firmware and the HAL's SysEx are written one sender at a time, so a SysEx reaches the host whole.
+`CardenzaHAL::USB::Init()` (`usb/usb.h`) turns the USB port into one composite device: USB MIDI 1.0, USB Audio 2.0 (stereo 16-bit, 44.1 kHz, both ways, asynchronous with feedback: the host follows the device's clock) and HID (keyboard, consumer keys, a system channel and the firmware's own raw reports). VID 0x0203 (203 Systems). Report IDs and command bytes follow Matrix OS: report 0xCB carries system commands (0x40 Launcher / update mode, 0x41 reboot, 0x42 ROM download mode, 0x43 console, 0x44 identify, 0x45 the [development channel](#development-channel-203c-board); answers come back as command | 0x80), and the same commands work as SysEx `F0 23 <command> F7`. The firmware's own reports (0xFF) also come as SysEx `F0 23 7F <bytes> F7` from a host without HID access (a web page with Web MIDI), and `SendAppReport` answers the way the last one came (`F0 24 7F <bytes> F7`, 7-bit). MIDI packets from the firmware and the HAL's SysEx are written one sender at a time, so a SysEx reaches the host whole.
 
 - It takes the chip's only USB PHY from USB-Serial-JTAG: the console moves to the system channel and esptool's port is gone until a restart into the Launcher or the ROM download mode.
 - The ESP32-S3 has four IN endpoints besides EP0, and the device uses all of them (MIDI, audio in, audio feedback, HID). There is no room for CDC.
@@ -441,6 +441,27 @@ USB audio does not automatically route to the speaker or microphone. Bridge it i
 - RAM: about 8.5 KB static (the audio FIFOs are 2 KB each way), plus a 4 KB task stack once started.
 - With `keyboard = true`, macOS asks the user to identify the keyboard once, and a host tool may open the HID interface (system channel included) only with the Input Monitoring permission. SysEx needs no permission.
 - Tested on macOS (2026-11-02): MIDI both ways, system commands over HID and SysEx, the console, audio both ways at 44.1 kHz. On full speed the feedback goes out as 10.14 in 3 bytes (macOS stops playing after 128 ms on TinyUSB's 16.16); a host that asks for the Microsoft OS string gets 16.16 (Windows, not tested). TinyUSB's DWC2 driver does not restart an isochronous OUT transfer that missed its frame; the HAL restarts the playback endpoint after 20 ms without data.
+
+### Development channel (`203c board`)
+
+With USB started, every firmware on the HAL answers a computer's questions about itself, with no code of its own: command 0x45 on the system channel ([`docs/usb-dev.md`](docs/usb-dev.md), the protocol), read with `203c board` from [203-CLI](https://github.com/203-Systems/203-CLI):
+
+| `203c board` | What it shows or does |
+| --- | --- |
+| `info` | The firmware (name, version, community code, ESP-IDF, build time, the ELF's SHA-256 a backtrace is decoded with), the HAL's commit, the 203 Launcher's version, the chip (revision, MAC, flash, PSRAM), uptime and why it last restarted |
+| `partitions` | The partition table on the board, each application's image size against its partition, NVS use, flash left |
+| `memory` | Internal RAM, PSRAM and DMA-capable RAM (free, least free, largest block); each task's priority, core and least free stack, and its CPU share |
+| `storage`, `status`, `i2c` | The SD card and its free space; the display, keys held, the system menu, USB, the presence service; the devices on the I2C bus (the expansion port's) |
+| `screen` | A screenshot (PNG) of the firmware's framebuffer |
+| `press` | Keys pressed from the computer (HOME too), seen by the firmware as real ones |
+| `coredump` | The last crash's core dump: its task and backtrace, the dump itself |
+| `files` | `ls`, `get`, `put`, `rm`, `mkdir`, `mv` on the SD card |
+
+- It costs a firmware nothing until a computer asks: no task, no buffer, no polling. A question starts a task of priority 1 (a 6 KB stack in internal RAM, gone 10 s after the last question); a screenshot copies one frame at the firmware's next `Present` into PSRAM. Flash is read through the cache, never with the cache disabled. About 20 KB of flash and 0.4 KB of static internal RAM (measured on the template with USB started, 2026-11-20); `CONFIG_CARDENZA_HAL_USB_DEV` off leaves it out.
+- It never writes NVS or anything of the Launcher's, never sends the device token, and reaches no file outside the SD card. Its only writes are the ones asked for: files (`files put`, `rm`, `mkdir`, `mv`) and erasing the core dump.
+- Tasks and CPU shares need `CONFIG_FREERTOS_USE_TRACE_FACILITY` and `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS`, a core dump `CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH`: the board's debug defaults ([`board/sdkconfig.debug`](board/sdkconfig.debug)) set them; a release build without them keeps about 5 KB of internal RAM, and the rest of the channel works there too.
+- A screenshot needs a firmware that presents a framebuffer (`Present`, `PresentChanged`); one that draws through the panel's handles has none.
+- It needs USB started: the template does not start it (its console stays on the serial port, which the community's boot check reads). Add `CardenzaHAL::USB::Init();` after `CardenzaHAL::Init()` to use it.
 
 ## Network (Wi-Fi and HTTPS)
 
