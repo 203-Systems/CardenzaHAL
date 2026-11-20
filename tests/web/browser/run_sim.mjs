@@ -3,13 +3,15 @@
 //
 //   node tests/web/browser/run_sim.mjs --site <dir> [--out <screenshot dir>] [--name <label>]
 //        [--keys '<json steps>'] [--expect-led x,y] [--expect-pixels] [--expect-sound] [--app '<json bytes>']
-//        [--timeout <ms>]
+//        [--expect-screenshot] [--timeout <ms>]
 //
 // 1. The site is served from one origin (Access-Control-Allow-Origin: *, application/wasm) and shown
 //    from another, in <iframe sandbox="allow-scripts" allow="autoplay">: it must post
 //    {"cardenza_sim":"ready"} within the timeout (15 s, the community's limit) and then its key table,
 //    which must equal the site's keymap in sim.json when there is one. With --app the host sends
-//    {"cardenza_sim":"app","data":[...]} into the frame and records the app_report answers.
+//    {"cardenza_sim":"app","data":[...]} into the frame and records the app_report answers. A page that says
+//    {"cardenza_sim":"features","features":["screenshot"]} is asked for the screen and the framed picture
+//    (960 x 540 and 1280 x 720 PNGs, saved to the out folder); --expect-screenshot fails a page that cannot.
 // 2. The same site opened top-level (cross-origin frames cannot be driven) runs the key steps through
 //    window.cardenzaSim: [{"key":[x,y],"down":true,"waitMs":300,"shot":"name"},{"home":true},{"waitMs":500}].
 // Screenshots go to the out folder; a JSON summary goes to stdout; the exit code is 1 on a failure.
@@ -121,6 +123,28 @@ try {
     summary.appReplies = replies.map((message) => message.data.data);
     if (!replies.length) fail('no app_report answer to the app message');
   }
+  const features = messages.find((message) => message.data && message.data.cardenza_sim === 'features');
+  summary.features = features && Array.isArray(features.data.features) ? features.data.features : [];
+  if (summary.features.includes('screenshot')) {
+    for (const [framed, size] of [[false, [960, 540]], [true, [1280, 720]]]) {
+      const answer = await host.evaluate((framed) => new Promise((resolve) => {
+        const id = 'shot-' + framed;
+        const listen = (e) => {
+          if (!e.data || e.data.cardenza_sim !== 'screenshot' || e.data.id !== id) return;
+          removeEventListener('message', listen);
+          resolve(e.data.error ? { error: e.data.error } : { width: e.data.width, height: e.data.height, name: e.data.name, png: Array.from(new Uint8Array(e.data.png)) });
+        };
+        addEventListener('message', listen);
+        setTimeout(() => resolve({ error: 'no answer' }), 3000);
+        document.getElementById('sim').contentWindow.postMessage({ cardenza_sim: 'screenshot', id, framed }, '*');
+      }), framed);
+      if (answer.error) { fail(`the ${framed ? 'framed picture' : 'screenshot'} failed: ${answer.error}`); continue; }
+      if (answer.width !== size[0] || answer.height !== size[1]) fail(`the ${framed ? 'framed picture' : 'screenshot'} is ${answer.width} x ${answer.height}, not ${size.join(' x ')}`);
+      const shot = path.join(out, `${label}-${framed ? 'framed' : 'screen'}.png`);
+      fs.writeFileSync(shot, Uint8Array.from(answer.png));
+      summary.screenshots.push(shot);
+    }
+  } else if (args['expect-screenshot']) fail('the page does not offer screenshots ({"cardenza_sim":"features"} without "screenshot")');
   const frameShot = path.join(out, `${label}-sandboxed.png`);
   await host.screenshot({ path: frameShot });
   summary.screenshots.push(frameShot);
