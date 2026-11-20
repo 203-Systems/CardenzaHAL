@@ -13,7 +13,16 @@
 //   AudioWorklet plays each at its time, a fixed latency later.
 // - Storage: /sdcard (and /.cardenza for NVS) in IndexedDB when the page may use it, else in memory.
 // - USB: Web MIDI when the page may use it; the firmware's app channel also through postMessage.
-// - The parent hears {"cardenza_sim":"ready"} when the firmware's app_main runs, then its key table.
+// - The parent hears {"cardenza_sim":"ready"} when the firmware's app_main runs, then its key table and
+//   {"cardenza_sim":"features","features":["screenshot"]}.
+// - Screenshots are of the screen alone, never the board (the community's picture standard, the user
+//   2026-11-20: "不要使用模拟器带键盘的截图，可以使用模拟器里面截的屏幕的截图"): SCREENSHOT saves the 240 x 135 frame at 4
+//   times, nearest neighbour (960 x 540 PNG); FRAMED the standard picture (1280 x 720: one flat colour, the
+//   bezel, that screen; https://cardenza.203.io/community/guide/images). A parent asks with
+//   {"cardenza_sim":"screenshot","id":…,"framed":bool,"color":"#RRGGBB"} and gets {"cardenza_sim":"screenshot",
+//   "id","framed","color","width","height","name","png":ArrayBuffer} (or "error"); a parent that saves them
+//   itself (a sandboxed frame may not download) says {"cardenza_sim":"host","screenshot":true} and the
+//   page's own buttons hide.
 (function () {
   'use strict';
 
@@ -137,6 +146,11 @@
   const homeButton = element('div', 'home', board, 'HOME');
   element('small', '', homeButton, 'Home');
   homeButton.title = 'HOME, the side button (GPIO0)';
+  const shots = element('div', 'shots', board);
+  const shotButton = element('button', 'shot', shots, 'SCREENSHOT');
+  shotButton.title = 'Save the screen as a PNG: 240 x 135 at 4 times (960 x 540), without the board';
+  const framedButton = element('button', 'shot', shots, 'FRAMED');
+  framedButton.title = "Save the community's standard picture: the screen in a bezel on one colour (1280 x 720)";
   const keysBox = element('div', '', board);
   keysBox.id = 'keys';
   const consoleBox = element('pre', '', body);
@@ -206,8 +220,8 @@
     try { return !policy || policy.allowsFeature(feature); } catch (_) { return true; }
   }
 
-  function post(message) {
-    try { if (parent !== window) parent.postMessage(message, '*'); } catch (_) { /* no parent to tell */ }
+  function post(message, transfer) {
+    try { if (parent !== window) parent.postMessage(message, '*', transfer || []); } catch (_) { /* no parent to tell */ }
   }
 
   // ---- the audio clock and output ----------------------------------------------------------------
@@ -612,8 +626,10 @@ registerProcessor('cardenza-output', CardenzaOutput);
   }
   addEventListener('message', (event) => {
     const data = event.data;
-    if (!data || data.cardenza_sim !== 'app' || !Array.isArray(data.data)) return;
-    appIn(Uint8Array.from(data.data, (value) => value & 0xFF));
+    if (!data || typeof data !== 'object') return;
+    if (data.cardenza_sim === 'app' && Array.isArray(data.data)) appIn(Uint8Array.from(data.data, (value) => value & 0xFF));
+    else if (data.cardenza_sim === 'screenshot') answerScreenshot(data);
+    else if (data.cardenza_sim === 'host') shots.hidden = data.screenshot === true;
   });
 
   // ---- storage ------------------------------------------------------------------------------------
@@ -745,6 +761,7 @@ registerProcessor('cardenza-output', CardenzaOutput);
       readyResolve();
       post({ cardenza_sim: 'ready' });
       post({ cardenza_sim: 'keys', keys: keyTable() });
+      post({ cardenza_sim: 'features', features: ['screenshot'] });
     } else {
       post({ cardenza_sim: 'restarted', reason: resetReason });
     }
@@ -864,6 +881,7 @@ registerProcessor('cardenza-output', CardenzaOutput);
     const serial = words[pointer >> 2];
     if (serial === frameSerial) return;
     frameSerial = serial;
+    shotButton.disabled = framedButton.disabled = false;
     const permille = words[(pointer >> 2) + 1];
     const pixels = new Uint16Array(instance.HEAPU8.buffer, pointer + 12, WIDTH * HEIGHT);
     const data = image.data;
@@ -917,6 +935,106 @@ registerProcessor('cardenza-output', CardenzaOutput);
     }
   }
 
+  // ---- screenshots ----------------------------------------------------------------------------------
+
+  // The community's standard picture (https://cardenza.203.io/community/guide/images; 203cli images frame draws the
+  // same): 1280 x 720, one flat colour, a #1A1C1E bezel 32 px wide with round outer corners, the screen at 4 times
+  // at (160, 90).
+  const SHOT = { scale: 4, width: 1280, height: 720, x: 160, y: 90, band: 32, radius: 32, bezel: '#1A1C1E', color: '#E85A2C' };
+  shotButton.disabled = framedButton.disabled = true;
+
+  // '#RRGGBB' from '#RGB', '#RRGGBB' (the # optional), else null.
+  function shotColor(text) {
+    const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(text === undefined || text === null ? '' : text).trim());
+    if (!match) return null;
+    const hex = match[1].length === 3 ? match[1].replace(/./g, '$&$&') : match[1];
+    return '#' + hex.toUpperCase();
+  }
+
+  // The file's name: the firmware's title in plain letters, what it is, the time.
+  function shotName(framed, date) {
+    const slug = options.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'cardenza';
+    const two = (n) => String(n).padStart(2, '0');
+    const stamp = date.getFullYear() + two(date.getMonth() + 1) + two(date.getDate()) + '-' + two(date.getHours()) + two(date.getMinutes()) + two(date.getSeconds());
+    return slug + '-' + (framed ? 'framed' : 'screen') + '-' + stamp + '.png';
+  }
+
+  // The screen as the panel holds it (the backlight's dimming is a style, not in the canvas), enlarged pixel for pixel.
+  function shotCanvas(framed, color) {
+    const out = document.createElement('canvas');
+    const width = WIDTH * SHOT.scale;
+    const height = HEIGHT * SHOT.scale;
+    out.width = framed ? SHOT.width : width;
+    out.height = framed ? SHOT.height : height;
+    const c = out.getContext('2d');
+    c.imageSmoothingEnabled = false;
+    if (framed) {
+      c.fillStyle = color;
+      c.fillRect(0, 0, SHOT.width, SHOT.height);
+      const x = SHOT.x - SHOT.band;
+      const y = SHOT.y - SHOT.band;
+      const w = width + 2 * SHOT.band;
+      const h = height + 2 * SHOT.band;
+      const r = SHOT.radius;
+      c.fillStyle = SHOT.bezel;
+      c.beginPath();
+      c.moveTo(x + r, y);
+      c.arcTo(x + w, y, x + w, y + h, r);
+      c.arcTo(x + w, y + h, x, y + h, r);
+      c.arcTo(x, y + h, x, y, r);
+      c.arcTo(x, y, x + w, y, r);
+      c.closePath();
+      c.fill();
+    }
+    c.drawImage(canvas, framed ? SHOT.x : 0, framed ? SHOT.y : 0, width, height);
+    return out;
+  }
+
+  // {name, width, height, framed, color, blob}; rejects before the firmware drew its first frame.
+  function screenshot(request) {
+    const framed = !!(request && request.framed);
+    const color = shotColor(request && request.color) || SHOT.color;
+    if (frameSerial === -1) return Promise.reject(new Error('no_frame'));
+    const out = shotCanvas(framed, color);
+    return new Promise((resolve, reject) => {
+      out.toBlob((blob) => {
+        if (!blob) { reject(new Error('encode_failed')); return; }
+        resolve({ name: shotName(framed, new Date()), width: out.width, height: out.height, framed, color: framed ? color : null, blob });
+      }, 'image/png');
+    });
+  }
+
+  function answerScreenshot(request) {
+    const id = typeof request.id === 'string' || typeof request.id === 'number' ? request.id : null;
+    screenshot(request).then((shot) => shot.blob.arrayBuffer().then((png) => {
+      post({ cardenza_sim: 'screenshot', id, framed: shot.framed, color: shot.color, width: shot.width, height: shot.height, name: shot.name, png }, [png]);
+    })).catch((error) => post({ cardenza_sim: 'screenshot', id, error: error && error.message ? error.message : 'failed' }));
+  }
+
+  function saveScreenshot(button, framed) {
+    screenshot({ framed }).then((shot) => {
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(shot.blob);
+      link.download = shot.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+      log('cardenza-sim: saved ' + shot.name + ' (' + shot.width + ' x ' + shot.height + ')', false);
+      const label = button.dataset.label || (button.dataset.label = button.textContent);
+      button.classList.add('saved');
+      button.textContent = 'SAVED';
+      setTimeout(() => { button.classList.remove('saved'); button.textContent = label; }, 1200);
+    }, (error) => log('cardenza-sim: no screenshot (' + (error && error.message ? error.message : error) + ')', true));
+  }
+
+  for (const [button, framed] of [[shotButton, false], [framedButton, true]]) {
+    button.tabIndex = -1;
+    // The keyboard stays the firmware's: the button never takes the focus.
+    button.addEventListener('pointerdown', (event) => { event.preventDefault(); event.stopPropagation(); stage.focus({ preventScroll: true }); });
+    button.addEventListener('click', () => saveScreenshot(button, framed));
+  }
+
   // ---- the test and diagnostics API -------------------------------------------------------------
 
   window.cardenzaSim = {
@@ -952,6 +1070,8 @@ registerProcessor('cardenza-output', CardenzaOutput);
       rms: audio.rms, peakRms: audio.peakRms, postedFrames: audio.posted, lateFrames: audio.lateFrames } : null),
     restart: () => restart(3), // ESP_RST_SW
     app: (bytes) => appIn(Uint8Array.from(bytes)),
+    // A screenshot as the buttons make it: {name, width, height, framed, color, blob}.
+    screenshot: (request) => screenshot(request || {}),
   };
 
   addEventListener('pointerdown', () => startAudio(), { capture: true });
