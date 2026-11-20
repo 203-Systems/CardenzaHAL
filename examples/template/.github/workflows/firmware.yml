@@ -5,7 +5,7 @@
 #   tag vX.Y.Z           stable  X.Y.Z         (equal to version.txt; CHANGELOG.md's "## X.Y.Z" is its notes)
 #   tag vX.Y.Z-beta.N    beta    X.Y.Z-beta.N
 #
-# Trusted publishing, no secret: publish the first version by hand (203c publish) and commit 203.json with
+# Trusted publishing, no secret: publish the first version by hand (203cli publish) and commit 203.json with
 # its code, then link this repository and this workflow file on the firmware's page (自动发布 / Trusted
 # publishing) and turn beta and dev on there.
 name: Firmware
@@ -50,7 +50,7 @@ jobs:
 
   # On your own Cardenza (optional): a self-hosted runner on a computer with a Cardenza on its USB cable (labels
   # self-hosted, cardenza; Linux or macOS, Node 18+) installs each build through the device's 203 Launcher and
-  # checks that it starts: the job fails at a panic or when the line never comes (203c log, no sign-in).
+  # checks that it starts: the job fails at a panic or when the line never comes (203cli log, no sign-in).
   # on-device:
   #   needs: firmware
   #   if: github.event_name == 'push'
@@ -58,6 +58,6 @@ jobs:
   #   steps:
   #     - uses: actions/download-artifact@v4      # the BIN: add an upload-artifact step for build/my_firmware.bin above
   #       with: {name: bin}
-  #     - run: npm install -g 203c
-  #     - run: 203c flash --bin my_firmware.bin --json
-  #     - run: 203c log --until "my_firmware .* ready" --seconds 60 --json
+  #     - run: npm install -g 203cli
+  #     - run: 203cli flash --bin my_firmware.bin --json
+  #     - run: 203cli log --until "my_firmware .* ready" --seconds 60 --json

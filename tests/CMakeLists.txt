@@ -91,10 +91,10 @@ if(Python3_Interpreter_FOUND)
   # tools/cardenza_web.py (the web target's build tool): sdkconfig, build failures, the HAL, sim.json; with
   # Emscripten installed it also builds examples/psram_heap for the web.
   add_test(NAME CardenzaWebToolTests COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/web_tool_test.py)
-  # tools/cardenza.py (the preferred build tool): the project, ESP-IDF, 203c and the checks a build stops at.
+  # tools/cardenza.py (the preferred build tool): the project, ESP-IDF, 203cli and the checks a build stops at.
   add_test(NAME CardenzaDevToolTests COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/dev_tool_test.py)
-  # cmake/require_203c.cmake: every firmware's build stops without 203c and says how to install it.
-  add_test(NAME CardenzaRequire203cTests COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/require_203c_test.py)
+  # cmake/require_203cli.cmake: every firmware's build stops without 203cli and says how to install it.
+  add_test(NAME CardenzaRequire203cliTests COMMAND Python3::Interpreter ${CMAKE_CURRENT_SOURCE_DIR}/require_203cli_test.py)
 endif()
 
 # The web target's pure parts (web/): the kernel, the allocator, the display model, the audio rings.

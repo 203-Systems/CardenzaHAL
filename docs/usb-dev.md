@@ -3,7 +3,7 @@
 Every firmware on CardenzaHAL that starts USB (`USB::Init`) answers a computer's questions about itself over
 the HAL's system channel, without a line of the firmware's own: what it is, its partitions, its memory and
 tasks, the SD card, the I2C bus, its screen, and its last crash; and it takes keys pressed from the computer and
-files for the card. `203c board` is the computer's side (203-CLI); a web page reaches it over Web MIDI. The
+files for the card. `203cli board` is the computer's side (203-CLI); a web page reaches it over Web MIDI. The
 template does not start USB (its console stays on the serial port, which the community's boot check reads): add
 `CardenzaHAL::USB::Init();` after `CardenzaHAL::Init()` to use it.
 

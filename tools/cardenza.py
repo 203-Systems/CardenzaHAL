@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """The preferred way to build and try a firmware on CardenzaHAL: it checks what the project needs first
-(ESP-IDF 5.3, git, a clean HAL submodule, 203c, the 203 community's CLI), then runs the step. Linux, macOS
+(ESP-IDF 5.3, git, a clean HAL submodule, 203cli, the 203 community's CLI), then runs the step. Linux, macOS
 and Windows; Python 3.8 or later, standard library only.
 
 usage: python3 components/CardenzaHAL/tools/cardenza.py <command> [options]
 
   doctor          everything the project needs on this computer, and how to install what is missing; whether
-                  203c or the HAL submodule has an update (203c updates)
+                  203cli or the HAL submodule has an update (203cli updates)
   build [--web]   the checks, then the device build (idf.py build): build/<project>.bin and how much of the
                   203 Launcher's room it takes; --web also the browser version (build-web/site)
   web             the browser version only (tools/cardenza_web.py build .)
   flash [...]     build/<project>.bin onto the Cardenza on the USB cable, through its 203 Launcher, which
-                  stays (203c flash --bin ...; never idf.py flash: it erases the Launcher)
-  log [...]       the device's log over USB (203c log: a running firmware's console, or the Launcher's)
+                  stays (203cli flash --bin ...; never idf.py flash: it erases the Launcher)
+  log [...]       the device's log over USB (203cli log: a running firmware's console, or the Launcher's)
   help            this text
 
   -C DIR          the project (default: the folder with 203.json here or above)
   --json          doctor: the checks as JSON
-  --no-cli-check  build without 203c (CI only: the publish step installs it)
+  --no-cli-check  build without 203cli (CI only: the publish step installs it)
 
 ESP-IDF does not have to be activated: an ESP-IDF 5.3 found in IDF_PATH, ~/esp or C:\\Espressif is
 exported for the build. What the rules say about every step: docs/FIRMWARE-PROJECT.md.
@@ -33,11 +33,13 @@ import sys
 
 HAL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RULES = "https://github.com/203-Systems/CardenzaHAL/blob/main/docs/FIRMWARE-PROJECT.md"
-INSTALL_203C = "npm install -g 203c && 203c skill install"
+INSTALL_CLI = "npm install -g 203cli && 203cli skill install"
+# 203cli was called 203c (renamed 2026-11-20): where only 203c is installed it is used, with this said.
+RENAMED = "203c is renamed 203cli, the only CLI of the 203 community now (203c gets no more updates or support)"
 IDF_WANTED = (5, 3)
 IDF_TESTED = "5.3.5"
-CLI_WANTED = (3, 5, 0)   # 203c new, log, sync, link, skill install
-CLI_UPDATES = (3, 5, 1)  # 203c updates (a newer 203c, the HAL submodule behind its main): the release after 3.5.0
+CLI_WANTED = (3, 5, 1)   # 203cli's first version (203c 3.5.0 had new, log, sync, link, skill install)
+CLI_UPDATES = (3, 5, 1)  # updates (a newer 203cli, the HAL submodule behind its main): 203cli, and the last 203c (3.5.1)
 APP_ROOM = 0x690000      # the 203 Launcher's room for one app on every Cardenza (0x170000 to 8 MB: boards
                          # flashed with Launcher 0.3.3 or earlier declare 8 MB in their bootloader; the chip has 16 MB)
 LOCAL_FLASH = "https://cardenza.203.io/community/firmware (Flash a local file / 烧录本地固件, in Chrome or Edge)"
@@ -118,26 +120,44 @@ def find_idf(env=os.environ, home=os.path.expanduser("~")):
     return best or (None, None, False)
 
 
-def find_203c(env=os.environ, home=os.path.expanduser("~")):
-    """The command that runs 203c ([203c] or [node, .../203c.mjs]), or None."""
-    found = shutil.which("203c", path=env.get("PATH"))
-    if found:
-        return [found]
+def find_203cli(env=os.environ, home=os.path.expanduser("~"), old_name=True):
+    """The command that runs 203cli ([203cli] or [node, .../203cli.mjs]): on PATH, else the Agent Skill's copy; else
+    (old_name) 203c, its old name, the same ways. None when neither is there."""
     skills = env.get("CLAUDE_SKILLS_DIR") or os.path.join(home, ".claude", "skills")
-    script = os.path.join(skills, "203-community", "scripts", "203c.mjs")
     node = shutil.which("node", path=env.get("PATH"))
-    return [node, script] if node and os.path.isfile(script) else None
+    for name in ("203cli", "203c") if old_name else ("203cli",):
+        found = shutil.which(name, path=env.get("PATH"))
+        if found:
+            return [found]
+        script = os.path.join(skills, "203-community", "scripts", name + ".mjs")
+        if node and os.path.isfile(script):
+            return [node, script]
+    return None
+
+
+def is_old_name(cli):
+    """Whether the command find_203cli answered is 203c, the old name."""
+    return bool(cli) and re.sub(r"\.(cmd|exe|mjs)$", "", os.path.basename(cli[-1]).lower()) == "203c"
+
+
+def cli_name(cli=None):
+    """The name to print in the commands it suggests: what is installed (203c until 203cli is)."""
+    return "203c" if is_old_name(cli if cli is not None else find_203cli()) else "203cli"
 
 
 def signed_in(env=os.environ, home=os.path.expanduser("~")):
     if env.get("COMMUNITY_TOKEN"):
         return True
     base = env.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
-    try:
-        with open(os.path.join(base, "203c", "token"), encoding="utf-8") as token:
-            return bool(token.read().strip())
-    except OSError:
-        return False
+    # 203cli's, else 203c's (203cli takes it over at its first run).
+    for name in ("203cli", "203c"):
+        try:
+            with open(os.path.join(base, name, "token"), encoding="utf-8") as token:
+                if token.read().strip():
+                    return True
+        except OSError:
+            pass
+    return False
 
 
 def run_quiet(command, timeout=60, **kwargs):
@@ -148,7 +168,7 @@ def run_quiet(command, timeout=60, **kwargs):
 
 
 def updates(cli, project):
-    """203c's update notices, asked now (`203c updates --json`): [(status, detail)], or [] when it does not answer.
+    """203cli's update notices, asked now (`203cli updates --json`): [(status, detail)], or [] when it does not answer.
     The HAL's own check (check_submodule.py) is the "hal" line already: not said twice."""
     said = run_quiet(cli + ["updates", "--json"] + (["--project", project] if project else []), timeout=15)
     try:
@@ -164,7 +184,7 @@ def updates(cli, project):
     cli_said = answer.get("cli") or {}
     if not cli_said.get("latest"):
         return [("skip", "npm did not answer (offline, or blocked here): not checked")]
-    detail = "203c %s is the newest" % cli_said.get("current")
+    detail = "203cli %s is the newest" % cli_said.get("current")
     if hal.get("status") in ("identical", "ahead"):
         detail += "; CardenzaHAL (%s) is at its main" % hal.get("path")
     return [("ok", detail)]
@@ -172,7 +192,7 @@ def updates(cli, project):
 
 def checks(project, need_cli=True, updates_too=False):
     """Each check: {name, status: ok | missing | warn | skip, detail, fix}. missing stops a build. updates_too (doctor):
-    203c's update notices too (a newer 203c, the HAL submodule behind its main), asked now."""
+    203cli's update notices too (a newer 203cli, the HAL submodule behind its main), asked now."""
     out = []
 
     def add(name, status, detail, fix=None):
@@ -184,9 +204,9 @@ def checks(project, need_cli=True, updates_too=False):
         add("project", "ok", "%s (%s)" % (project, project_name(project) or "no project() in CMakeLists.txt"))
         for name in ("203.json", "version.txt", "CHANGELOG.md", "sdkconfig.defaults"):
             if not os.path.isfile(os.path.join(project, name)):
-                add(name, "warn", "missing", "the template has it (203c new, or %s#2-the-project-files-and-layout)" % RULES)
+                add(name, "warn", "missing", "the template has it (203cli new, or %s#2-the-project-files-and-layout)" % RULES)
     else:
-        add("project", "missing", "no ESP-IDF project with 203.json here or above", "203c new \"My firmware\" (or -C DIR)")
+        add("project", "missing", "no ESP-IDF project with 203.json here or above", "203cli new \"My firmware\" (or -C DIR)")
 
     path, version, activated = find_idf()
     if not path:
@@ -211,18 +231,26 @@ def checks(project, need_cli=True, updates_too=False):
     else:
         add("hal", "ok", "%s (not a git checkout: not checked)" % HAL)
 
-    cli = find_203c()
+    cli = find_203cli()
     if not cli:
-        add("203c", "missing" if need_cli else "warn", "203c, the 203 community's CLI, is not installed",
-            "%s   (Node.js 18 or later: https://nodejs.org)" % INSTALL_203C)
+        add("203cli", "missing" if need_cli else "warn", "203cli, the 203 community's CLI, is not installed",
+            "%s   (Node.js 18 or later: https://nodejs.org)" % INSTALL_CLI)
     else:
         said = run_quiet(cli + ["--version"])
         version = said.stdout.strip() if said and said.returncode == 0 else "?"
-        old = version_tuple(version) < CLI_WANTED
-        add("203c", "warn" if old else "ok", "203c %s (%s)" % (version, " ".join(cli)),
-            "update it: %s" % INSTALL_203C if old else None)
+        if is_old_name(cli):
+            # The build goes on with 203c; what to do is said.
+            add("203cli", "warn", "only 203c, its old name, is installed: %s %s (%s)" % ("203c", version, " ".join(cli)),
+                "%s: %s, then npm uninstall -g 203c" % (RENAMED, INSTALL_CLI))
+        else:
+            old = version_tuple(version) < CLI_WANTED
+            add("203cli", "warn" if old else "ok", "203cli %s (%s)" % (version, " ".join(cli)),
+                "update it: %s" % INSTALL_CLI if old else None)
+            if shutil.which("203c"):
+                add("203c", "warn", "203c, the old name, is still installed (%s)" % shutil.which("203c"),
+                    "npm uninstall -g 203c (and write 203cli where scripts say 203c)")
         add("sign-in", "ok" if signed_in() else "warn", "signed in" if signed_in() else "not signed in",
-            None if signed_in() else "203c login (once on this computer: the browser asks you to approve; publishing needs it)")
+            None if signed_in() else "%s login (once on this computer: the browser asks you to approve; publishing needs it)" % cli_name(cli))
         if updates_too and version_tuple(version) >= CLI_UPDATES:
             for status, detail in updates(cli, project):
                 add("updates", status, detail)
@@ -266,7 +294,7 @@ def build(project, options):
     if not need(project, results):
         return 1
     for check in results:
-        if check["status"] == "warn" and check["name"] in ("203c", "sign-in", "esp-idf"):
+        if check["status"] == "warn" and check["name"] in ("203cli", "203c", "sign-in", "esp-idf"):
             print("cardenza: %s: %s -> %s" % (check["name"], check["detail"], check.get("fix", "")))
     code = in_idf(["idf.py", "build"], project)
     if code != 0:
@@ -283,9 +311,10 @@ def build(project, options):
     if "--web" in options and web(project) != 0:
         return 1
     rel = os.path.relpath(image, project)
-    print("next: 203c flash --bin %s   onto the Cardenza over USB, through its 203 Launcher (not idf.py flash: that erases the Launcher)" % rel)
-    print("      203c log                 what it prints")
-    print("      203c publish --dry-run   what the community will check")
+    name = cli_name()
+    print("next: %s flash --bin %s   onto the Cardenza over USB, through its 203 Launcher (not idf.py flash: that erases the Launcher)" % (name, rel))
+    print("      %s log                 what it prints" % name)
+    print("      %s publish --dry-run   what the community will check" % name)
     return 0
 
 
@@ -297,10 +326,10 @@ def web(project):
     return in_idf(command, project)
 
 
-def through_203c(arguments, project):
-    cli = find_203c()
+def through_203cli(arguments, project):
+    cli = find_203cli()
     if not cli:
-        sys.stderr.write("cardenza: 203c, the 203 community's CLI, is not installed: %s\n" % INSTALL_203C)
+        sys.stderr.write("cardenza: 203cli, the 203 community's CLI, is not installed: %s\n" % INSTALL_CLI)
         return 1
     code = subprocess.run(cli + arguments, cwd=project or None).returncode
     if code != 0 and WINDOWS and arguments[0] in ("flash", "log"):
@@ -314,7 +343,7 @@ def flash(project, arguments):
     if not image or not os.path.isfile(image):
         sys.stderr.write("cardenza: no build yet: %s %s build\n" % (PY, os.path.relpath(__file__, project or ".")))
         return 1
-    return through_203c(["flash", "--bin", os.path.relpath(image, project)] + arguments, project)
+    return through_203cli(["flash", "--bin", os.path.relpath(image, project)] + arguments, project)
 
 
 def main(argv):
@@ -338,13 +367,13 @@ def main(argv):
             print(json.dumps({"project": project, "hal": HAL, "checks": results}, indent=2))
         else:
             print_checks(results)
-            if not signed_in() and find_203c() and sys.stdin.isatty() and not os.environ.get("CI"):
+            if not signed_in() and find_203cli() and sys.stdin.isatty() and not os.environ.get("CI"):
                 try:
                     answer = input("Sign in to the 203 community now (opens the browser)? [Y/n] ").strip().lower()
                 except EOFError:
                     answer = "n"
                 if answer in ("", "y", "yes"):
-                    through_203c(["login"], project)
+                    through_203cli(["login"], project)
         return 1 if any(check["status"] == "missing" for check in results) else 0
     if command in ("build", "web") and not project:
         need(project, checks(project))
@@ -356,7 +385,7 @@ def main(argv):
     if command == "flash":
         return flash(project, argv[argv.index("flash") + 1:])
     if command == "log":
-        return through_203c(["log"] + argv[argv.index("log") + 1:], project)
+        return through_203cli(["log"] + argv[argv.index("log") + 1:], project)
     sys.stderr.write("cardenza: unknown command %r\n\n%s\n" % (command, __doc__.strip()))
     return 2
 

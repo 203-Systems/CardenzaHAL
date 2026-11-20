@@ -397,9 +397,9 @@ function(__cardenza_web_add_components)
             else()
                 message(STATUS "cardenza-web: ${name} is CardenzaHAL (${dir}): the web HAL from ${CARDENZA_WEB_HAL_DIR} is built in its place")
             endif()
-            # The HAL's CMakeLists.txt does not run here, so its check for 203c runs here instead.
-            include("${CARDENZA_WEB_HAL_DIR}/cmake/require_203c.cmake")
-            cardenza_hal_require_203c()
+            # The HAL's CMakeLists.txt does not run here, so its check for 203cli runs here instead.
+            include("${CARDENZA_WEB_HAL_DIR}/cmake/require_203cli.cmake")
+            cardenza_hal_require_203cli()
             continue()
         endif()
         set(COMPONENT_NAME "${name}")

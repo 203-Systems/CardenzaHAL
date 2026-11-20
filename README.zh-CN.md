@@ -4,7 +4,7 @@
 
 [官网](https://203.io/products/cardenza-mini-synthsiser) · [教程](https://cardenza.203.io/zh-Hans/) · [固件社区](https://cardenza.203.io/community) · [固件开发说明](https://cardenza.203.io/community/develop) · [203-CLI](https://github.com/203-Systems/203-CLI) · [示例固件：鸣片 CardenzaSynth](https://github.com/203-Systems/CardenzaSynth)
 
-**要给鸣片做固件？先装 203c，它是必须的。** `npm install -g 203c && 203c skill install`（Node.js 18 或更新；macOS、Linux、Windows 都一样）。下面每一步都用它，没装它，基于这个 HAL 的固件编译不了。只克隆 203-CLI 仓库不算安装。
+**要给鸣片做固件？先装 203cli，它是必须的。** `npm install -g 203cli && 203cli skill install`（Node.js 18 或更新；macOS、Linux、Windows 都一样）。下面每一步都用它，没装它，基于这个 HAL 的固件编译不了。只克隆 203-CLI 仓库不算安装。
 
 CardenzaHAL 是 Cardenza（ESP32-S3）的 ESP-IDF 硬件层。你可以用它读取 56 键键盘、控制每颗按键灯、向 240 × 135 屏幕绘图、播放 PCM 音频、访问 SD 卡，给固件加入 USB MIDI、音频和 HID 功能，以及通过 203 Launcher 设置好的 Wi-Fi 上网。
 
@@ -12,22 +12,22 @@ HAL 负责硬件初始化，并提供原生 ESP-IDF 句柄；应用负责界面�
 
 ## 在 CardenzaHAL 上做固件
 
-有两样是必须的：**这个 HAL**（每个固件都只通过它访问硬件）和 **[203-CLI](https://github.com/203-Systems/203-CLI)**，即 203 社区的命令行 `203c`：它建项目、把编译好的固件装到你的鸣片上、读日志，也是发布的唯一途径（手动或 CI）。它附带给 AI 编程助手用的 Agent Skill 和每台 203 设备的开发指引（鸣片的在 [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)）。每一步的规则（人和 AI 读同一份）：[`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md)（英文，唯一的规范；[中文摘要](docs/FIRMWARE-PROJECT.zh-CN.md)）。
+有两样是必须的：**这个 HAL**（每个固件都只通过它访问硬件）和 **[203-CLI](https://github.com/203-Systems/203-CLI)**，即 203 社区的命令行 `203cli`：它建项目、把编译好的固件装到你的鸣片上、读日志，也是发布的唯一途径（手动或 CI）。它附带给 AI 编程助手用的 Agent Skill 和每台 203 设备的开发指引（鸣片的在 [`products/cardenza`](https://github.com/203-Systems/203-CLI/blob/main/products/cardenza/README.md)）。每一步的规则（人和 AI 读同一份）：[`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md)（英文，唯一的规范；[中文摘要](docs/FIRMWARE-PROJECT.zh-CN.md)）。
 
 ```sh
-npm install -g 203c && 203c skill install                           # 203c 和它的 Agent Skill（Node.js 18+，各系统都一样）
-203c new "My firmware" --summary "它做什么"                           # 新项目：这个 HAL 作为子模块，加上模板
+npm install -g 203cli && 203cli skill install                       # 203cli 和它的 Agent Skill（Node.js 18+，各系统都一样）
+203cli new "My firmware" --summary "它做什么"                         # 新项目：这个 HAL 作为子模块，加上模板
 cd my-firmware
-python3 components/CardenzaHAL/tools/cardenza.py doctor   # 这台电脑还缺什么（ESP-IDF 5.3.5、Emscripten、203c）
+python3 components/CardenzaHAL/tools/cardenza.py doctor   # 这台电脑还缺什么（ESP-IDF 5.3.5、Emscripten、203cli）
 python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方式：先检查，再 idf.py build
-203c flash --bin build/my_firmware.bin                    # 通过 203 Launcher 用 USB 线装到你的鸣片上
-203c log                                                  # 看它打印的日志
-203c login                                                # 每台电脑一次：浏览器里批准
-203c publish --dry-run && 203c publish                    # 第一个版本；之后由 CI 发布（见「发布」）
-203c sync                                                 # 之后：.203/community.md，大家提了什么需求、说了什么
+203cli flash --bin build/my_firmware.bin                  # 通过 203 Launcher 用 USB 线装到你的鸣片上
+203cli log                                                # 看它打印的日志
+203cli login                                              # 每台电脑一次：浏览器里批准
+203cli publish --dry-run && 203cli publish                # 第一个版本；之后由 CI 发布（见「发布」）
+203cli sync                                               # 之后：.203/community.md，大家提了什么需求、说了什么
 ```
 
-[`tools/cardenza.py`](tools/cardenza.py) 是首选的编译方式：编译前检查 ESP-IDF 5.3、这个 HAL 是干净的子模块、`203c` 已安装（并已登录），shell 没激活 ESP-IDF 时它自己导出环境再编译。其他编译方式也检查 `203c`：`idf.py build` 和网页目标没装它就停下，并说怎么装（[`cmake/require_203c.cmake`](cmake/require_203c.cmake)；CI 里不检查，发布那一步会自己装 203c），并把 203c 的更新提示作为警告打出来：有新版 `203c`、这个 HAL 落后于它的 `main` 或不是干净的副本（`203c updates`）。**不要对鸣片 `idf.py flash`**：那会抹掉 203 Launcher 和它装过的所有固件；`203c flash` 通过 Launcher 安装。
+[`tools/cardenza.py`](tools/cardenza.py) 是首选的编译方式：编译前检查 ESP-IDF 5.3、这个 HAL 是干净的子模块、`203cli` 已安装（并已登录），shell 没激活 ESP-IDF 时它自己导出环境再编译。其他编译方式也检查 `203cli`：`idf.py build` 和网页目标没装它就停下，并说怎么装（[`cmake/require_203cli.cmake`](cmake/require_203cli.cmake)；CI 里不检查，发布那一步会自己装 203cli），并把 203cli 的更新提示作为警告打出来：有新版 `203cli`、这个 HAL 落后于它的 `main` 或不是干净的副本（`203cli updates`）。**不要对鸣片 `idf.py flash`**：那会抹掉 203 Launcher 和它装过的所有固件；`203cli flash` 通过 Launcher 安装。
 
 ## 硬件一览
 
@@ -46,7 +46,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方�
 | HOME | 侧边键（GPIO0；按一下打开[系统菜单](#系统菜单任何固件里按-home)；插 USB 或复位时按住进 ROM 下载模式） | [`system/system.h`](system/system.h)：`GetFuncButton`；[Func、I2C 与红外](#funci2c-与红外) |
 | I2C | 共用总线（GPIO1/2），解码器在上面 | [`system/system.h`](system/system.h)：`GetI2CBus` |
 | 红外 | 发射管（GPIO44，NEC 38 kHz） | [`ir/ir.h`](ir/ir.h)：`Send` |
-| USB | 芯片自带的 USB PHY：USB-Serial-JTAG（日志、esptool），或 HAL 的 USB 设备：MIDI、双向音频、HID、系统通道（日志、重启进 Launcher） | [`usb/usb.h`](usb/usb.h)；[USB 设备用法](#usb-设备用法)；电脑端：`203c log`、[`tools/cardenza_usb.py`](tools/cardenza_usb.py) |
+| USB | 芯片自带的 USB PHY：USB-Serial-JTAG（日志、esptool），或 HAL 的 USB 设备：MIDI、双向音频、HID、系统通道（日志、重启进 Launcher） | [`usb/usb.h`](usb/usb.h)；[USB 设备用法](#usb-设备用法)；电脑端：`203cli log`、[`tools/cardenza_usb.py`](tools/cardenza_usb.py) |
 | Wi-Fi、蓝牙 | 芯片自带（2.4 GHz Wi-Fi、蓝牙 5 LE） | 用 ESP-IDF 自己的驱动，不在 HAL 里（浏览器模拟器里没有：[网页模拟器](#网页模拟器)） |
 
 ## 发布
@@ -54,8 +54,8 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方�
 基于 HAL 的每个固件，203 Systems 自己的（Cardenza Synth、203 Launcher）和第三方的，都用同一种方式发布：发到 203 社区，203 Launcher 从社区的渠道安装和更新固件。
 
 - 渠道跟着 Git 引用走，由 CI 用 [`.github/actions/community-publish`](.github/actions/community-publish/action.yml) 发布：推送到 `main` 是 **dev**（`<版本>-dev.<运行号>`），等于 `version.txt` 的 `vX.Y.Z` 标签是 **stable**（更新说明取 `CHANGELOG.md` 的 `## X.Y.Z`），`vX.Y.Z-beta.N` 标签是 **beta**。
-- 受信任发布，不存任何密钥：作业（`permissions: id-token: write`）用 GitHub 的 OIDC 令牌登录，社区只接受固件主人在固件页「自动发布」里（或用 `203c firmware publishers add`）关联过的仓库。
-- 第一个版本手动发布（`203c publish`），固件由此得到代码；工作流在 [`examples/template`](examples/template) 里。细节见 [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md#8-publish)。
+- 受信任发布，不存任何密钥：作业（`permissions: id-token: write`）用 GitHub 的 OIDC 令牌登录，社区只接受固件主人在固件页「自动发布」里（或用 `203cli firmware publishers add`）关联过的仓库。
+- 第一个版本手动发布（`203cli publish`），固件由此得到代码；工作流在 [`examples/template`](examples/template) 里。细节见 [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md#8-publish)。
 - 自己从源码编译、给自己的板子烧录仍然可以，但那不是发布。
 
 ## 使用前提
@@ -165,8 +165,8 @@ extern "C" void app_main()
 
 ```sh
 python3 components/CardenzaHAL/tools/cardenza.py build   # 或者在激活了 ESP-IDF 的 shell 里：idf.py build
-203c flash --bin build/cardenza_hello.bin                # 通过 203 Launcher 安装（不要 idf.py flash：会抹掉 Launcher）
-203c log                                                 # 通过 USB 看日志
+203cli flash --bin build/cardenza_hello.bin              # 通过 203 Launcher 安装（不要 idf.py flash：会抹掉 Launcher）
+203cli log                                               # 通过 USB 看日志
 ```
 
 没有 203 Launcher 的板子（裸芯片）才用 `idf.py -p <PORT> flash monitor`。运行后，黑色屏幕顶部出现一条白色横条；按住哪个键，哪个键就亮，松开后熄灭。没有 SD 卡也可以运行。示例初始化了音频硬件，但不会播放声音。
@@ -421,7 +421,7 @@ USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包�
 
 ### USB 协议与平台说明
 
-`CardenzaHAL::USB::Init()`（`usb/usb.h`）把 USB 口变成一个复合设备：USB MIDI 1.0、USB 音频 2.0（立体声 16 位 44.1 kHz，双向，异步带反馈：电脑跟随设备的时钟）和 HID（键盘、媒体键、系统通道和固件自己的原始报告）。VID 0x0203（203 Systems）。报告号和指令沿用 Matrix OS：报告 0xCB 是系统指令（0x40 Launcher / 更新模式，0x41 重启，0x42 ROM 下载模式，0x43 控制台，0x44 识别，0x45 [开发通道](#开发通道203c-board)；应答为指令 | 0x80），同样的指令也可以用 SysEx `F0 23 <指令> F7` 发。固件自己的报告（0xFF）在电脑没法用 HID 时（比如用 Web MIDI 的网页）也能用 SysEx `F0 23 7F <字节> F7` 发，`SendAppReport` 按上一条来的方式回复（`F0 24 7F <字节> F7`，7 位）。固件的 MIDI 包和 HAL 的 SysEx 一次只有一方在写，SysEx 到电脑时是完整的。
+`CardenzaHAL::USB::Init()`（`usb/usb.h`）把 USB 口变成一个复合设备：USB MIDI 1.0、USB 音频 2.0（立体声 16 位 44.1 kHz，双向，异步带反馈：电脑跟随设备的时钟）和 HID（键盘、媒体键、系统通道和固件自己的原始报告）。VID 0x0203（203 Systems）。报告号和指令沿用 Matrix OS：报告 0xCB 是系统指令（0x40 Launcher / 更新模式，0x41 重启，0x42 ROM 下载模式，0x43 控制台，0x44 识别，0x45 [开发通道](#开发通道203cli-board)；应答为指令 | 0x80），同样的指令也可以用 SysEx `F0 23 <指令> F7` 发。固件自己的报告（0xFF）在电脑没法用 HID 时（比如用 Web MIDI 的网页）也能用 SysEx `F0 23 7F <字节> F7` 发，`SendAppReport` 按上一条来的方式回复（`F0 24 7F <字节> F7`，7 位）。固件的 MIDI 包和 HAL 的 SysEx 一次只有一方在写，SysEx 到电脑时是完整的。
 
 - 它占用芯片唯一的 USB PHY：控制台转到系统通道，esptool 的串口没有了，直到重启进 Launcher 或 ROM 下载模式。
 - ESP32-S3 除 EP0 外只有四个 IN 端点，这个设备全部用上（MIDI、音频输入、音频反馈、HID），放不下 CDC。
@@ -431,11 +431,11 @@ USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包�
 - 已在 macOS 上实测（2026-11-02）：MIDI 双向、HID 和 SysEx 系统指令、控制台、44.1 kHz 双向音频。全速下反馈值按 10.14 发 3 字节（TinyUSB 默认的 16.16 会让 macOS 在 128 ms 后停播）；请求 Microsoft OS 字符串的主机收到 16.16（Windows，未测试）。TinyUSB 的 DWC2 驱动不会重启错过帧的同步 OUT 传输；HAL 在 20 ms 收不到数据时重启播放端点。
 
 
-### 开发通道（`203c board`）
+### 开发通道（`203cli board`）
 
-启动了 USB 的固件，不用写一行代码，就能回答电脑查询它自己的情况：系统通道上的指令 0x45（协议见 [`docs/usb-dev.md`](docs/usb-dev.md)），电脑上用 [203-CLI](https://github.com/203-Systems/203-CLI) 的 `203c board` 读：
+启动了 USB 的固件，不用写一行代码，就能回答电脑查询它自己的情况：系统通道上的指令 0x45（协议见 [`docs/usb-dev.md`](docs/usb-dev.md)），电脑上用 [203-CLI](https://github.com/203-Systems/203-CLI) 的 `203cli board` 读：
 
-| `203c board` | 显示或做什么 |
+| `203cli board` | 显示或做什么 |
 | --- | --- |
 | `info` | 固件（名字、版本、社区代码、ESP-IDF、编译时间、解崩溃栈要用的 ELF SHA-256）、HAL 的提交、203 Launcher 的版本、芯片（版本、MAC、Flash、PSRAM）、开机多久、上次为什么重启 |
 | `partitions` | 板子上的分区表，每个应用镜像占它分区的大小，NVS 用量，剩下的 Flash |
@@ -656,7 +656,7 @@ HAL 附带了这块板子本身的事实，作为固件可以直接用的默认�
 
 给板子所连电脑用的命令行工具（Python 3）：
 
-- [`tools/cardenza.py`](tools/cardenza.py)：首选的编译方式。`doctor` 说出项目和电脑还缺什么（ESP-IDF 5.3、git、干净的 HAL 子模块、`203c` 及其登录、Emscripten）以及怎么装；`build` 先检查，再运行 `idf.py build`（shell 没激活时自己导出 ESP-IDF），并说出镜像占了 Launcher 空间的多少（`--web` 同时编译网页版）；`web` 编译网页版；`flash` 和 `log` 交给 `203c flash --bin` 和 `203c log`。只用标准库，Linux、macOS、Windows 都能用。
+- [`tools/cardenza.py`](tools/cardenza.py)：首选的编译方式。`doctor` 说出项目和电脑还缺什么（ESP-IDF 5.3、git、干净的 HAL 子模块、`203cli` 及其登录、Emscripten）以及怎么装；`build` 先检查，再运行 `idf.py build`（shell 没激活时自己导出 ESP-IDF），并说出镜像占了 Launcher 空间的多少（`--web` 同时编译网页版）；`web` 编译网页版；`flash` 和 `log` 交给 `203cli flash --bin` 和 `203cli log`。只用标准库，Linux、macOS、Windows 都能用。
 
 - [`tools/cardenza_usb.py`](tools/cardenza_usb.py)：`usb/usb.h` 的电脑端。`list` 列出板子的 HID、MIDI 和音频设备；`command identify|reboot|launcher|download` 重启它（进 Launcher，或进 ROM 下载模式：固件开了 USB 就没有串口，要这样才能刷）；`console <秒数>` 打印控制台和日志；`app <文字>` 和固件自己的应用通道对话。固件自己的工具可以导入它。需要 `pip install hidapi`；MIDI 走 macOS 的 CoreMIDI。
 - [`tools/cardenza_flash.py`](tools/cardenza_flash.py)：刷机时不会抹掉 Launcher（见上）。
@@ -678,15 +678,15 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 ## 开发须知、示例与发布
 
 - [`docs/developing.zh-CN.md`](docs/developing.zh-CN.md)：芯片和工具链容易忽略的地方（两种内存、开 PSRAM 后的原子操作、热路径里的 `memcpy` 和除法、写闪存会停掉什么、读文件、USB 与串口、排查卡死），以及固件在 203 Launcher 下应该怎样运行。
-- [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md)：基于 HAL 的固件工程规则，以及怎样用 `203c` 发布到 203 社区（社区在 `/develop.md` 提供同一个文件）。
+- [`docs/FIRMWARE-PROJECT.md`](docs/FIRMWARE-PROJECT.md)：基于 HAL 的固件工程规则，以及怎样用 `203cli` 发布到 203 社区（社区在 `/develop.md` 提供同一个文件）。
 - [`examples/template`](examples/template)：做新固件的起点：HAL 作为子模块、板子默认配置、保留 Launcher 的分区表、`version.txt`、`CHANGELOG.md` 和 `203.json`；同时能编译到板子和网页。
 - [`examples/psram_heap`](examples/psram_heap)：一个小固件，把 PSRAM 加进堆、只给明确申请的代码用，并替换 `new`，让申请失败变成空指针而不是重启。`idf.py -C examples/psram_heap build`。
 - [`examples/launcher_net`](examples/launcher_net)：读出 Launcher 的设置，连上它的 Wi-Fi，发一个 HTTPS 请求再把一切关掉，每一步都打印耗时和内存；它的 `sdkconfig.defaults` 是使用 Net 的固件的参考配置。`idf.py -C examples/launcher_net build`。
 - [`examples/community_presence`](examples/community_presence)：带在线服务的 `CardenzaHAL::Init()`、交接钩子、在日志里打印服务的状态。`idf.py -C examples/community_presence build`。
 - [`examples/hal_check`](examples/hal_check)：通过 HAL 逐个检查板子：每个键的格子和按键灯、音频任务为每个按住的键发一个音、HOME。同一份源码既能编译到板子上，也能编译成网页版。
-- [`.github/actions/community-publish`](.github/actions/community-publish/action.yml)：每个固件的标准发布，用 `203c` 和受信任发布把版本发到 203 社区的 GitHub Action（推送到 main 是 dev，`vX.Y.Z-beta.N` 和 `vX.Y.Z` 标签是 beta 和 stable；见[发布](#发布)）。
+- [`.github/actions/community-publish`](.github/actions/community-publish/action.yml)：每个固件的标准发布，用 `203cli` 和受信任发布把版本发到 203 社区的 GitHub Action（推送到 main 是 dev，`vX.Y.Z-beta.N` 和 `vX.Y.Z` 标签是 beta 和 stable；见[发布](#发布)）。
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：旧的 Launcher hub，只用于过渡期：还有人在用只读 hub 目录的 203 Launcher 0.2.0，所以 203 Systems 的官方固件把正式版同时镜像到那里。新固件不要用它。
-- **AI 代理与 203 社区**：要发布固件版本、读取用户需求、查看检查报告或把固件发到设备，先装一次 203 社区 skill：`curl -fsSL https://cardenza.203.io/community/skill/install.sh | sh`（装到 `~/.claude/skills/203-community`；说明见 https://community.203.io/agents）。
+- **AI 代理与 203 社区**：要发布固件版本、读取用户需求、查看检查报告或把固件发到设备，先装一次 203cli 和它的 Agent Skill：`npm install -g 203cli && 203cli skill install`（Skill 装到 `~/.claude/skills/203-community`；说明见 https://community.203.io/agents）。203cli 原名 `203c`：脚本或旧说明里写 `203c` 的，改用 `203cli`。
 
 ## 网页模拟器
 
