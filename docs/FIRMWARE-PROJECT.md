@@ -281,7 +281,7 @@ is; keep these:
 | --- | --- |
 | `CONFIG_IDF_TARGET="esp32s3"` | the chip (the checker refuses any other) |
 | `CONFIG_ESPTOOLPY_FLASHMODE_QIO=y`, `CONFIG_ESPTOOLPY_FLASHFREQ_120M=y` | the 203 Launcher's bootloader runs the flash in QIO; build so (DIO code ran ~40% slower) |
-| `CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y` | the chip's flash; under the Launcher the app gets at most 0x690000 bytes of it |
+| `CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y` | the chip's flash (16 MB). Under the Launcher the app sees the size the Launcher's bootloader declares (8 MB on a board flashed with Launcher 0.3.3 or earlier) and gets at most 0x690000 bytes of it; leave `CONFIG_SPI_FLASH_SIZE_OVERRIDE` off |
 | `CONFIG_SPIRAM=y`, `_MODE_QUAD`, `_SPEED_120M`, `_IGNORE_NOTFOUND=y` | the 2 MB PSRAM (ESP32-S3R2); how the heap uses it is yours (`CONFIG_SPIRAM_USE_*`, see [examples/psram_heap](https://github.com/203-Systems/CardenzaHAL/tree/main/examples/psram_heap)) |
 | `CONFIG_FREERTOS_HZ=1000` | `Display::Present` waits per band; at 100 Hz a screen takes 170 ms |
 | `CONFIG_FATFS_SECTOR_512=y`, `CONFIG_FATFS_LFN_HEAP=y` | the SD card |
@@ -319,7 +319,7 @@ ota_0,     app,  ota_0,    0x170000, 0x400000
 ```
 
 - Never put anything else below `0x170000`, never move `nvs`, `otadata`, `launcher` or `coredump`.
-- The image must fit the Launcher's room for one app on the Cardenza: **0x690000 bytes (6.56 MB) from 0x170000** (the Launcher's bootloader declares 8 MB), counted as the image's size rounded up to 64 KB. `ota_0` (4 MB) makes `idf.py build` fail earlier; an image beyond 4 MB may grow `ota_0` up to `0x690000`, no further.
+- The image must fit the Launcher's room for one app on the Cardenza: **0x690000 bytes (6.56 MB) from 0x170000**, counted as the image's size rounded up to 64 KB. That is what every Cardenza can hold: the flash is 16 MB, but the Launcher uses only what its bootloader declares, and boards flashed with Launcher 0.3.3 or earlier declare 8 MB until their bootloader is written again over USB. `ota_0` (4 MB) makes `idf.py build` fail earlier; an image beyond 4 MB may grow `ota_0` up to `0x690000`, no further.
 - The firmware never writes the partition table, the otadata or the Launcher's slot, and never calls `esp_ota_set_boot_partition`.
 
 ### `version.txt`
