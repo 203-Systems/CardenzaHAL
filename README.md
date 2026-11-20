@@ -382,7 +382,7 @@ A press of HOME (the side key, GPIO0) opens the [system menu](system/menu.h) in 
 | Turn off | deep sleep: screen, backlight and key lights off; HOME turns the board on again and the firmware starts |
 | Download mode | the ROM's download mode, to flash over USB (esptool) |
 
-Without the menu, the Launcher opens when FN (the keyboard's bottom-left key) is held while the board starts (power-on or a reset); not HOME: held at a reset, HOME starts the ROM's download mode.
+Without the menu, the Launcher opens when fn (the left column's third key, key 29) is held while the board starts (power-on or a reset); not HOME: held at a reset, HOME starts the ROM's download mode.
 
 Keys are the Launcher's: `;` and `,` up, `.` and `/` down, ENTER or a tap on HOME choose, ESC or del go back; they are lit while the menu is open.
 

@@ -370,7 +370,7 @@ void ReadSettings()
 | 关机 | 深度睡眠：屏幕、背光和键灯全关；按 HOME 开机，固件重新启动 |
 | 下载模式 | 进入 ROM 下载模式，用 USB 刷机（esptool） |
 
-不用菜单时：开机或复位时按住 FN（键盘左下角的键）进入 Launcher；不是 HOME：复位时按住 HOME 会进入 ROM 下载模式。
+不用菜单时：开机或复位时按住 fn（键盘左边一列的第三个键，键号 29）进入 Launcher；不是 HOME：复位时按住 HOME 会进入 ROM 下载模式。
 
 按键和 Launcher 一样：`;`、`,` 向上，`.`、`/` 向下，ENTER 或单击 HOME 确定，ESC 或 del 返回；菜单打开时这几个键会亮。
 
