@@ -1,7 +1,9 @@
 #include "keyboard_driver.h"
 #include "keyboard_hardware.h"
+#include "inject.h"
 #include "led_brightness.h"
 
+#include <atomic>
 #include <cstring>
 
 #include <driver/gpio.h>
@@ -169,6 +171,14 @@ uint8_t KeyboardDriver::getKeyNum(Point2D_t keyCoor)
 
 namespace {
 
+// Keys a computer holds (inject.h), as the scan has them: a bit per input column, a byte per row.
+std::atomic<uint8_t> injected[8] = {};
+
+void AddInjected(uint8_t snapshot[8])
+{
+    for (int row = 0; row < 8; ++row) snapshot[row] |= injected[row].load(std::memory_order_relaxed);
+}
+
 // A scan row and input column as the key position the API reports.
 Point2D_t KeyPosition(int row, int column)
 {
@@ -184,6 +194,7 @@ void KeyboardDriver::updateKeyList()
     xSemaphoreTake(_mutex, portMAX_DELAY);
     memcpy(snapshot, _task_key_scan, sizeof(snapshot));
     xSemaphoreGive(_mutex);
+    AddInjected(snapshot);
     // While the system menu is open the firmware sees no key; what is still down when it closes stays
     // hidden until it is released (the ENTER that closed the menu does not reach the firmware).
     if (_overlay.load() || _hide_held.exchange(false)) memcpy(_app_hidden, snapshot, sizeof(snapshot));
@@ -213,6 +224,7 @@ std::size_t KeyboardDriver::overlayKeys(Point2D_t* keys, std::size_t capacity)
     xSemaphoreTake(_mutex, portMAX_DELAY);
     memcpy(snapshot, _task_key_scan, sizeof(snapshot));
     xSemaphoreGive(_mutex);
+    AddInjected(snapshot);
     std::size_t count = 0;
     for (int row = 0; row < 8; ++row)
         for (int column = 0; column < 7; ++column)
@@ -320,3 +332,33 @@ void KeyboardDriver::_scan_task_loop()
 }
 
 }  // namespace CardenzaHAL::Keyboard
+
+namespace CardenzaHAL::Keyboard::detail {
+
+void InjectKey(int number, bool down)
+{
+    int row = 0, column = 0;
+    if (!KeyScanSlot(number, row, column)) return;
+    const uint8_t bit = static_cast<uint8_t>(1u << column);
+    if (down) injected[row].fetch_or(bit, std::memory_order_relaxed);
+    else injected[row].fetch_and(static_cast<uint8_t>(~bit), std::memory_order_relaxed);
+}
+
+void ReleaseInjectedKeys()
+{
+    for (auto& row : injected) row.store(0, std::memory_order_relaxed);
+}
+
+std::size_t InjectedKeys(uint8_t* numbers, std::size_t capacity)
+{
+    std::size_t count = 0;
+    for (int number = 1; number <= 56 && count < capacity; ++number)
+    {
+        int row = 0, column = 0;
+        if (KeyScanSlot(number, row, column) && (injected[row].load(std::memory_order_relaxed) & (1u << column)))
+            numbers[count++] = static_cast<uint8_t>(number);
+    }
+    return count;
+}
+
+}  // namespace CardenzaHAL::Keyboard::detail

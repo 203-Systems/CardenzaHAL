@@ -13,6 +13,21 @@ menu "CardenzaHAL"
             glyphs); nothing else until the menu opens. At run time CardenzaHAL::SystemMenu::Enable(false)
             switches it off, for a firmware that needs HOME itself.
 
+    config CARDENZA_HAL_USB_DEV
+        bool "Development channel over USB: a computer's questions about the firmware (203c board)"
+        default y
+        help
+            With USB started (USB::Init), the HAL answers a computer's questions about this firmware on its
+            system channel (docs/usb-dev.md; the computer's side is 203c board): what it is and how it was
+            built, the partition table and how full it is, memory and tasks, the SD card, the I2C bus, a
+            screenshot, its last crash (the core dump), keys pressed from the computer, and files on the card.
+
+            Costs: nothing until a computer asks (no task, no buffer, no polling); about 20 KB of flash and
+            0.4 KB of static internal RAM (measured on the template with USB started, 2026-11-20). A
+            question starts a task of priority 1 with a 6 KB stack in internal RAM, deleted 10 s after the last
+            one; a screenshot copies one frame at the firmware's next Present into PSRAM. Off, every question is
+            answered "off" and none of it is linked.
+
     config CARDENZA_HAL_PRESENCE
         bool "Reachable from the 203 community while this firmware runs (presence service)"
         default y

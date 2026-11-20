@@ -421,7 +421,7 @@ USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包�
 
 ### USB 协议与平台说明
 
-`CardenzaHAL::USB::Init()`（`usb/usb.h`）把 USB 口变成一个复合设备：USB MIDI 1.0、USB 音频 2.0（立体声 16 位 44.1 kHz，双向，异步带反馈：电脑跟随设备的时钟）和 HID（键盘、媒体键、系统通道和固件自己的原始报告）。VID 0x0203（203 Systems）。报告号和指令沿用 Matrix OS：报告 0xCB 是系统指令（0x40 Launcher / 更新模式，0x41 重启，0x42 ROM 下载模式，0x43 控制台，0x44 识别；应答为指令 | 0x80），同样的指令也可以用 SysEx `F0 23 <指令> F7` 发。固件自己的报告（0xFF）在电脑没法用 HID 时（比如用 Web MIDI 的网页）也能用 SysEx `F0 23 7F <字节> F7` 发，`SendAppReport` 按上一条来的方式回复（`F0 24 7F <字节> F7`，7 位）。固件的 MIDI 包和 HAL 的 SysEx 一次只有一方在写，SysEx 到电脑时是完整的。
+`CardenzaHAL::USB::Init()`（`usb/usb.h`）把 USB 口变成一个复合设备：USB MIDI 1.0、USB 音频 2.0（立体声 16 位 44.1 kHz，双向，异步带反馈：电脑跟随设备的时钟）和 HID（键盘、媒体键、系统通道和固件自己的原始报告）。VID 0x0203（203 Systems）。报告号和指令沿用 Matrix OS：报告 0xCB 是系统指令（0x40 Launcher / 更新模式，0x41 重启，0x42 ROM 下载模式，0x43 控制台，0x44 识别，0x45 [开发通道](#开发通道203c-board)；应答为指令 | 0x80），同样的指令也可以用 SysEx `F0 23 <指令> F7` 发。固件自己的报告（0xFF）在电脑没法用 HID 时（比如用 Web MIDI 的网页）也能用 SysEx `F0 23 7F <字节> F7` 发，`SendAppReport` 按上一条来的方式回复（`F0 24 7F <字节> F7`，7 位）。固件的 MIDI 包和 HAL 的 SysEx 一次只有一方在写，SysEx 到电脑时是完整的。
 
 - 它占用芯片唯一的 USB PHY：控制台转到系统通道，esptool 的串口没有了，直到重启进 Launcher 或 ROM 下载模式。
 - ESP32-S3 除 EP0 外只有四个 IN 端点，这个设备全部用上（MIDI、音频输入、音频反馈、HID），放不下 CDC。
@@ -429,6 +429,28 @@ USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包�
 - 内存：静态约 8.5 KB（音频 FIFO 每个方向 2 KB），启动后再加 4 KB 任务栈。
 - `keyboard = true` 时，macOS 会请用户识别一次键盘，电脑上的工具也只有在"输入监控"权限下才能打开 HID 接口（包括系统通道）。SysEx 不需要权限。
 - 已在 macOS 上实测（2026-11-02）：MIDI 双向、HID 和 SysEx 系统指令、控制台、44.1 kHz 双向音频。全速下反馈值按 10.14 发 3 字节（TinyUSB 默认的 16.16 会让 macOS 在 128 ms 后停播）；请求 Microsoft OS 字符串的主机收到 16.16（Windows，未测试）。TinyUSB 的 DWC2 驱动不会重启错过帧的同步 OUT 传输；HAL 在 20 ms 收不到数据时重启播放端点。
+
+
+### 开发通道（`203c board`）
+
+启动了 USB 的固件，不用写一行代码，就能回答电脑查询它自己的情况：系统通道上的指令 0x45（协议见 [`docs/usb-dev.md`](docs/usb-dev.md)），电脑上用 [203-CLI](https://github.com/203-Systems/203-CLI) 的 `203c board` 读：
+
+| `203c board` | 显示或做什么 |
+| --- | --- |
+| `info` | 固件（名字、版本、社区代码、ESP-IDF、编译时间、解崩溃栈要用的 ELF SHA-256）、HAL 的提交、203 Launcher 的版本、芯片（版本、MAC、Flash、PSRAM）、开机多久、上次为什么重启 |
+| `partitions` | 板子上的分区表，每个应用镜像占它分区的大小，NVS 用量，剩下的 Flash |
+| `memory` | 内部 RAM、PSRAM、能做 DMA 的 RAM（剩余、最低剩余、最大连续块）；每个任务的优先级、核心、栈最少剩多少，以及它占的 CPU |
+| `storage`、`status`、`i2c` | SD 卡和剩余空间；屏幕、按住的键、系统菜单、USB、在线服务；I2C 总线（扩展口那条）上的设备 |
+| `screen` | 固件画面的截图（PNG） |
+| `press` | 从电脑按键（包括 HOME），固件当作真的按键 |
+| `coredump` | 上一次崩溃的转储：崩在哪个任务、调用栈、转储文件本身 |
+| `files` | SD 卡上的 `ls`、`get`、`put`、`rm`、`mkdir`、`mv` |
+
+- 电脑不问就没有任何开销：没有任务、没有缓冲、不轮询。来了查询才建一个优先级 1 的任务（内部 RAM 里 6 KB 栈，最后一次查询 10 秒后删掉）；截屏在固件下一次 `Present` 时往 PSRAM 拷一帧。Flash 都经缓存读，从不关缓存。约 20 KB Flash、0.4 KB 静态内部 RAM（2026-11-20 在启动了 USB 的模板上量的）；关掉 `CONFIG_CARDENZA_HAL_USB_DEV` 就整个不链接。
+- 从不写 NVS 或 Launcher 的任何东西，从不发设备令牌，碰不到 SD 卡以外的文件。只做被要求的写：文件（`files put`、`rm`、`mkdir`、`mv`）和擦掉崩溃转储。
+- 任务列表和 CPU 占用要 `CONFIG_FREERTOS_USE_TRACE_FACILITY` 和 `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS`，崩溃转储要 `CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH`：板子的调试配置（[`board/sdkconfig.debug`](board/sdkconfig.debug)）都打开了；正式版不开，省下约 5 KB 内部 RAM，其余功能照常可用。
+- 截屏要固件用帧缓冲显示（`Present`、`PresentChanged`）；直接用屏幕句柄画的固件没有帧缓冲。
+- 要先启动 USB：模板没有启动（它的日志留在串口上，社区的开机检查读的就是串口）。要用它，在 `CardenzaHAL::Init()` 之后加一行 `CardenzaHAL::USB::Init();`。
 
 ## 网络（Wi-Fi 与 HTTPS）
 

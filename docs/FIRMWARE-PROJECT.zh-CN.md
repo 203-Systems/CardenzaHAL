@@ -6,6 +6,8 @@
 
 ## 步骤
 
+鸣片的每个固件都必须基于 CardenzaHAL（git 子模块，`203c new` 会加上）：按键和键灯、屏幕、音频、麦克风、SD 卡、USB、HOME 和系统菜单、网络，都只通过它来用。不用 Arduino、不用别的框架、不自己写驱动。
+
 1. 装 203-CLI（社区命令行 `203c`，**必须**，下面每一步都用它；公开仓库 [203-Systems/203-CLI](https://github.com/203-Systems/203-CLI)，里面还有每台 203 设备的开发指引和硬件资料，鸣片的在 `products/cardenza`）。macOS、Linux、Windows 都一样（需要 Node.js 18+）：
    ```sh
    npm install -g 203c
@@ -28,6 +30,7 @@
    203c log --until "<固件启动后打印的一行>" --seconds 30     # 读日志；出现这一行退出 0，崩溃或没出现退出 1
    ```
    Windows 用网站（Chrome 或 Edge）的「烧录本地固件」；日志用 `pip install hidapi` 后 `python components/CardenzaHAL/tools/cardenza_usb.py console 60`。
+   `203c board` 通过 USB 查询正在运行的固件，固件不用写代码：`info`（是什么、怎么编译的、Launcher、芯片、上次为什么重启）、`partitions`（板子上的分区表和占用）、`memory`（内存、PSRAM、每个任务的栈和 CPU）、`storage`、`status`、`i2c`、`screen`（截图 PNG）、`press`（从电脑按键，不碰板子也能测界面）、`coredump`（上次崩溃）、`files`（SD 卡上的 `ls`、`get`、`put`、`rm`、`mkdir`、`mv`）。要先启动 USB：在 `CardenzaHAL::Init()` 之后加一行 `CardenzaHAL::USB::Init();`（模板没有启动）。任务、CPU 占用和崩溃转储要用板子的调试配置（`board/sdkconfig.debug`）。协议：[docs/usb-dev.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/usb-dev.md)。
 7. 第一个版本手动发布（只能通过 203c：手动或 CI）：提高 `version.txt`，在 `CHANGELOG.md` 写 `## <版本>`，然后
    ```sh
    203c publish --dry-run

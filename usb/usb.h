@@ -90,7 +90,8 @@ namespace CardenzaHAL::USB {
     inline constexpr uint8_t kReportSystem = 0xCB;
     inline constexpr uint8_t kReportApp = 0xFF;
     inline constexpr std::size_t kReportSize = 63;
-    inline constexpr uint8_t kProtocolVersion = 1;
+    // 2: the development channel (kCommandDev).
+    inline constexpr uint8_t kProtocolVersion = 2;
     enum Command : uint8_t {
         kCommandBootloader = 0x40,  // Matrix OS: the update mode; here the Launcher, else the ROM download mode
         kCommandReboot = 0x41,      // restarts the firmware
@@ -99,6 +100,8 @@ namespace CardenzaHAL::USB {
                                     // as 0xC3, byte 1 its length, then the text (over SysEx when the
                                     // command came as SysEx: F0 24 43 <text, 7-bit> F7)
         kCommandIdentify = 0x44,    // answers protocol version, then the product name
+        kCommandDev = 0x45,         // the development channel: a computer's questions about the firmware
+                                    // (info, partitions, memory, card files, screen, keys; docs/usb-dev.md)
         kCommandApp = 0x7F,         // SysEx only: F0 23 7F <bytes> F7 is an app report of <bytes> (below)
     };
     using ReportHandler = void (*)(const uint8_t* report, std::size_t length);

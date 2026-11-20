@@ -22,6 +22,7 @@
 
 #include "system/internal/hooks.h"
 #include "system/launcher.h"
+#include "usb/internal/dev.h"
 #include "tusb.h"
 #include "device/usbd_pvt.h"
 
@@ -171,24 +172,41 @@ void PumpReports()
     if (NextReport(report)) tud_hid_report(report.id, report.data, kReportSize);
 }
 
-// An answer as SysEx: F0 24 <bytes, 7-bit> F7, in USB-MIDI packets of up to three bytes.
-void SendSysex(const uint8_t* data, std::size_t length)
+// A whole SysEx (F0 … F7) in USB-MIDI packets of up to three bytes, under the MIDI lock. A packet that finds
+// no room waits up to `waitMs` (0: it is dropped, as it always was for the short answers); false when one could
+// not go.
+bool WriteSysex(const uint8_t* message, std::size_t size, uint32_t waitMs)
 {
     MidiTxLock lock;
-    uint8_t message[kReportSize + 3];
-    std::size_t size = 0;
-    message[size++] = 0xF0;
-    message[size++] = 0x24;
-    for (std::size_t index = 0; index < length && size < sizeof(message) - 1; ++index) message[size++] = data[index] & 0x7F;
-    message[size++] = 0xF7;
+    bool whole = true;
     for (std::size_t at = 0; at < size; at += 3)
     {
         const std::size_t left = size - at;
         uint8_t packet[4] = {0x04, 0, 0, 0};  // SysEx starts or continues
         if (left <= 3) packet[0] = static_cast<uint8_t>(0x04 + left);  // ends with 1, 2 or 3 bytes: 0x5, 0x6, 0x7
         for (std::size_t index = 0; index < 3 && index < left; ++index) packet[1 + index] = message[at + index];
-        tud_midi_packet_write(packet);
+        bool written = tud_midi_packet_write(packet);
+        for (uint32_t waited = 0; !written && waited < waitMs && Mounted(); ++waited)
+        {
+            vTaskDelay(1);
+            written = tud_midi_packet_write(packet);
+        }
+        if (!written && waitMs != 0) return false;
+        whole = whole && written;
     }
+    return whole;
+}
+
+// An answer as SysEx: F0 24 <bytes, 7-bit> F7.
+void SendSysex(const uint8_t* data, std::size_t length)
+{
+    uint8_t message[kReportSize + 3];
+    std::size_t size = 0;
+    message[size++] = 0xF0;
+    message[size++] = 0x24;
+    for (std::size_t index = 0; index < length && size < sizeof(message) - 1; ++index) message[size++] = data[index] & 0x7F;
+    message[size++] = 0xF7;
+    WriteSysex(message, size, 0);
 }
 
 void Answer(bool sysex, const uint8_t* data, std::size_t length)
@@ -220,6 +238,9 @@ void HandleCommand(const uint8_t* data, std::size_t length, bool sysex)
             g_restart.store(command, std::memory_order_relaxed);
             return;
         }
+        case kCommandDev:
+            detail::DevRequest(data + 1, length - 1, sysex);
+            return;
         case kCommandConsole:
             g_consoleSysex.store(sysex, std::memory_order_relaxed);
             g_consoleOn.store(length > 1 && data[1] != 0, std::memory_order_relaxed);
@@ -605,6 +626,29 @@ bool SendAppReport(const uint8_t* data, std::size_t length)
     return true;
 }
 
+namespace detail {
+
+bool DevSendHid(const uint8_t report[kReportSize], uint32_t waitMs)
+{
+    for (uint32_t waited = 0;; ++waited)
+    {
+        if (!Mounted()) return false;
+        if (QueueReport(kReportSystem, report, kReportSize)) return true;
+        if (waited >= waitMs) return false;
+        vTaskDelay(1);
+    }
+}
+
+bool DevSendSysex(const uint8_t* message, std::size_t length, uint32_t waitMs)
+{
+    if (!Mounted() || !g_config.midi) return false;
+    return WriteSysex(message, length, waitMs);
+}
+
+const char* Product() { return g_config.product != nullptr ? g_config.product : ""; }
+
+}  // namespace detail
+
 void RestartIntoDownloadMode()
 {
     ESP_LOGW(kTag, "restarting into the ROM download mode");
@@ -696,6 +740,7 @@ void tud_umount_cb(void)
 {
     g_playing.store(false);
     g_recording.store(false);
+    CardenzaHAL::USB::detail::DevHostGone();
 }
 
 // Audio: the clock, the host's volume control, and which streams run.
