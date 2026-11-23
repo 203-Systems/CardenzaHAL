@@ -140,10 +140,6 @@ npm install -g 203cli
 ```
 
 - `npm install -g 203cli` gives the `203cli` command (no dependencies, no install scripts); `203cli skill install` puts its Agent Skill where coding agents read it (`~/.claude/skills/203-community`, and `~/.codex/skills` when Codex is there). Run both again to update; 203cli says when a newer one is out ([Updates](#updates-203cli-and-the-hal)), and `203cli doctor` when the skill is older than the command.
-- 203cli was called `203c` (the npm package and the command, up to 3.5.0); 203cli is the only CLI now. Where a script, a
-  workflow or an older guide says `203c`, use `203cli`: the same commands, flags, JSON answers and exit codes. With 203c
-  installed: `npm install -g 203cli && 203cli skill install`, then `npm uninstall -g 203c` (the sign-in carries over).
-  Until then 203c keeps working and says so: the last 203c runs 203cli, and a build with only 203c warns.
 - 203cli runs wherever Node does; it uses the USB cable (`flash`, `log`) on macOS and Linux, and on Windows the website does that in Chrome or Edge.
 - `203cli login` opens the browser on the community's sign-in page: sign in there (GitHub) if it asks, approve "203cli on <your computer>", and the browser goes back to 203cli (OAuth's authorization code with PKCE and a redirect to 203cli on `127.0.0.1`). Where no browser can be opened, make a personal token on the site (设置 › 个人令牌, `/me/tokens`) and run `203cli login --with-token`: it asks for the token (not shown), checks it and saves it (a script pipes it in: `203cli login --with-token < token.txt`). An agent running remotely signs in with `203cli login --no-browser`: a link and a code to approve on the site. Every way saves a personal token, listed on the site under 设置 › 个人令牌, where you can delete it. You sign in once: it has no end.
 - Everything the community's API does for you, 203cli does (`203cli --help`; `203cli api` for anything else): use 203cli, not raw HTTP.
@@ -198,8 +194,7 @@ per environment (no file in the repository can). Package registries and GitHub a
   allow `*.espressif.com`, or install ESP-IDF and build once in the environment's setup script.
 - `203cli doctor` checks both hosts. A blocked request is `network_blocked_sandbox` (the sandbox's allowlist, with these
   steps in its `hint`) or `network_blocked_cdn` (the site's firewall, not the sandbox: report its Ray ID); a host
-  that does not resolve (`ENOTFOUND`) in a sandbox is usually the same allowlist. `203cli help sandbox` has it all
-  (203c 3.5.0 and earlier say only `HTTP 403`: the same fix).
+  that does not resolve (`ENOTFOUND`) in a sandbox is usually the same allowlist. `203cli help sandbox` has it all.
 - Until then, what needs no network still works: building, `203cli rules`, `203cli skill install`, and on a computer
   with the Cardenza on its USB cable `203cli flash --bin build/<project>.bin`, `203cli log` and `203cli board`.
 
