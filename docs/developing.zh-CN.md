@@ -28,6 +28,7 @@
 
 ## SD 卡上的文件
 
+- **固件的文件夹是 `/sdcard/Apps/<AppName>/`**（[`storage/app_dir.h`](../storage/app_dir.h)，[SD-CARD.zh-CN.md](SD-CARD.zh-CN.md)）：卡的根目录下不放东西，`/sdcard/Launcher/`（203 Launcher 的）里也不放。把文件夹搬过去的固件在启动时调用一次 `Storage::MigrateAppDir`：只改一次名，不复制（FAT 在同一张卡上改名，不管文件夹里有多少东西都只要几毫秒）。
 - **不要通过没有缓冲的 `FILE` 读**：newlib 会一个字节一个字节地读（一个 2 KB 的块花了 33 ms，还占住一个核）。对文件描述符用 `read()`，或者给 `FILE` 设缓冲。
 - FAT 不让改名或删除打开着的文件，而且不分大小写（`Song` 和 `SONG` 是同一个文件）。
 - 读一次卡约 2 ms，不管读多少：按几 KB 的块读，放在比界面低的任务里读，绝不在音频任务里读。
@@ -51,7 +52,7 @@
 Cardenza 平时运行 203 Launcher，由它安装和启动各个固件。被它启动的固件：
 
 - 装在 Launcher 划出的分区里：从不改分区表、otadata 和 Launcher 自己的分区。在电脑上用 [`tools/uploader`](../tools/uploader/README.zh-CN.md) 把编好的固件交给 Launcher 安装（`serial_flasher.py`），再登记名称、UUID 和版本（`register_app.py`）。只有没装 Launcher 的板子才直接刷（即使那样，[`board/partitions.csv`](../board/partitions.csv) 也保留 Launcher 的区域，[`tools/cardenza_flash.py`](../tools/cardenza_flash.py) 拒绝抹掉 Launcher）；
-- 数据放在 SD 卡上自己的文件夹里，不碰 Launcher 的 NVS 记录（见上）；可以通过 `net/net.h` 读取 Launcher 保存的 Wi-Fi 网络和社区账号；
+- 数据放在 SD 卡上自己的文件夹 `/sdcard/Apps/<AppName>/` 里（Launcher 的在 `/sdcard/Launcher/`），不碰 Launcher 的 NVS 记录（见上）；可以通过 `net/net.h` 读取 Launcher 保存的 Wi-Fi 网络和社区账号；
 - 运行在 Launcher 的 bootloader 下，闪存是 QIO：按 QIO 构建。固件看到的闪存大小（`esp_flash_get_size`）也由这个 bootloader 的镜像头决定：16 MB；用 0.3.3 及以前的 Launcher 刷的板子是 8 MB（直到用 USB 重新写它的 bootloader），虽然每台 Cardenza 都有 16 MB。按 16 MB 构建（[`board/sdkconfig.defaults`](../board/sdkconfig.defaults)），不要开 `CONFIG_SPI_FLASH_SIZE_OVERRIDE`，也不要碰自己分区以外的闪存；
 - 在 app 描述里带上版本号：`PROJECT_VER`（`cardenza_read_version`）就是 Launcher 在它下面显示的版本。列表里的名字不是项目名，而是登记或安装时用的名字；直接刷进去的固件显示分区名；
 - 用 [`System::RestartIntoLauncher()`](../system/launcher.h) 回到 Launcher（Launcher 的重启票据：即使打开了“Resume after reset”也进入 Launcher 首页，而普通的 `esp_restart()` 在这时会重新启动固件；从电脑上用 USB 的 `command launcher` 效果相同；用手：按一下 HOME 打开系统菜单选“返回启动器”，或开机、复位时按住 FN）；

@@ -6,6 +6,7 @@
 # - net_test: the pure parts of net/ (the Launcher's settings format, request checks, connect order).
 # - presence_test: the presence service's decisions (net/presence_logic.h) and the Launcher's restart ticket.
 # - system_menu_test: the system menu's pure parts (system/menu/logic.h).
+# - app_dir_test: a firmware's folder on the card and moving its old one there (storage/app_dir_logic.h).
 # - hal_faults: the HAL's driver sources against fake ESP-IDF drivers (fakes/esp_stub.h) that fail on
 #   purpose, so every error path is taken and leaves the hardware in a known state.
 cmake_minimum_required(VERSION 3.20)
@@ -81,6 +82,12 @@ add_test(NAME CardenzaSystemMenuTests COMMAND CardenzaSystemMenuTests)
 add_executable(CardenzaSettingsTests settings_test.cpp ${hal_root}/system/settings_logic.cpp ${cardenza_test_guard})
 target_include_directories(CardenzaSettingsTests PRIVATE ${hal_root})
 add_test(NAME CardenzaSettingsTests COMMAND CardenzaSettingsTests)
+
+# storage/app_dir_logic.h: a firmware's folder name and moving its old folder to /sdcard/Apps/<AppName> on a fake
+# FAT card that loses power before each step in turn (docs/SD-CARD.md).
+add_executable(CardenzaAppDirTests app_dir_test.cpp ${hal_root}/storage/app_dir_logic.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaAppDirTests PRIVATE ${hal_root})
+add_test(NAME CardenzaAppDirTests COMMAND CardenzaAppDirTests)
 
 add_subdirectory(hal_faults)
 

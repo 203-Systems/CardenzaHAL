@@ -28,6 +28,7 @@ Reading the Launcher's Wi-Fi networks and community account needs no write acces
 
 ## Files on the SD card
 
+- **Your folder is `/sdcard/Apps/<AppName>/`** ([`storage/app_dir.h`](../storage/app_dir.h), [SD-CARD.md](SD-CARD.md)): nothing at the card's root, nothing in `/sdcard/Launcher/` (the 203 Launcher's). A firmware that moves its folder there calls `Storage::MigrateAppDir` once at the start: one rename, not a copy (FAT renames within the card in milliseconds whatever the folder holds).
 - **Never read through an unbuffered `FILE`**: newlib then reads a byte at a time (a 2 KB block took 33 ms and held a core). Use `read()` on the file's descriptor, or give the `FILE` a buffer.
 - FAT refuses to rename or delete an open file, and ignores case (`Song` and `SONG` are one file).
 - A card read takes about 2 ms whatever its size: read in blocks of several KB, from a task below the UI, and never from the audio task.
@@ -51,7 +52,7 @@ A firmware that starts USB (`USB::Init`) takes the PHY from USB-Serial-JTAG: it 
 A Cardenza normally runs the 203 Launcher, which installs and starts firmwares. A firmware it starts:
 
 - is installed into a slot the Launcher makes: it never changes the partition table, the otadata, or the Launcher's slot. From a computer, [`tools/uploader`](../tools/uploader/README.md) sends a build to the Launcher (`serial_flasher.py`) and registers its name, UUID and version (`register_app.py`). A board is flashed directly only when it has no Launcher ([`board/partitions.csv`](../board/partitions.csv) keeps the Launcher's regions even then, and [`tools/cardenza_flash.py`](../tools/cardenza_flash.py) refuses to erase a Launcher);
-- keeps its data on the SD card, in its own folder, and leaves the Launcher's NVS records alone (above); it may read the Wi-Fi networks and community account the Launcher saved, through `net/net.h`;
+- keeps its data on the SD card, in its own folder `/sdcard/Apps/<AppName>/` (the Launcher's are in `/sdcard/Launcher/`), and leaves the Launcher's NVS records alone (above); it may read the Wi-Fi networks and community account the Launcher saved, through `net/net.h`;
 - runs with the Launcher's bootloader, which sets the flash to QIO: build it so. Its header also sets the flash size the firmware sees (`esp_flash_get_size`): 16 MB, or 8 MB on a board flashed with Launcher 0.3.3 or earlier (until its bootloader is written again over USB), although every Cardenza has 16 MB. Build for 16 MB ([`board/sdkconfig.defaults`](../board/sdkconfig.defaults)), leave `CONFIG_SPI_FLASH_SIZE_OVERRIDE` off and never touch flash outside your own partitions;
 - carries its version in its app description: `PROJECT_VER` (`cardenza_read_version`) is the version the Launcher shows under it. Its name in the list is not the project name: it is the name it was registered or installed under, and a directly flashed firmware shows its partition label;
 - goes back to the Launcher with [`System::RestartIntoLauncher()`](../system/launcher.h) (the Launcher's restart ticket: its home screen even when "Resume after reset" is on, where a plain `esp_restart()` starts the firmware again; `command launcher` over USB does the same from a computer; by hand, the system menu's Back to Launcher, a press of HOME away, or FN held while the board starts);

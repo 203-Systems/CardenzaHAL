@@ -56,7 +56,7 @@ What the Cardenza has, and where it is in the HAL. Pins: [`board/pins.h`](board/
 | Screen | 240 × 135 colour (RGB565), ST7789 on SPI, backlight on LEDC; a whole frame is 17 ms | [`display/display.h`](display/display.h): `Present`, `PresentChanged`, `SetBrightness`, `GetPanel`; [Display](#display) |
 | Speaker | ES8156 codec, I2S, 44.1 kHz 16-bit, mono speaker (stereo slots available) | [`audio/audio.h`](audio/audio.h): `Init`, `GetTxChannel`, `SetVolume`; [Audio output](#audio-output) |
 | Microphone | PDM, 44.1 kHz mono; its clock shares GPIO43 with the speaker | [`mic/mic.h`](mic/mic.h); [Microphone and shared audio pins](#microphone-and-shared-audio-pins) |
-| SD card | microSD, 4-bit SDMMC, FAT at `/sdcard` | [`storage/storage.h`](storage/storage.h): `Init`, `IsMounted`, `CheckAfterIoError`; [SD card storage](#sd-card-storage) |
+| SD card | microSD, 4-bit SDMMC, FAT at `/sdcard` | [`storage/storage.h`](storage/storage.h): `Init`, `IsMounted`, `CheckAfterIoError`; [`storage/app_dir.h`](storage/app_dir.h): this firmware's folder `/sdcard/Apps/<AppName>` ([layout](docs/SD-CARD.md)); [SD card storage](#sd-card-storage) |
 | HOME | the side key (GPIO0; a press opens the [system menu](#system-menu-press-home-in-any-firmware); held while plugging in USB or at a reset: the ROM's download mode) | [`system/system.h`](system/system.h): `GetFuncButton`; [Func button, I2C, and IR](#func-button-i2c-and-ir) |
 | I2C | the shared bus (GPIO1/2), the codec on it | [`system/system.h`](system/system.h): `GetI2CBus` |
 | IR | a transmitter (GPIO44, NEC at 38 kHz) | [`ir/ir.h`](ir/ir.h): `Send` |
@@ -340,18 +340,21 @@ To resume playback, stop the reader, disable RX, call `Audio::RestoreOutputPins(
 
 ## SD card storage
 
-Public API: [`storage/storage.h`](storage/storage.h).
+Public API: [`storage/storage.h`](storage/storage.h) (the card) and [`storage/app_dir.h`](storage/app_dir.h) (this firmware's folder on it). The layout every firmware keeps: [docs/SD-CARD.md](docs/SD-CARD.md).
 
-`Storage::Init()` mounts a FAT filesystem at **`/sdcard`** using 4-bit SDMMC, with up to five open files. A failed mount does **not** format the card. Use standard C/C++ file I/O after checking `IsMounted()`:
+`Storage::Init()` mounts a FAT filesystem at **`/sdcard`** using 4-bit SDMMC, with up to five open files (`CardenzaHAL::Init()` tries it). A failed mount does **not** format the card.
+
+**Your files go in your firmware's own folder, `/sdcard/Apps/<AppName>/`**, never at the card's root and never in `/sdcard/Launcher/` (the 203 Launcher's). `Storage::AppName()` is the CMake project's name made a safe FAT folder name (or `CONFIG_CARDENZA_HAL_APP_NAME`, menuconfig: CardenzaHAL); `AppDir()` is the folder, `AppPath("Settings/app.cfg")` a path in it, `EnsureAppDir("Settings")` makes it. `Settings/` and `Logs/` are the usual sub-folders; the rest is yours. Use standard C/C++ file I/O after checking `IsMounted()`:
 
 ```cpp
-#include "storage/storage.h"
+#include "storage/app_dir.h"
 #include <cstdio>
 
 void ReadSettings()
 {
-    if (!CardenzaHAL::Storage::Init()) return;
-    FILE* file = std::fopen("/sdcard/settings.txt", "r");
+    namespace Storage = CardenzaHAL::Storage;
+    if (!Storage::IsMounted()) return;  // no card: run without one
+    FILE* file = std::fopen(Storage::AppPath("Settings/app.cfg").c_str(), "r");  // /sdcard/Apps/<AppName>/Settings/app.cfg
     if (!file) return;
     char line[128];
     while (std::fgets(line, sizeof(line), file)) {
@@ -359,9 +362,11 @@ void ReadSettings()
     }
     const bool failed = std::ferror(file) != 0;
     std::fclose(file);
-    if (failed) CardenzaHAL::Storage::CheckAfterIoError();
+    if (failed) Storage::CheckAfterIoError();
 }
 ```
+
+**A firmware that kept its files elsewhere before** (its own folder at the card's root) calls `Storage::MigrateAppDir("/sdcard/<old folder>")` once at the start, before it reads anything: one rename when only the old folder is there; when both are (a user went back to an older version and forward again), what the new folder lacks moves in and the rest stays where it was, never overwritten; a power cut at any moment loses nothing and the next start finishes. [docs/SD-CARD.md](docs/SD-CARD.md#moving-old-files) has the details and what an older version then sees.
 
 `GetCapacity()` reports total card capacity in **bytes**, not free space. `IsMounted()` is cached state, not a card-detect signal. After an I/O failure, close affected files before `CheckAfterIoError()`: a healthy card stays mounted (for example, if full); an unresponsive card is marked unavailable and retired on the next `Init()`. Coordinate retries with all file users; automatic hot-plug management is not provided.
 
@@ -768,7 +773,7 @@ The HAL's own tests of the web target: `tests/web` (the kernel and the models, o
 
 ## Host tests
 
-[`tests/`](tests) checks the HAL on a computer, without a board or ESP-IDF: the pure calculations (key debounce and the key-count guard, LED frames, the backlight curve, and Net's: the Launcher's saved-network format against vectors made by the Launcher's own code, request checks, the order networks are tried in; the presence service's decisions and the Launcher's restart ticket), the driver sources against fake ESP-IDF drivers that fail on purpose, so every error path runs, and the web target's kernel and models (`tests/web`). CI runs them on every push and pull request.
+[`tests/`](tests) checks the HAL on a computer, without a board or ESP-IDF: the pure calculations (key debounce and the key-count guard, LED frames, the backlight curve, and Net's: the Launcher's saved-network format against vectors made by the Launcher's own code, request checks, the order networks are tried in; the presence service's decisions and the Launcher's restart ticket; a firmware's folder name and moving its old folder on a fake card that loses power before each step), the driver sources against fake ESP-IDF drivers that fail on purpose, so every error path runs, and the web target's kernel and models (`tests/web`). CI runs them on every push and pull request.
 
 ```sh
 cmake -S tests -B build-tests

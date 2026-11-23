@@ -46,6 +46,8 @@ function(cardenza_web_hal_sources out_var)
         ${CARDENZA_WEB_HAL_DIR}/display/display.cpp
         ${CARDENZA_WEB_HAL_DIR}/ir/ir.cpp
         ${CARDENZA_WEB_HAL_DIR}/mic/mic.cpp
+        ${CARDENZA_WEB_HAL_DIR}/storage/app_dir.cpp
+        ${CARDENZA_WEB_HAL_DIR}/storage/app_dir_logic.cpp
         ${CARDENZA_WEB_HAL_DIR}/storage/storage.cpp
         ${CARDENZA_WEB_HAL_DIR}/system/settings_logic.cpp
         ${CARDENZA_WEB_HAL_DIR}/system/system.cpp

@@ -5,14 +5,21 @@
 // - HOME (the side key) inverts the screen.
 // - Keys: keyboard/legends.h says what each cap prints (Legend, Typed; the arrows are ; . , / and ok
 //   confirms, esc goes back). Use it rather than a layout of your own.
+// - The SD card: its files are in its own folder, /sdcard/Apps/<project name>/ (storage/app_dir.h,
+//   docs/SD-CARD.md): Settings/app.cfg counts its starts, Logs/log.txt gets a line at each.
 //
 // It reaches the hardware only through the HAL's public headers, so the same source builds for the board
 // (idf.py build) and for the browser (CardenzaHAL tools/cardenza_web.py build). Keep CardenzaHAL::Init()
 // first: its log lines are how a crash log, and the 203 community's checks, know the HAL.
 
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
+
+#include <sys/stat.h>
 
 #include <esp_app_desc.h>
 #include <esp_log.h>
@@ -21,11 +28,13 @@
 
 #include "cardenzaHAL.h"
 #include "keyboard/led_light.h"
+#include "storage/app_dir.h"
 
 namespace {
 
 namespace Display = CardenzaHAL::Display;
 namespace Keyboard = CardenzaHAL::Keyboard;
+namespace Storage = CardenzaHAL::Storage;
 namespace System = CardenzaHAL::System;
 
 constexpr char kTag[] = "app";
@@ -78,6 +87,73 @@ void Draw(const std::vector<Keyboard::Point2D_t>& keys, bool inverted, int versi
         }
 }
 
+// ---- The SD card ----------------------------------------------------------------------------------------------
+// Everything this firmware keeps is in its own folder, /sdcard/Apps/<project name>/ (Storage::AppDir; menuconfig
+// CardenzaHAL > folder name chooses another): Settings/ for its settings, Logs/ for its logs, the rest as it likes.
+// Never at the card's root and never in /sdcard/Launcher (the 203 Launcher's). The board's own settings (volume,
+// brightness, language) are not files: system/settings.h. A firmware that kept its files elsewhere before moves
+// them once, at the start, before reading any: Storage::MigrateAppDir("/sdcard/<its old folder>").
+// The user pulls the power whenever: a file is never left half written.
+
+// Reads `path`, or the copy WriteFile left when the power went between its last two steps.
+std::string ReadFile(const std::string& path)
+{
+    std::string text;
+    for (const std::string& source : {path, path + ".tmp"})
+        if (std::FILE* file = std::fopen(source.c_str(), "r"))
+        {
+            char buffer[256];
+            for (std::size_t read; (read = std::fread(buffer, 1, sizeof(buffer), file)) > 0;) text.append(buffer, read);
+            std::fclose(file);
+            return text;
+        }
+    return text;
+}
+
+// The new contents go to <path>.tmp first; only then the old file goes and the new one takes its name (FAT does not
+// rename over a file). A power cut leaves the old file, or the new one, or the new one as .tmp (ReadFile finds it).
+bool WriteFile(const std::string& path, const std::string& text)
+{
+    const std::string temporary = path + ".tmp";
+    std::FILE* file = std::fopen(temporary.c_str(), "w");
+    if (file == nullptr) return false;
+    const bool written = std::fwrite(text.data(), 1, text.size(), file) == text.size();
+    if (std::fclose(file) != 0 || !written) return false;
+    std::remove(path.c_str());
+    return std::rename(temporary.c_str(), path.c_str()) == 0;
+}
+
+void NoteStart(const esp_app_desc_t* app)
+{
+    // No card (or none that mounts): run without one; never wait for it or restart.
+    if (!Storage::IsMounted() || !Storage::EnsureAppDir(Storage::kSettingsFolder) || !Storage::EnsureAppDir(Storage::kLogsFolder))
+    {
+        ESP_LOGI(kTag, "no SD card: nothing kept");
+        return;
+    }
+    // Settings/app.cfg: key=value lines, read tolerantly (a missing file is the defaults).
+    const std::string settings = Storage::AppPath("Settings/app.cfg");
+    const std::string text = ReadFile(settings);
+    const std::size_t at = text.find("starts=");
+    const long starts = (at == std::string::npos ? 0 : std::strtol(text.c_str() + at + 7, nullptr, 10)) + 1;
+    WriteFile(settings, "starts=" + std::to_string(starts) + "\n");
+    // Logs/log.txt: a line a start; at 64 KB it becomes log.1.txt (the one before is dropped).
+    const std::string log = Storage::AppPath("Logs/log.txt");
+    struct stat info{};
+    if (stat(log.c_str(), &info) == 0 && info.st_size > 64 * 1024)
+    {
+        const std::string older = Storage::AppPath("Logs/log.1.txt");
+        std::remove(older.c_str());
+        std::rename(log.c_str(), older.c_str());
+    }
+    if (std::FILE* file = std::fopen(log.c_str(), "a"))
+    {
+        std::fprintf(file, "%s %s started (%ld)\n", app->project_name, app->version, starts);
+        std::fclose(file);
+    }
+    ESP_LOGI(kTag, "card folder %s, start %ld", Storage::AppDir().c_str(), starts);
+}
+
 }  // namespace
 
 extern "C" void app_main()
@@ -93,6 +169,7 @@ extern "C" void app_main()
     // (version.txt). Keep the ELF of every build you give anyone: a backtrace is read with it.
     const esp_app_desc_t* app = esp_app_get_description();
     ESP_LOGI(kTag, "%s %s ready", app->project_name, app->version);
+    NoteStart(app);
 
     // The screen's and the key lights' brightness and the volume are the board's settings (system/settings.h,
     // HOME > Settings): CardenzaHAL::Init applied them. Setting them here would override the user's choice.

@@ -42,7 +42,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方�
 | 屏幕 | 240 × 135 彩屏（RGB565），SPI 接口的 ST7789，背光走 LEDC；整屏一帧 17 ms | [`display/display.h`](display/display.h)：`Present`、`PresentChanged`、`SetBrightness`、`GetPanel`；[屏幕显示](#屏幕显示) |
 | 喇叭 | ES8156 解码器，I2S，44.1 kHz 16 位，单声道喇叭（可用立体声声道） | [`audio/audio.h`](audio/audio.h)：`Init`、`GetTxChannel`、`SetVolume`；[音频输出](#音频输出) |
 | 麦克风 | PDM，44.1 kHz 单声道；时钟和喇叭共用 GPIO43 | [`mic/mic.h`](mic/mic.h)；[麦克风与音频共用引脚](#麦克风与音频共用引脚) |
-| SD 卡 | microSD，4 线 SDMMC，FAT 挂在 `/sdcard` | [`storage/storage.h`](storage/storage.h)：`Init`、`IsMounted`、`CheckAfterIoError`；[SD 卡存储](#sd-卡存储) |
+| SD 卡 | microSD，4 线 SDMMC，FAT 挂在 `/sdcard` | [`storage/storage.h`](storage/storage.h)：`Init`、`IsMounted`、`CheckAfterIoError`；[`storage/app_dir.h`](storage/app_dir.h)：本固件的文件夹 `/sdcard/Apps/<AppName>`（[目录结构](docs/SD-CARD.zh-CN.md)）；[SD 卡存储](#sd-卡存储) |
 | HOME | 侧边键（GPIO0；按一下打开[系统菜单](#系统菜单任何固件里按-home)；插 USB 或复位时按住进 ROM 下载模式） | [`system/system.h`](system/system.h)：`GetFuncButton`；[Func、I2C 与红外](#funci2c-与红外) |
 | I2C | 共用总线（GPIO1/2），解码器在上面 | [`system/system.h`](system/system.h)：`GetI2CBus` |
 | 红外 | 发射管（GPIO44，NEC 38 kHz） | [`ir/ir.h`](ir/ir.h)：`Send` |
@@ -327,18 +327,21 @@ PDM 输入使用 I2S0，输出为 **44,100 Hz、单声道、有符号 16 位 PCM
 
 ## SD 卡存储
 
-接口：[`storage/storage.h`](storage/storage.h)。
+接口：[`storage/storage.h`](storage/storage.h)（卡）和 [`storage/app_dir.h`](storage/app_dir.h)（本固件在卡上的文件夹）。每个固件都遵守的目录结构：[docs/SD-CARD.zh-CN.md](docs/SD-CARD.zh-CN.md)。
 
-`Storage::Init()` 通过 4-bit SDMMC 把 FAT 文件系统挂到 **`/sdcard`**，最多同时打开五个文件；挂载失败时**不会格式化**。确认 `IsMounted()` 后，可使用标准 C/C++ 文件接口：
+`Storage::Init()` 通过 4-bit SDMMC 把 FAT 文件系统挂到 **`/sdcard`**，最多同时打开五个文件（`CardenzaHAL::Init()` 会尝试挂载）；挂载失败时**不会格式化**。
+
+**文件放在固件自己的文件夹 `/sdcard/Apps/<AppName>/` 里**，不放在卡的根目录，也不放进 `/sdcard/Launcher/`（203 Launcher 的）。`Storage::AppName()` 是 CMake 工程名改成安全的 FAT 文件夹名（或者 `CONFIG_CARDENZA_HAL_APP_NAME`，menuconfig：CardenzaHAL）；`AppDir()` 是这个文件夹，`AppPath("Settings/app.cfg")` 是里面的路径，`EnsureAppDir("Settings")` 建好它。`Settings/` 和 `Logs/` 是约定的子文件夹，其余随固件安排。确认 `IsMounted()` 后，可使用标准 C/C++ 文件接口：
 
 ```cpp
-#include "storage/storage.h"
+#include "storage/app_dir.h"
 #include <cstdio>
 
 void ReadSettings()
 {
-    if (!CardenzaHAL::Storage::Init()) return;
-    FILE* file = std::fopen("/sdcard/settings.txt", "r");
+    namespace Storage = CardenzaHAL::Storage;
+    if (!Storage::IsMounted()) return;  // 没有卡：照常运行
+    FILE* file = std::fopen(Storage::AppPath("Settings/app.cfg").c_str(), "r");  // /sdcard/Apps/<AppName>/Settings/app.cfg
     if (!file) return;
     char line[128];
     while (std::fgets(line, sizeof(line), file)) {
@@ -346,9 +349,11 @@ void ReadSettings()
     }
     const bool failed = std::ferror(file) != 0;
     std::fclose(file);
-    if (failed) CardenzaHAL::Storage::CheckAfterIoError();
+    if (failed) Storage::CheckAfterIoError();
 }
 ```
+
+**以前把文件放在别处的固件**（卡根目录下自己的文件夹）在启动时、读任何文件之前调用一次 `Storage::MigrateAppDir("/sdcard/<旧文件夹>")`：只有旧文件夹时改一次名；两个都在时（用户退回旧版本又升级回来），新文件夹没有的移进去，两边都有的留在原处，绝不覆盖；任何时刻断电都不丢东西，下次启动接着做完。细节和旧版本之后看到什么见 [docs/SD-CARD.zh-CN.md](docs/SD-CARD.zh-CN.md#搬走旧文件)。
 
 `GetCapacity()` 返回以**字节**为单位的总容量，不是剩余空间。`IsMounted()` 是缓存状态，不是硬件插卡检测。I/O 出错后，先关闭受影响文件，再调用 `CheckAfterIoError()`：卡仍正常响应时保持挂载（例如只是写满），失去响应时标记为不可用，并在下一次 `Init()` 时清理旧挂载。重试前须协调所有文件使用者；HAL 不提供自动热插拔管理。
 
@@ -743,7 +748,7 @@ HAL 对网页目标的测试：`tests/web`（内核和各个模型，在电脑�
 
 ## 主机测试
 
-[`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线，以及 Net 的：Launcher 保存网络的格式（用 Launcher 自己的代码生成的数据检验）、请求检查、尝试网络的顺序；在线服务的判断逻辑和 Launcher 的重启票据）、驱动源码在故意出错的假 ESP-IDF 驱动下运行（让每条出错路径都走一遍），以及网页目标的内核和各个模型（`tests/web`）。CI 在每次推送和每个 PR 上运行它们。
+[`tests/`](tests) 在电脑上检查 HAL，不需要板子和 ESP-IDF：纯计算部分（按键去抖和按键数上限、LED 帧、背光曲线，以及 Net 的：Launcher 保存网络的格式（用 Launcher 自己的代码生成的数据检验）、请求检查、尝试网络的顺序；在线服务的判断逻辑和 Launcher 的重启票据；固件文件夹的名字，以及在每一步之前都会断电的假卡上搬走旧文件夹）、驱动源码在故意出错的假 ESP-IDF 驱动下运行（让每条出错路径都走一遍），以及网页目标的内核和各个模型（`tests/web`）。CI 在每次推送和每个 PR 上运行它们。
 
 ```sh
 cmake -S tests -B build-tests

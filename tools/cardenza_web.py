@@ -106,6 +106,8 @@ IDF_DEFAULTS = {
     # HAL has it absent (web/hal/presence.cpp).
     "CONFIG_CARDENZA_HAL_PRESENCE": "y",
     "CONFIG_CARDENZA_HAL_PRESENCE_START_DELAY": "10",
+    # Empty: the firmware's folder on the card is named after its project (storage/app_dir.h).
+    "CONFIG_CARDENZA_HAL_APP_NAME": '""',
 }
 
 # Kconfig choices: one member is y, the others are not set; some give a value of their own.
