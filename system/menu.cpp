@@ -11,8 +11,11 @@
 #include <driver/gpio.h>
 #include <driver/rtc_io.h>
 #include <esp_app_desc.h>
+#include <esp_flash.h>
+#include <esp_mac.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
+#include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include <esp_sleep.h>
 #include <esp_system.h>
@@ -20,13 +23,20 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <soc/io_mux_reg.h>
+#include <spi_flash_mmap.h>
 #include <soc/rtc_cntl_reg.h>
 #include <soc/rtc_cntl_struct.h>
+#include <sdkconfig.h>
+#if CONFIG_SPIRAM
+#include <esp_psram.h>
+#endif
+#include <esp_vfs_fat.h>
 
 #include "board/pins.h"
 #include "display/backlight_brightness.h"
 #include "display/display.h"
 #include "display/internal/overlay.h"
+#include "keyboard/internal/flash_guard.h"
 #include "keyboard/internal/overlay.h"
 #include "system/internal/hooks.h"
 #include "system/launcher.h"
@@ -34,6 +44,9 @@
 #include "system/menu/launcher/motion.h"
 #include "system/menu/logic.h"
 #include "system/menu/test.h"
+#include "system/internal/settings_hooks.h"
+#include "system/settings.h"
+#include "storage/storage.h"
 
 namespace CardenzaHAL::SystemMenu {
 
@@ -78,42 +91,13 @@ uint32_t launcherMillis()
 
 namespace {
 
-// ---- The Launcher's settings: NVS launcher/lang and launcher/bright, read page by page without the NVS
-// library (nothing is written) -----------------------------------------------------------------------------
-
-struct LauncherSettings {
-    int language = 0;      // its launcher/lang
-    int brightness = 100;  // its backlight, percent
-};
-
-LauncherSettings ReadLauncherSettings()
-{
-    LauncherSettings settings;
-    const esp_partition_t* nvs =
-        esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS, "nvs");
-    if (nvs == nullptr) return settings;
-    auto* page = static_cast<uint8_t*>(heap_caps_malloc(detail::kNvsPageBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (page == nullptr) page = static_cast<uint8_t*>(heap_caps_malloc(detail::kNvsPageBytes, MALLOC_CAP_8BIT));
-    if (page == nullptr) return settings;
-    const std::size_t pages = nvs->size / detail::kNvsPageBytes;
-    uint8_t index = 0;
-    for (std::size_t i = 0; i < pages && index == 0; ++i)
-        if (esp_partition_read(nvs, i * detail::kNvsPageBytes, page, detail::kNvsPageBytes) == ESP_OK)
-            index = detail::NvsNamespaceIndex(page, "launcher");
-    uint8_t lang = 0;
-    int32_t bright = 0;
-    bool langFound = false, brightFound = false;
-    for (std::size_t i = 0; i < pages && index != 0 && !(langFound && brightFound); ++i)
-        if (esp_partition_read(nvs, i * detail::kNvsPageBytes, page, detail::kNvsPageBytes) == ESP_OK)
-        {
-            langFound = langFound || detail::NvsFindU8(page, index, "lang", lang);
-            brightFound = brightFound || detail::NvsFindI32(page, index, "bright", bright);
-        }
-    heap_caps_free(page);
-    settings.language = langFound ? lang : 0;
-    settings.brightness = detail::LauncherBrightness(brightFound, bright);
-    return settings;
-}
+// Set by CMakeLists.txt when the build is configured (the About page's HAL row).
+#ifndef CARDENZA_HAL_COMMIT
+#define CARDENZA_HAL_COMMIT ""
+#endif
+#ifndef CARDENZA_HAL_DIRTY
+#define CARDENZA_HAL_DIRTY 0
+#endif
 
 // ---- The picture ---------------------------------------------------------------------------------------
 
@@ -139,10 +123,20 @@ struct Scene {
 
 Scene* g_scene = nullptr;
 uint16_t* g_capture = nullptr;  // the firmware's frame, PSRAM (no PSRAM: the backdrop is a dark field)
-// The backlight's duty while the menu shows: the Launcher's own (its brightness setting on its curve).
-int g_launcherBrightness = 100;  // percent
+// The backlight's duty while the menu shows: the board's screen brightness (the Launcher's own setting, on
+// its curve).
+int g_brightness = 100;  // percent
 int g_menuDuty = Display::detail::kBacklightFullDuty;
 char g_firmwareName[80];
+detail::AboutInfo g_about;
+
+// The settings as the menu shows them.
+Settings::detail::Values SettingsNow()
+{
+    Settings::detail::Values values{};
+    for (int i = 0; i < Settings::kCount; ++i) values[i] = Settings::Get(Settings::detail::IdAt(i));
+    return values;
+}
 
 void PaintScene(void* context, int x, int y, int width, int rows, uint16_t* out)
 {
@@ -185,11 +179,12 @@ bool Prepare()
     const esp_app_desc_t* app = esp_app_get_description();
     std::snprintf(g_firmwareName, sizeof(g_firmwareName), "%.32s %.32s", app->project_name, app->version);
     g_scene->view = detail::View{};
-    const LauncherSettings launcherSettings = ReadLauncherSettings();
-    g_launcherBrightness = launcherSettings.brightness;
-    g_menuDuty = detail::LauncherBacklightDuty(launcherSettings.brightness, Display::detail::kBacklightFullDuty);
-    g_scene->view.language = detail::LanguageIndex(launcherSettings.language);
+    g_scene->view.state.values = SettingsNow();
+    g_brightness = Settings::Get(Settings::Id::ScreenBrightness);
+    g_menuDuty = detail::LauncherBacklightDuty(g_brightness, Display::detail::kBacklightFullDuty);
+    g_scene->view.language = detail::LanguageIndex(Settings::Get(Settings::Id::Language));
     g_scene->view.firmware = g_firmwareName;
+    g_scene->view.about = &g_about;
     g_scene->useSlide = false;
     if (g_scene->still == nullptr)
         g_scene->still = static_cast<uint8_t*>(heap_caps_malloc(std::size_t(detail::kWidth) * detail::kHeight,
@@ -230,6 +225,60 @@ bool DrawMenu(Scene& scene, uint32_t now)
     return Display::detail::PaintOverlay(PaintScene, &scene);
 }
 
+// ---- What the board is (the About page) ----------------------------------------------------------------
+
+// The Launcher's own image description, at its slot (0x10000, whatever the table calls it), as the
+// development channel reads it (usb/dev.cpp): through the cache, never with it disabled.
+bool LauncherVersion(char* out, std::size_t size)
+{
+    constexpr uint32_t kLauncherSlot = 0x10000;
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    if (running != nullptr && running->address == kLauncherSlot) return false;
+    const void* mapped = nullptr;
+    spi_flash_mmap_handle_t handle = 0;
+    if (spi_flash_mmap(kLauncherSlot, 0x10000, SPI_FLASH_MMAP_DATA, &mapped, &handle) != ESP_OK) return false;
+    const auto* bytes = static_cast<const uint8_t*>(mapped);
+    esp_app_desc_t desc;
+    // The image header (24 bytes) and the first segment's header (8): then the description.
+    std::memcpy(&desc, bytes + 32, sizeof(desc));
+    const bool image = bytes[0] == 0xE9;
+    spi_flash_munmap(handle);
+    if (!image || desc.magic_word != ESP_APP_DESC_MAGIC_WORD) return false;
+    // The Launcher's version is "<version>-<board>": the version alone, as its About shows it.
+    std::snprintf(out, size, "%.*s", int(sizeof(desc.version)), desc.version);
+    if (char* board = std::strchr(out, '-')) *board = 0;
+    return out[0] != 0;
+}
+
+void GatherAbout(detail::AboutInfo& about)
+{
+    about = detail::AboutInfo{};
+    const esp_app_desc_t* app = esp_app_get_description();
+    std::snprintf(about.firmware, sizeof(about.firmware), "%.32s", app->project_name);
+    std::snprintf(about.version, sizeof(about.version), "%.32s", app->version);
+    if (!LauncherVersion(about.launcher, sizeof(about.launcher))) about.launcher[0] = 0;
+    std::snprintf(about.hal, sizeof(about.hal), "%.16s%s", CARDENZA_HAL_COMMIT, CARDENZA_HAL_DIRTY ? "+" : "");
+    uint8_t mac[6] = {};
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK)
+        std::snprintf(about.mac, sizeof(about.mac), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3],
+                      mac[4], mac[5]);
+    uint32_t flash = 0;
+    if (esp_flash_get_size(nullptr, &flash) == ESP_OK) about.flashBytes = flash;
+#if CONFIG_SPIRAM
+    about.psramBytes = static_cast<uint32_t>(esp_psram_get_size());
+#endif
+    if (Storage::IsMounted())
+    {
+        uint64_t total = 0, free = 0;
+        if (esp_vfs_fat_info(Storage::kMountPoint, &total, &free) == ESP_OK)
+        {
+            about.card = true;
+            about.cardBytes = total;
+            about.cardFree = free;
+        }
+    }
+}
+
 // ---- Leaving -------------------------------------------------------------------------------------------
 
 [[noreturn]] void PowerOff()
@@ -250,6 +299,8 @@ bool DrawMenu(Scene& scene, uint32_t now)
 
 [[noreturn]] void Leave(Action action)
 {
+    // What changed in the menu is in the flash before the board goes.
+    (void)Settings::Flush();
     LeaveHook hook;
     void* context;
     portENTER_CRITICAL(&g_hooksMux);
@@ -386,16 +437,52 @@ void RunMenu()
             openingPress = false;
         }
         funcWasDown = funcDown;
+        // A setting changed from elsewhere meanwhile (USB, the firmware): shown as it is.
+        bool external = false;
+        if (const auto values = SettingsNow(); values != scene.view.state.values)
+        {
+            scene.view.state.values = values;
+            external = true;
+        }
         const detail::Outcome outcome = detail::Apply(scene.view.state, act);
+        if (outcome.set) (void)Settings::Set(outcome.id, outcome.value);
+        if (outcome.reset) Settings::Reset();
+        if (outcome.set || outcome.reset || external)
+        {
+            // Live: the volume is heard and the key lights seen at once (Settings applies them); the screen
+            // while the menu shows is its own backlight duty.
+            scene.view.state.values = SettingsNow();
+            const int brightness = scene.view.state.values[Settings::detail::Index(Settings::Id::ScreenBrightness)];
+            if (brightness != g_brightness)
+            {
+                g_brightness = brightness;
+                g_menuDuty = detail::LauncherBacklightDuty(brightness, Display::detail::kBacklightFullDuty);
+                Display::detail::SetBacklightDuty(g_menuDuty, true);
+            }
+            scene.view.language = detail::LanguageIndex(scene.view.state.values[Settings::detail::Index(Settings::Id::Language)]);
+        }
+        if (outcome.page)
+        {
+            // Another page: drawn at once, a new selection bar placed on its row (the panel has no
+            // tearing-effect line: pages change in one frame, as the Launcher's do on the Cardenza).
+            scene.slide = launcher::ListSlide{};
+            scene.slide.keep = true;
+            if (scene.view.state.page == detail::Page::About) GatherAbout(g_about);
+            // The key lights' master level shows as it is while it is being changed (no floor).
+            const bool keyLights = scene.view.state.page == detail::Page::Value &&
+                                   scene.view.state.editing == Settings::Id::KeyBrightness;
+            Keyboard::detail::SetOverlayFloor(!keyLights);
+        }
         const bool backHeld = held == detail::Key::Back;
-        if (outcome.changed || moving || backHeld != scene.view.backHeld)
+        if (outcome.changed || external || moving || backHeld != scene.view.backHeld)
         {
             scene.view.backHeld = backHeld;
             if (!DrawMenu(scene, now)) ESP_LOGW(kTag, "system menu: a paint failed");
             // Until a frame shows the bar at rest on its row (the one drawn when it stops moving is that).
             moving = scene.slide.active(scene.now);
         }
-        if (outcome.chosen)
+        if (outcome.close) break;
+        if (outcome.leave)
         {
             chosen = outcome.item;
             break;
@@ -423,7 +510,7 @@ void RunMenu()
         {
             // Its brightness setting counted down, each step on its duty curve, as it does.
             Display::detail::SetBacklightDuty(
-                detail::LauncherBacklightDuty(launcher::powerOffBrightness(g_launcherBrightness, elapsed),
+                detail::LauncherBacklightDuty(launcher::powerOffBrightness(g_brightness, elapsed),
                                               Display::detail::kBacklightFullDuty),
                 true);
             if (scene.slide.active(scene.now)) (void)DrawMenu(scene, NowMs());
@@ -436,7 +523,7 @@ void RunMenu()
             case detail::Item::Restart: Leave(Action::Restart);
             case detail::Item::PowerOff: Leave(Action::PowerOff);
             case detail::Item::Download: Leave(Action::Download);
-            case detail::Item::Continue: break;
+            default: break;
         }
     }
 
@@ -446,7 +533,8 @@ void RunMenu()
     {
         scene.firmware = picture;
         scene.step = 0;
-        Display::detail::SetBacklightDuty(firmwareDuty, true);
+        // The firmware's light now: the screen brightness may have changed in the menu.
+        Display::detail::SetBacklightDuty(Display::detail::FirmwareBacklightDuty(), true);
         (void)Display::detail::PaintOverlay(PaintScene, &scene);
         vTaskDelay(pdMS_TO_TICKS(detail::kCloseMs));
         scene.picture = true;
@@ -455,6 +543,8 @@ void RunMenu()
     Display::detail::EndOverlay();
     ESP_LOGI(kTag, "system menu: closed");
     close();
+    // What changed while it was open is written now (once, on the settings' own task).
+    Settings::detail::MenuClosed();
 }
 
 void MenuTask(void*)

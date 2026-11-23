@@ -7,15 +7,20 @@ files for the card. `203cli board` is the computer's side (203-CLI); a web page 
 template does not start USB (its console stays on the serial port, which the community's boot check reads): add
 `CardenzaHAL::USB::Init();` after `CardenzaHAL::Init()` to use it.
 
+The board's settings ([SETTINGS.md](SETTINGS.md): volume, its limit, brightness, key lights, microphone gain,
+language) are on the same channel (`SETTINGS` … below), in every firmware that starts USB, whatever
+`CONFIG_CARDENZA_HAL_USB_DEV` says: `203cli board settings` reads and changes them.
+
 It costs a firmware nothing until a computer asks: no task, no buffer and no polling. A question starts a
 worker task of priority 1 (6 KB of internal RAM for its stack, created then and deleted 10 s after the last
 question); a screenshot copies one frame at the firmware's next `Present`; nothing else in the firmware's paths
-changes. `CONFIG_CARDENZA_HAL_USB_DEV` (Kconfig, on by default) leaves it out altogether: every question is then
-answered with the error `off`.
+changes. `CONFIG_CARDENZA_HAL_USB_DEV` (Kconfig, on by default) leaves the development channel's questions out:
+they are then answered with the error `off`; `HELLO` and the settings are still answered.
 
-What it never does: write NVS or anything of the Launcher's, send the device token, or reach files outside the
-SD card. The only writes are the ones asked for: files on the card (`PUT`, `RM`, `MKDIR`, `MV`) and erasing the
-core dump (`COREDUMP_ERASE`).
+What it never does: send the device token, or reach files outside the SD card. The only writes are the ones asked
+for: files on the card (`PUT`, `RM`, `MKDIR`, `MV`), erasing the core dump (`COREDUMP_ERASE`), and a setting
+(`SETTING_SET`, `SETTINGS_RESET`), which the HAL writes to NVS as it writes every change of the settings: a second
+after the last one, on its own task (SETTINGS.md).
 
 ## Transport
 
@@ -41,7 +46,7 @@ appended to that id's argument buffer (512 bytes), and the next other request wi
 in front of its own args. `CANCEL` (`0x7F`, any id) stops the answer being sent (it ends with the error
 `cancelled`), drops what is queued and releases keys pressed from the computer.
 
-The protocol version in `IDENTIFY`'s answer (`0x44`) is 2 from this channel on.
+The protocol version in `IDENTIFY`'s answer (`0x44`) is 2 from this channel on, 3 from the settings on.
 
 ## Requests
 
@@ -50,7 +55,7 @@ milliseconds. A field the firmware cannot know is `null`.
 
 | op | name | args | answer |
 | --- | --- | --- | --- |
-| `0x00` | `HELLO` | | JSON `{"protocol": 2, "max_args": 52}` |
+| `0x00` | `HELLO` | | JSON `{"protocol": 3, "max_args": 52, "dev": true, "settings": true}` (`dev`: the development channel's questions are answered; 2 had neither field) |
 | `0x01` | `INFO` | | JSON, below |
 | `0x02` | `PARTITIONS` | | JSON, below |
 | `0x03` | `MEMORY` | `[window]` (optional, 10 ms units, default 50) | JSON, below |
@@ -72,6 +77,10 @@ milliseconds. A field the firmware cannot know is `null`.
 | `0x36` | `RM` | path | JSON `{"removed": "..."}` |
 | `0x37` | `MKDIR` | path | JSON `{"made": "..."}` |
 | `0x38` | `MV` | from, `0`, to | JSON `{"moved": "...", "to": "..."}` |
+| `0x40` | `SETTINGS` | | JSON, below: every setting |
+| `0x41` | `SETTING_GET` | key | JSON `{"setting": {…}, "saved": true}` |
+| `0x42` | `SETTING_SET` | i32 value, key | JSON `{"asked": 80, "changed": ["volume"], "setting": {…}, "saved": false}` |
+| `0x43` | `SETTINGS_RESET` | | JSON `{"reset": true, "settings": […], "saved": false}` |
 | `0x7F` | `CANCEL` | | the cancelled answer's error |
 
 Numbers in args are little-endian (`u32`: 4 bytes). Paths are on the SD card, from its root: `/` between the
@@ -191,3 +200,27 @@ last request, by `CANCEL`, and when the computer goes away.
 debug defaults set it, in ELF format: about 3 KB of internal RAM, so the release defaults do not). `summary` only for an ELF dump this firmware can read (`null` otherwise);
 decode its addresses with the firmware's ELF (`xtensa-esp32s3-elf-addr2line -pfiaC -e <elf> <addresses>`), or
 the whole dump with ESP-IDF's `esp-coredump info_corefile -c <dump> <elf>`.
+
+### SETTINGS
+
+```json
+{"settings": [{"key": "volume", "value": 64, "default": 70, "min": 0, "max": 90, "step": 2, "unit": "", "stored": true},
+              {"key": "volume_limit", "value": 90, "default": 100, "min": 10, "max": 100, "step": 2, "unit": "", "stored": true},
+              {"key": "screen_brightness", "value": 80, "default": 100, "min": 10, "max": 100, "step": 5, "unit": "%", "stored": true},
+              {"key": "key_brightness", "value": 15, "default": 15, "min": 0, "max": 15, "step": 1, "unit": "", "stored": false},
+              {"key": "mic_gain", "value": 6, "default": 0, "min": -12, "max": 36, "step": 1, "unit": "dB", "stored": true},
+              {"key": "language", "value": 1, "default": 0, "choices": [{"value": 0, "name": "en"}, {"value": 1, "name": "zh-Hans"},
+               {"value": 3, "name": "ja"}, {"value": 4, "name": "id"}, {"value": 5, "name": "vi"}], "stored": true}],
+ "saved": true}
+```
+
+The board's settings ([SETTINGS.md](SETTINGS.md)) in this order. `max` of `volume` is the volume limit now.
+`step` is the system menu's step; any whole value in the range is taken. `stored`: the value came from the flash or
+was set since the start (otherwise it is the default). `saved`: nothing waits to be written to the flash (a change is
+written a second after the last one). The language's `value` is the 203 Launcher's code (its NVS `launcher/lang`).
+
+`SETTING_SET`'s value is clamped to the range (the volume to the limit; a language that is not one of the choices
+changes nothing): `setting.value` is what was set, `changed` every key whose value changed (lowering the limit
+changes the volume too). It is applied at once (heard, seen) and written to the flash a second later. An unknown key
+is the error `unknown setting`. `SETTINGS_RESET` puts every setting but the language back to its default.
+

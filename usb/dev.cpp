@@ -1,4 +1,6 @@
-// The development channel: a computer's questions about the firmware, answered by the HAL (docs/usb-dev.md).
+// The development channel: a computer's questions about the firmware, answered by the HAL (docs/usb-dev.md),
+// and the board's settings (system/settings.h), which are there in every firmware with USB, also without
+// CONFIG_CARDENZA_HAL_USB_DEV (then the channel answers only them and HELLO; everything else is "off").
 //
 // Nothing of it runs until a computer asks. The USB task hands each request to a worker task (priority 1,
 // created on demand, gone 10 s after the last request) through a queue made on the first request; the worker
@@ -17,6 +19,15 @@
 #include <new>
 
 #include "usb/dev_logic.h"
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
+
+#include "keyboard/internal/inject.h"
+#include "system/internal/hooks.h"
+#include "system/settings.h"
+#include "system/settings_logic.h"
 
 #if CONFIG_CARDENZA_HAL_USB_DEV
 #include <cerrno>
@@ -103,30 +114,12 @@ void AnswerNow(uint8_t id, bool sysex, const char* text)
 
 }  // namespace
 
-#if !CONFIG_CARDENZA_HAL_USB_DEV
-
-void DevRequest(const uint8_t* data, std::size_t length, bool sysex)
-{
-    if (length >= 2 && (data[1] & 0x7F) != kCancel) AnswerNow(data[0] & 0x7F, sysex, "off");
-}
-
-void DevHostGone() {}
-
-#else
-
 namespace {
 
 constexpr uint32_t kIdleMs = 10000;       // the worker goes this long after the last request
 constexpr UBaseType_t kQueueDepth = 8;
 constexpr uint32_t kStackBytes = 6144;    // FAT and snprintf; internal RAM, only while the worker exists
 constexpr uint32_t kSendWaitMs = 50;      // for room for each report or USB-MIDI packet: then the computer is gone
-constexpr uint32_t kSnapshotWaitMs = 250; // for the firmware's next frame
-constexpr int kHomeKey = 57;
-#if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH
-constexpr bool kCoredumpEnabled = true;  // the firmware writes a dump when it crashes
-#else
-constexpr bool kCoredumpEnabled = false;
-#endif
 
 struct Request {
     uint8_t id = 0;
@@ -219,6 +212,17 @@ struct StreamSink {
     bool operator()(const char* text, std::size_t length) { return stream.Write(text, length); }
 };
 using Writer = Json<StreamSink>;
+
+#if CONFIG_CARDENZA_HAL_USB_DEV
+// ---- The development channel's own questions --------------------------------------------------------------
+
+constexpr uint32_t kSnapshotWaitMs = 250; // for the firmware's next frame
+constexpr int kHomeKey = 57;
+#if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH
+constexpr bool kCoredumpEnabled = true;  // the firmware writes a dump when it crashes
+#else
+constexpr bool kCoredumpEnabled = false;
+#endif
 
 // Flash through the cache, 64 KB at a time (the MMU's page): never with the cache disabled.
 class FlashReader {
@@ -1211,13 +1215,92 @@ void Move(Stream& stream, const uint8_t* args, std::size_t length)
     if (json.Ok()) stream.Finish();
 }
 
+#endif  // CONFIG_CARDENZA_HAL_USB_DEV
+
+// ---- The board's settings (system/settings.h) -------------------------------------------------------------
+
+// One setting: its key, value, range, step, default and unit; the language with its choices.
+void SettingJson(Writer& json, Settings::Id id)
+{
+    const Settings::Info& info = Settings::Describe(id);
+    json.Object().Key("key").Str(info.key).Key("value").Int(Settings::Get(id));
+    json.Key("default").Int(info.defaultValue);
+    if (id == Settings::Id::Language)
+    {
+        json.Key("choices").Array();
+        for (int i = 0; i < Settings::detail::kLanguageCount; ++i)
+            json.Object().Key("value").Int(Settings::detail::kLanguageCodes[i]).Key("name").Str(Settings::detail::kLanguageTags[i]).End();
+        json.End(']');
+    }
+    else
+    {
+        json.Key("min").Int(info.min).Key("max").Int(id == Settings::Id::Volume ? Settings::Get(Settings::Id::VolumeLimit) : info.max);
+        json.Key("step").Int(info.step).Key("unit").Str(info.unit);
+    }
+    json.Key("stored").Bool(Settings::Stored(id)).End();
+}
+
+void SettingsList(Writer& json)
+{
+    json.Key("settings").Array();
+    for (int i = 0; i < Settings::kCount; ++i) SettingJson(json, Settings::detail::IdAt(i));
+    json.End(']').Key("saved").Bool(Settings::Saved());
+}
+
+void SettingsAnswer(Stream& stream, uint8_t op, const uint8_t* args, std::size_t length)
+{
+    StreamSink sink{stream};
+    Writer json(sink);
+    if (op == kSettings || op == kSettingsReset)
+    {
+        if (op == kSettingsReset) Settings::Reset();
+        json.Object();
+        if (op == kSettingsReset) json.Key("reset").Bool(true);
+        SettingsList(json);
+        json.End();
+        if (json.Ok()) stream.Finish();
+        return;
+    }
+    // GET: the key; SET: the value (i32), then the key.
+    const std::size_t skip = op == kSettingSet ? 4 : 0;
+    Settings::Id id;
+    if (length < skip || !Settings::detail::Find(reinterpret_cast<const char*>(args + skip), length - skip, id))
+    {
+        stream.Fail(length < skip ? "no value" : "unknown setting");
+        return;
+    }
+    json.Object();
+    if (op == kSettingSet)
+    {
+        const int32_t asked = ReadI32(args);
+        Settings::detail::Values before{};
+        for (int i = 0; i < Settings::kCount; ++i) before[i] = Settings::Get(Settings::detail::IdAt(i));
+        const int now = Settings::Set(id, asked);
+        json.Key("asked").Int(asked).Key("changed").Array();
+        for (int i = 0; i < Settings::kCount; ++i)
+            if (Settings::Get(Settings::detail::IdAt(i)) != before[i]) json.Str(Settings::detail::kInfo[i].key);
+        json.End(']');
+        (void)now;
+    }
+    json.Key("setting");
+    SettingJson(json, id);
+    json.Key("saved").Bool(Settings::Saved()).End();
+    if (json.Ok()) stream.Finish();
+}
+
 // ---- the worker
 
 void Hello(Stream& stream)
 {
     StreamSink sink{stream};
     Writer json(sink);
-    json.Object().Key("protocol").Int(kProtocolVersion).Key("max_args").Uint(kMaxArgs).End();
+    json.Object().Key("protocol").Int(kProtocol).Key("max_args").Uint(kMaxArgs);
+#if CONFIG_CARDENZA_HAL_USB_DEV
+    constexpr bool kDevChannel = true;
+#else
+    constexpr bool kDevChannel = false;
+#endif
+    json.Key("dev").Bool(kDevChannel).Key("settings").Bool(true).End();
     if (json.Ok()) stream.Finish();
 }
 
@@ -1227,6 +1310,11 @@ void Handle(const Request& request, const uint8_t* args, std::size_t length)
     switch (request.op)
     {
         case kHello: Hello(stream); break;
+        case kSettings:
+        case kSettingGet:
+        case kSettingSet:
+        case kSettingsReset: SettingsAnswer(stream, request.op, args, length); break;
+#if CONFIG_CARDENZA_HAL_USB_DEV
         case kInfo: Info(stream); break;
         case kPartitions: Partitions(stream); break;
         case kMemory: Memory(stream, args, length); break;
@@ -1255,6 +1343,28 @@ void Handle(const Request& request, const uint8_t* args, std::size_t length)
         case kRm: Remove(stream, args, length); break;
         case kMkdir: MakeDirectory(stream, args, length); break;
         case kMv: Move(stream, args, length); break;
+#else
+        case kInfo:
+        case kPartitions:
+        case kMemory:
+        case kStorage:
+        case kStatus:
+        case kI2c:
+        case kScreen:
+        case kKeys:
+        case kCoredumpInfo:
+        case kCoredumpRead:
+        case kCoredumpErase:
+        case kLs:
+        case kGet:
+        case kPutBegin:
+        case kPutData:
+        case kPutEnd:
+        case kPutAbort:
+        case kRm:
+        case kMkdir:
+        case kMv: stream.Fail("off"); break;
+#endif
         default: stream.Fail("unknown request"); break;
     }
 }
@@ -1263,7 +1373,9 @@ void Handle(const Request& request, const uint8_t* args, std::size_t length)
 void LetGo(uint8_t*& argBuffer)
 {
     ReleaseKeys();
+#if CONFIG_CARDENZA_HAL_USB_DEV
     AbortPut();
+#endif
     std::free(argBuffer);
     argBuffer = nullptr;
 }
@@ -1383,7 +1495,5 @@ void DevHostGone()
     ReleaseKeys();
     if (g_running.load()) g_cancel.store(true);
 }
-
-#endif  // CONFIG_CARDENZA_HAL_USB_DEV
 
 }  // namespace CardenzaHAL::USB::detail

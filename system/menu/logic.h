@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "system/menu/words.inc"
+#include "system/settings_logic.h"
 
 // The system menu's decisions and drawing (system/menu.h), pure: no ESP-IDF, so the host tests check them
 // (tests/system_menu_test.cpp). system/menu.cpp runs them on the device.
@@ -52,8 +53,10 @@ namespace CardenzaHAL::SystemMenu::detail {
         uint32_t downSince_ = 0;
     };
 
-    enum class Item : uint8_t { Continue, Launcher, Restart, PowerOff, Download };
-    inline constexpr int kItemCount = 5;
+    // The main list (system/menu.h): Continue, Settings, Back to Launcher, Restart, Turn off, About this
+    // device, Download mode.
+    enum class Item : uint8_t { Continue, Settings, Launcher, Restart, PowerOff, About, Download };
+    inline constexpr int kItemCount = 7;
     inline constexpr int kVisibleRows = 4;  // as the Launcher's lists on the Cardenza
 
     enum class Key : uint8_t { None, Up, Down, Select, Back };
@@ -77,17 +80,50 @@ namespace CardenzaHAL::SystemMenu::detail {
     };
     Key KeyAt(int x, int y);
 
-    struct State {
+    // The pages (the user's request 2026-11-23: the board's settings and what it is, in this menu):
+    //   Main      the list above
+    //   Settings  a row per setting with its value on the right (the Launcher's Display page), and Reset
+    //   Value     one setting being changed: its value large over a track (the Launcher's Backlight page);
+    //             ; , less, . / more (as the Launcher's: up and previous less), live; ENTER keeps, ESC puts
+    //             back what it was
+    //   Language  the Launcher's languages, each in its own script (its Language card); ENTER takes one
+    //   Reset     the Launcher's question with two buttons, Cancel focused (its uiConfirm)
+    //   About     what the board runs and has (the rows of the Launcher's About)
+    // ESC (or del) goes back a page; on the main page it is Continue.
+    enum class Page : uint8_t { Main, Settings, Value, Language, Reset, About };
+
+    // The Settings page's rows.
+    enum class Row : uint8_t { Volume, VolumeLimit, ScreenBrightness, KeyBrightness, MicGain, Language, Reset };
+    inline constexpr int kRowCount = 7;
+    // The setting of a row (Reset: none, Volume's).
+    Settings::Id RowSetting(Row row);
+
+    struct ListState {
         int selected = 0;
         int scroll = 0;
     };
+    struct State {
+        Page page = Page::Main;
+        ListState main, settings, language;
+        int button = 1;                            // Reset's focused button: 0 Reset, 1 Cancel
+        Settings::Id editing = Settings::Id::Volume;  // the Value page's setting
+        int original = 0;                          // its value when the page opened
+        Settings::detail::Values values = Settings::detail::Defaults();  // as the menu shows them
+    };
     struct Outcome {
-        bool chosen = false;  // the menu closes: `item` (Back chooses Continue)
+        bool close = false;        // back to the firmware (Continue, or ESC on the main page)
+        bool leave = false;        // Back to Launcher, Restart, Turn off or Download mode: `item`
         Item item = Item::Continue;
-        bool changed = false;  // repaint
+        bool changed = false;      // repaint
+        bool page = false;         // another page: drawn at once, a new selection bar
+        bool set = false;          // set `id` to `value` now (already in State::values)
+        Settings::Id id = Settings::Id::Volume;
+        int value = 0;
+        bool reset = false;        // every setting to its default but the language (Settings::Reset)
     };
     // Up and Down stop at the ends (no wrap, as the Launcher's lists); the view scrolls to keep the
-    // selection in sight.
+    // selection in sight. A list of `count` rows.
+    bool Move(ListState& list, int delta, int count);
     Outcome Apply(State& state, Key key);
 
     // A key held down, as the menu sees it: the first press at once, then repeats for Up and Down only (a
@@ -108,6 +144,19 @@ namespace CardenzaHAL::SystemMenu::detail {
     // 4 Indonesian, 5 Vietnamese; anything else English) as an index into kTexts.
     int LanguageIndex(int launcherLang);
 
+    // What the About page says (system/menu.cpp gathers it as the page opens). ASCII; empty: not known.
+    struct AboutInfo {
+        char firmware[40] = "";   // the firmware's name
+        char version[40] = "";    // its version
+        char launcher[24] = "";   // the 203 Launcher's version (empty: no Launcher on this board)
+        char hal[24] = "";        // the HAL's commit at build time ("+": with local changes)
+        char mac[20] = "";        // as the Launcher's About shows it
+        uint32_t flashBytes = 0;  // the flash the firmware sees
+        uint32_t psramBytes = 0;  // 0: none
+        bool card = false;        // an SD card is mounted
+        uint64_t cardBytes = 0, cardFree = 0;
+    };
+
     // What the screen shows.
     struct View {
         int language = 0;            // index into kTexts
@@ -115,7 +164,14 @@ namespace CardenzaHAL::SystemMenu::detail {
         const char* firmware = "";   // Continue's detail: the firmware's name and version (ASCII)
         bool releasePrompt = false;  // "Release HOME" under the chosen row
         bool backHeld = false;       // ESC or del down: the rail's back arrow dims, as in the Launcher
+        const AboutInfo* about = nullptr;
     };
+
+    // A setting's value as the menu writes it: "70", "80%", "+6 dB" (ASCII; at most 15 bytes). The
+    // language's is its name (kLanguageNames).
+    void ValueText(Settings::Id id, int value, char* out, std::size_t size);
+    // A size as the About page writes it: "16 MB", "29.7 GB".
+    void SizeText(uint64_t bytes, char* out, std::size_t size);
 
     inline constexpr int kWidth = 240;
     inline constexpr int kHeight = 135;

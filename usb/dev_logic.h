@@ -33,8 +33,22 @@ enum Op : uint8_t {
     kRm = 0x36,
     kMkdir = 0x37,
     kMv = 0x38,
+    // The board's settings (system/settings.h): always there, also without CONFIG_CARDENZA_HAL_USB_DEV.
+    kSettings = 0x40,
+    kSettingGet = 0x41,
+    kSettingSet = 0x42,
+    kSettingsReset = 0x43,
     kCancel = 0x7F,
 };
+
+// 3: the settings (kSettings ...). HELLO answers it.
+constexpr int kProtocol = 3;
+
+// A request's little-endian i32 (SETTING_SET's value).
+inline int32_t ReadI32(const uint8_t* p)
+{
+    return static_cast<int32_t>(uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24);
+}
 
 constexpr uint8_t kFlagLast = 0x01;
 constexpr uint8_t kFlagError = 0x02;

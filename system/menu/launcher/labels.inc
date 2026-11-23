@@ -1,5 +1,5 @@
 // Copied from the 203 Launcher (https://github.com/203-Systems/203-launcher, MIT; LICENSE and
-// NOTICE.md there) by tools/launcher_ui.py: src/display.cpp at 6c318426bec3.
+// NOTICE.md there) by tools/launcher_ui.py: src/display.cpp at 4409843d25be.
 // Do not edit: change it in the Launcher and copy it again.
 // Included inside namespace CardenzaHAL::SystemMenu::launcher (see the files that include it).
 // Changed here: labelLines is inline (included by more than one file).

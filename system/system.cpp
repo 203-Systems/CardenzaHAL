@@ -1,5 +1,6 @@
 #include "system.h"
 #include "internal/hooks.h"
+#include "internal/nvs_access.h"
 #include "../board/pins.h"
 
 #include <driver/i2c_master.h>
@@ -122,3 +123,13 @@ void StopUsb()
 }  // namespace detail
 
 }  // namespace CardenzaHAL::System
+
+namespace CardenzaHAL::System::detail {
+
+std::mutex& NvsWriteMutex()
+{
+    static std::mutex mutex;
+    return mutex;
+}
+
+}  // namespace CardenzaHAL::System::detail

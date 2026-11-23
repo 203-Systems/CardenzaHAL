@@ -90,26 +90,141 @@ void TestList()
 {
     State state;
     Outcome o = Apply(state, Key::Up);  // at the top: stays
-    assert(!o.chosen && !o.changed && state.selected == 0);
+    assert(!o.close && !o.leave && !o.changed && state.main.selected == 0);
     for (int i = 1; i < kItemCount; ++i)
     {
         o = Apply(state, Key::Down);
-        assert(o.changed && state.selected == i);
-        assert(state.selected >= state.scroll && state.selected < state.scroll + kVisibleRows);
+        assert(o.changed && state.main.selected == i);
+        assert(state.main.selected >= state.main.scroll && state.main.selected < state.main.scroll + kVisibleRows);
     }
     o = Apply(state, Key::Down);  // at the bottom: stays (no wrap, as the Launcher)
-    assert(!o.changed && state.selected == kItemCount - 1);
-    assert(state.scroll == kItemCount - kVisibleRows);
+    assert(!o.changed && state.main.selected == kItemCount - 1);
+    assert(state.main.scroll == kItemCount - kVisibleRows);
     o = Apply(state, Key::Select);
-    assert(o.chosen && o.item == Item::Download);
+    assert(o.leave && o.item == Item::Download);
     o = Apply(state, Key::Back);
-    assert(o.chosen && o.item == Item::Continue);
+    assert(o.close && !o.leave);
     state = State{};
     o = Apply(state, Key::Select);
-    assert(o.chosen && o.item == Item::Continue);
-    state.selected = 1;
+    assert(o.close);
+    // Back to Launcher, Restart, Turn off leave; Settings and About are pages.
+    const Item leaving[] = {Item::Launcher, Item::Restart, Item::PowerOff};
+    for (Item item : leaving)
+    {
+        state = State{};
+        state.main.selected = static_cast<int>(item);
+        o = Apply(state, Key::Select);
+        assert(o.leave && o.item == item && state.page == Page::Main);
+    }
+    state = State{};
+    state.main.selected = static_cast<int>(Item::About);
     o = Apply(state, Key::Select);
-    assert(o.item == Item::Launcher);
+    assert(o.page && state.page == Page::About && !o.leave && !o.close);
+    o = Apply(state, Key::Back);
+    assert(o.page && state.page == Page::Main && state.main.selected == static_cast<int>(Item::About));
+    o = Apply(state, Key::Select);
+    o = Apply(state, Key::Select);  // ENTER closes About too
+    assert(state.page == Page::Main);
+}
+
+namespace Settings = CardenzaHAL::Settings;
+using Settings::Id;
+using Settings::detail::Index;
+
+// The Settings page: a row per setting and Reset; ENTER opens a value, the languages or the question; ESC
+// goes back a page at a time.
+void TestSettingsPages()
+{
+    State state;
+    state.main.selected = static_cast<int>(Item::Settings);
+    Outcome o = Apply(state, Key::Select);
+    assert(o.page && state.page == Page::Settings && state.settings.selected == 0);
+    // Volume: ; less, . more, by its step, live (the outcome says what to set), never past the limit.
+    state.values[Index(Id::Volume)] = 70;
+    state.values[Index(Id::VolumeLimit)] = 80;
+    o = Apply(state, Key::Select);
+    assert(o.page && state.page == Page::Value && state.editing == Id::Volume && state.original == 70);
+    o = Apply(state, Key::Down);
+    assert(o.set && o.id == Id::Volume && o.value == 72 && state.values[Index(Id::Volume)] == 72);
+    for (int i = 0; i < 20; ++i) o = Apply(state, Key::Down);
+    assert(state.values[Index(Id::Volume)] == 80);  // the limit
+    o = Apply(state, Key::Down);
+    assert(!o.set && !o.changed);
+    // ESC puts back what it was.
+    o = Apply(state, Key::Back);
+    assert(o.set && o.id == Id::Volume && o.value == 70 && state.page == Page::Settings);
+    // ENTER keeps it.
+    o = Apply(state, Key::Select);
+    o = Apply(state, Key::Up);
+    assert(o.set && o.value == 68);
+    o = Apply(state, Key::Select);
+    assert(!o.set && state.page == Page::Settings && state.values[Index(Id::Volume)] == 68);
+    // The limit lowers the volume with it.
+    Apply(state, Key::Down);
+    assert(state.settings.selected == static_cast<int>(Row::VolumeLimit));
+    Apply(state, Key::Select);
+    for (int i = 0; i < 40; ++i) Apply(state, Key::Up);
+    assert(state.values[Index(Id::VolumeLimit)] == 10 && state.values[Index(Id::Volume)] == 10);
+    Apply(state, Key::Select);
+    // Screen brightness in the Launcher's steps of 5, from 10.
+    Apply(state, Key::Down);
+    Apply(state, Key::Select);
+    assert(state.editing == Id::ScreenBrightness);
+    state.values[Index(Id::ScreenBrightness)] = 100;
+    o = Apply(state, Key::Up);
+    assert(o.value == 95);
+    Apply(state, Key::Back);
+    // Language: the list opens on the current one; ENTER takes another.
+    state.settings.selected = static_cast<int>(Row::Language);
+    state.values[Index(Id::Language)] = 3;  // Japanese
+    o = Apply(state, Key::Select);
+    assert(o.page && state.page == Page::Language && state.language.selected == 2);
+    Apply(state, Key::Up);
+    o = Apply(state, Key::Select);
+    assert(o.set && o.id == Id::Language && o.value == 1 && state.page == Page::Settings);
+    state.settings.selected = static_cast<int>(Row::Language);
+    Apply(state, Key::Select);
+    o = Apply(state, Key::Back);
+    assert(!o.set && state.page == Page::Settings && state.values[Index(Id::Language)] == 1);
+    // Reset: Cancel focused; ; and , to Reset, ENTER resets every setting but the language.
+    state.settings.selected = static_cast<int>(Row::Reset);
+    o = Apply(state, Key::Select);
+    assert(o.page && state.page == Page::Reset && state.button == 1);
+    o = Apply(state, Key::Select);
+    assert(!o.reset && state.page == Page::Settings);
+    Apply(state, Key::Select);
+    o = Apply(state, Key::Up);
+    assert(o.changed && state.button == 0);
+    o = Apply(state, Key::Up);
+    assert(!o.changed && state.button == 0);
+    o = Apply(state, Key::Select);
+    assert(o.reset && state.page == Page::Settings);
+    assert(state.values[Index(Id::Volume)] == Settings::detail::kInfo[Index(Id::Volume)].defaultValue);
+    assert(state.values[Index(Id::Language)] == 1);
+    // ESC: Settings back to the main list.
+    o = Apply(state, Key::Back);
+    assert(o.page && state.page == Page::Main && state.main.selected == static_cast<int>(Item::Settings));
+}
+
+void TestValueText()
+{
+    char text[16];
+    ValueText(Id::Volume, 70, text, sizeof(text));
+    assert(std::strcmp(text, "70") == 0);
+    ValueText(Id::ScreenBrightness, 80, text, sizeof(text));
+    assert(std::strcmp(text, "80%") == 0);
+    ValueText(Id::MicGain, 6, text, sizeof(text));
+    assert(std::strcmp(text, "+6 dB") == 0);
+    ValueText(Id::MicGain, 0, text, sizeof(text));
+    assert(std::strcmp(text, "0 dB") == 0);
+    ValueText(Id::MicGain, -12, text, sizeof(text));
+    assert(std::strcmp(text, "-12 dB") == 0);
+    SizeText(16u * 1024 * 1024, text, sizeof(text));
+    assert(std::strcmp(text, "16 MB") == 0);
+    SizeText(31914983424ull, text, sizeof(text));
+    assert(std::strcmp(text, "29.7 GB") == 0);
+    SizeText(2048, text, sizeof(text));
+    assert(std::strcmp(text, "2 KB") == 0);
 }
 
 // Every word has its glyphs in the Launcher's tables as the menu carries them.
@@ -172,13 +287,13 @@ int RunSlide(const SlideRun& run, int language, Draw frame)
     view.firmware = "CardenzaSynthFirmware 0.2.1";
     ListSlide slide;
     slide.keep = true;  // the Cardenza: the rows jump to a scroll, the bar keeps its place on screen
-    view.state = {run.presses[0].selected, run.presses[0].scroll};
+    view.state.main = {run.presses[0].selected, run.presses[0].scroll};
     frame(view, slide, kSlideStart);
     int frames = 1, next = 1;
     for (uint32_t ms = 0; ms <= run.length; ms += kSlideFrameMs, ++frames)
     {
         for (; next < run.count && run.presses[next].ms <= ms; ++next)
-            view.state = {run.presses[next].selected, run.presses[next].scroll};
+            view.state.main = {run.presses[next].selected, run.presses[next].scroll};
         frame(view, slide, kSlideStart + ms);
     }
     return frames;
@@ -204,28 +319,43 @@ int BarRows(const std::vector<uint8_t>& frame, int* top = nullptr)
 void TestFrames()
 {
     for (int language = 0; language < kLanguageCount; ++language)
-        for (int selected = 0; selected < kItemCount; ++selected)
-        {
-            View view;
-            view.language = language;
-            view.state.selected = selected;
-            view.state.scroll = selected < kVisibleRows ? 0 : selected - kVisibleRows + 1;
-            view.firmware = "CardenzaSynthFirmware 0.2.1";
-            const std::vector<uint8_t> whole = Frame(view);
-            if (Fnv(whole) != kLauncherFrameHashes[language * kItemCount + selected])
+    {
+        View view;
+        view.language = language;
+        view.firmware = "CardenzaSynthFirmware 0.2.1";
+        for (int i = 0; i < 5; ++i) view.state.values[i] = kSampleValues[i];
+        view.state.values[Index(Id::Language)] = Settings::detail::kLanguageCodes[language];
+        int at = 0;
+        for (const StillPage& still : kStillPages)
+            for (int index = 0; index < still.count; ++index, ++at)
             {
-                std::fprintf(stderr, "language %d, row %d: not the Launcher's frame\n", language, selected);
-                assert(false);
+                const ListState list{index, index < kVisibleRows ? 0 : index - kVisibleRows + 1};
+                view.state.page = still.page == 0 ? Page::Main : still.page == 1 ? Page::Settings
+                                : still.page == 2 ? Page::Language : Page::Reset;
+                view.state.main = still.page == 0 ? list : ListState{};
+                view.state.settings = still.page == 1 ? list : ListState{};
+                view.state.language = still.page == 2 ? list : ListState{};
+                view.state.button = index;
+                const std::vector<uint8_t> whole = Frame(view);
+                if (Fnv(whole) != kLauncherFrameHashes[language * kStillCount + at])
+                {
+                    std::fprintf(stderr, "language %d, page %d, %d: not the Launcher's frame\n", language, still.page, index);
+                    assert(false);
+                }
+                assert(Frame(view, nullptr, 0, 8) == whole);
+                assert(Frame(view, nullptr, 0, 5) == whole);
+                // A slide that has come to rest draws the still frame.
+                if (still.page != 3)
+                {
+                    ListSlide slide;
+                    assert(Frame(view, &slide, 100) == whole);
+                }
             }
-            assert(Frame(view, nullptr, 0, 8) == whole);
-            assert(Frame(view, nullptr, 0, 5) == whole);
-            // A slide that has come to rest draws the still frame.
-            ListSlide slide;
-            assert(Frame(view, &slide, 100) == whole);
-        }
+        assert(at == kStillCount);
+    }
     // The release prompt replaces the chosen row's description; Back held dims the rail's arrow.
     View view;
-    view.state.selected = 2;
+    view.state.main.selected = 2;
     View prompt = view;
     prompt.releasePrompt = true;
     assert(Frame(prompt) != Frame(view));
@@ -267,9 +397,9 @@ void TestListSlide()
 {
     const int step = (kHeight - 4) / 4;
     View from;
-    from.state.selected = 1;
+    from.state.main.selected = 1;
     View to = from;
-    to.state.selected = 2;
+    to.state.main.selected = 2;
     ListSlide slide;
     slide.keep = true;
     assert(Frame(from, &slide, 1000) == Frame(from));  // the first frame places it
@@ -293,7 +423,7 @@ void TestListSlide()
     assert(!slide.active(1000 + ListSlide::kTrailMs));
     // Down, then back up after 60 ms: the bar turns where it is and settles on the row it left.
     View three = from;
-    three.state.selected = 3;
+    three.state.main.selected = 3;
     (void)Frame(three, &slide, 2000);
     const std::vector<uint8_t> away = Frame(three, &slide, 2060);
     assert(away != Frame(to) && away != Frame(three));
@@ -303,12 +433,12 @@ void TestListSlide()
     assert(Frame(to, &slide, 2060 + ListSlide::kTrailMs) == Frame(to));
     // Past the last row: the rows move up by one, the bar stays where it is on screen.
     View third = from;
-    third.state.selected = 3;
+    third.state.main.selected = 3;
     (void)Frame(third, &slide, 3000);
     (void)Frame(third, &slide, 3000 + ListSlide::kTrailMs);
     View last = from;
-    last.state.selected = 4;
-    last.state.scroll = 1;
+    last.state.main.selected = 4;
+    last.state.main.scroll = 1;
     int before = 0, after = 0;
     BarRows(Frame(third, &slide, 4000), &before);
     assert(Frame(last, &slide, 4000) == Frame(last));  // the selected row is where the bar was
@@ -361,8 +491,8 @@ void TestSlideBytes()
                                     shown.begin() + row * kWidth + changed.x);
                 }
                 assert(shown == panel);  // nothing changed was left out
-                const bool jump = view.state.scroll != previousScroll;
-                previousScroll = view.state.scroll;
+                const bool jump = view.state.main.scroll != previousScroll;
+                previousScroll = view.state.main.scroll;
                 if (!first)
                 {
                     Sent& sent = jump ? scroll : moving;
@@ -493,8 +623,8 @@ void TestNeutralFrames()
             View view;
             view.language = language;
             view.firmware = "CardenzaSynthFirmware 0.2.1";
-            view.state.selected = selected;
-            view.state.scroll = selected < kVisibleRows ? 0 : selected - kVisibleRows + 1;
+            view.state.main.selected = selected;
+            view.state.main.scroll = selected < kVisibleRows ? 0 : selected - kVisibleRows + 1;
             view.releasePrompt = selected == 2;
             view.backHeld = selected == 3;
             PaintGrey(view, nullptr, 0, 0, kHeight, menu.data());
@@ -504,8 +634,8 @@ void TestNeutralFrames()
             ListSlide slide;
             slide.keep = true;
             PaintGrey(view, &slide, 9000, 0, kHeight, menu.data());
-            view.state.selected = std::min(selected + 1, kItemCount - 1);
-            view.state.scroll = view.state.selected < kVisibleRows ? 0 : view.state.selected - kVisibleRows + 1;
+            view.state.main.selected = std::min(selected + 1, kItemCount - 1);
+            view.state.main.scroll = view.state.main.selected < kVisibleRows ? 0 : view.state.main.selected - kVisibleRows + 1;
             for (uint32_t ms : {20u, 60u, 120u, 200u})
             {
                 PaintGrey(view, &slide, 9000 + ms, 0, kHeight, menu.data());
@@ -607,11 +737,74 @@ void TestNvs()
 
 }  // namespace
 
+// The pages the Launcher has no function for (its Backlight page and About are drawn inline there): every
+// setting's value page and the About page, in every language: the value moves the knob, the limit shows on
+// the volume's track, every row of About is there, nothing is drawn under the rail but the rail.
+void TestOwnPages()
+{
+    AboutInfo about;
+    std::snprintf(about.firmware, sizeof(about.firmware), "CardenzaSynthFirmware");
+    std::snprintf(about.version, sizeof(about.version), "0.2.1-dev.42");
+    std::snprintf(about.launcher, sizeof(about.launcher), "0.3.3");
+    std::snprintf(about.hal, sizeof(about.hal), "9597136abcde+");
+    std::snprintf(about.mac, sizeof(about.mac), "F4:12:FA:00:11:22");
+    about.flashBytes = 16u << 20;
+    about.psramBytes = 2u << 20;
+    about.card = true;
+    about.cardBytes = 31914983424ull;
+    about.cardFree = 30000000000ull;
+    for (int language = 0; language < kLanguageCount; ++language)
+    {
+        View view;
+        view.language = language;
+        view.about = &about;
+        view.state.page = CardenzaHAL::SystemMenu::detail::Page::About;
+        const std::vector<uint8_t> page = Frame(view);
+        int inked = 0;
+        for (int y = 0; y < kHeight; ++y)
+            for (int x = 24; x < kWidth; ++x) inked += page[y * kWidth + x] < 128;
+        assert(inked > 1500);
+        AboutInfo bare = about;
+        bare.card = false;
+        bare.launcher[0] = 0;
+        view.about = &bare;
+        assert(Frame(view) != page);
+        view.about = &about;
+        view.state.page = CardenzaHAL::SystemMenu::detail::Page::Value;
+        for (int i = 0; i < Settings::kCount - 1; ++i)
+        {
+            const Id id = static_cast<Id>(i);
+            const auto& info = Settings::detail::kInfo[i];
+            view.state.editing = id;
+            view.state.values[i] = info.min;
+            const std::vector<uint8_t> low = Frame(view);
+            view.state.values[i] = info.max;
+            const std::vector<uint8_t> high = Frame(view);
+            assert(low != high);
+            // The knob: at the track's left end at the minimum, at its right end at the maximum.
+            const int knobY = kHeight - 32 - 4;
+            assert(low[knobY * kWidth + 35] == 0 && low[knobY * kWidth + 226] == 255);
+            assert(high[knobY * kWidth + 227] == 0 && high[knobY * kWidth + 36] == 255);
+            view.state.values = Settings::detail::Defaults();
+        }
+        // The volume's track is lighter past its limit.
+        view.state.editing = Id::Volume;
+        view.state.values[Index(Id::VolumeLimit)] = 50;
+        view.state.values[Index(Id::Volume)] = 20;
+        const std::vector<uint8_t> limited = Frame(view);
+        const int trackY = kHeight - 32;
+        assert(limited[trackY * kWidth + 36 + 60] == 220 && limited[trackY * kWidth + 36 + 150] == 242);
+    }
+}
+
 int main()
 {
     TestPress();
     TestKeys();
     TestList();
+    TestSettingsPages();
+    TestValueText();
+    TestOwnPages();
     TestWords();
     TestFrames();
     TestSlideFrames();

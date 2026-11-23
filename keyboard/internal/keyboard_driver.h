@@ -45,6 +45,12 @@ class KeyboardDriver
     uint8_t _scan_led_shifted_columns;
     uint8_t _global_brightness;
     uint8_t _pwm_phase;
+    // Through a flash write the scan lights no key (keyboard/internal/flash_guard.h); read by the interrupt.
+    volatile bool _dark = false;
+    volatile uint32_t _dark_steps = 0;  // scan steps taken since _dark was set
+    // The master level's floor while the system menu is open (kOverlayGlobalLevel), off while its key light
+    // setting is changed.
+    std::atomic<bool> _overlay_floor{true};
 
     void _set_output(uint8_t output);
     uint8_t _get_input();
@@ -99,6 +105,9 @@ class KeyboardDriver
     std::size_t overlayKeys(Point2D_t* keys, std::size_t capacity);
     // Every light off and the LED enable held off, before deep sleep.
     void lightsOffForSleep();
+    // keyboard/internal/flash_guard.h.
+    void holdLightsDark(bool dark);
+    void setOverlayFloor(bool on);
     uint32_t nextTimerTicks() const;
 };
 

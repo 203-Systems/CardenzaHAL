@@ -154,12 +154,13 @@ extern "C" void app_main()
         for (int x = 0; x < Display::WIDTH; ++x)
             framebuffer[y * Display::WIDTH + x] = 0xFFFF;
 
-    if (!Display::SetBrightness(160) || !Display::Present(framebuffer)) {
+    // The screen's and key lights' brightness and the volume are the board's settings (system/settings.h):
+    // Init applied them; a firmware does not set them itself.
+    if (!Display::Present(framebuffer)) {
         ESP_LOGE("app", "Display submission failed");
         return;
     }
 
-    Keyboard::setLEDGlobalBrightness(8);
     Keyboard::enableLED(true);  // Key LEDs start disabled.
     while (true) {
         Keyboard::updateKeyList();
@@ -333,7 +334,7 @@ To switch from playback to recording:
 2. Call `Audio::StandbyCodec()` and check success.
 3. Call `Mic::Init()` and obtain `Mic::InputChannel()`; check both results.
 4. With RX disabled, call `Mic::RestoreInputPins()` (also needed when returning to an existing microphone channel).
-5. Enable RX with `i2s_channel_enable()`, then use `i2s_channel_read()`.
+5. Enable RX with `i2s_channel_enable()`, then use `i2s_channel_read()`, and pass what you read through `Mic::ApplyGain(samples, count)`: the board's microphone gain (HOME > Settings; the chip's PDM receiver has none of its own), saturating.
 
 To resume playback, stop the reader, disable RX, call `Audio::RestoreOutputPins()`, then `Audio::Init()` with the desired slot mode, and enable TX. Check each result before continuing. `InputChannel()` may initialize RX, but does not enable it. The HAL does not provide recording start/read/stop wrappers or automatic pin arbitration.
 
@@ -378,16 +379,24 @@ A press of HOME (the side key, GPIO0) opens the [system menu](system/menu.h) in 
 | Item | What it does |
 | --- | --- |
 | Continue | back to the firmware (also ESC or del) |
+| Settings | the board's settings (below): volume, volume limit, screen brightness, key lights, microphone gain, language, reset to defaults |
 | Back to Launcher | the Launcher's home screen, whatever its settings (its restart ticket: no "Boot last app" countdown) |
 | Restart | this firmware again (under the Launcher: its boot ticket, no countdown) |
 | Turn off | deep sleep: screen, backlight and key lights off; HOME turns the board on again and the firmware starts |
+| About this device | the firmware and its version, the Launcher's version, the HAL's commit, the MAC, the flash, PSRAM and the SD card |
 | Download mode | the ROM's download mode, to flash over USB (esptool) |
+
+Settings is the Launcher's Display page in look: a row per setting with its value on the right. ENTER on a value
+opens it as the Launcher's Backlight page (the value large over a track; `;` and `,` less, `.` and `/` more, live:
+the volume is heard and the brightness seen at once; ENTER keeps it, ESC puts back what it was); Language is the
+Launcher's list of languages, each in its own script; Reset to defaults asks first with the Launcher's question
+(Cancel focused) and keeps the language. What changed is written to the flash once, when the menu closes.
 
 Without the menu, the Launcher opens when fn (the left column's third key, key 29) is held while the board starts (power-on or a reset); not HOME: held at a reset, HOME starts the ROM's download mode.
 
 Keys are the Launcher's: `;` and `,` up, `.` and `/` down, ENTER or a tap on HOME choose, ESC or del go back; they are lit while the menu is open.
 
-The same on the glass as the Launcher: the same greys (black, white and grey only: every pixel the menu shows has equal red, green and blue on the panel, its backdrop included) and the same brightness (the Launcher's backlight setting, its NVS `launcher/bright`, on its duty curve and its 256 Hz PWM while the menu shows, whatever your firmware's brightness; yours comes back when it closes).
+The same on the glass as the Launcher: the same greys (black, white and grey only: every pixel the menu shows has equal red, green and blue on the panel, its backdrop included) and the same brightness (the board's screen brightness, which is the Launcher's backlight setting, its NVS `launcher/bright`, on its duty curve and its 256 Hz PWM while the menu shows, whatever your firmware's own level; yours comes back when it closes).
 
 How it comes and moves (the panel has no tearing-effect line, so any frame may be written across its scan: what moves changes a few pixels a frame, and what covers the screen comes pixel by pixel):
 
@@ -398,8 +407,19 @@ How it comes and moves (the panel has no tearing-effect line, so any frame may b
 - `CardenzaHAL::Init` starts it when the display is up (`CONFIG_CARDENZA_HAL_SYSTEM_MENU`, on by default): a 5 KB task that reads GPIO0 every 10 ms; about 30 KB of flash. While the menu is open it borrows 2 KB of RAM and, when the firmware has PSRAM, a 64 KB copy of your latest frame there (the backdrop is made from it; without PSRAM, or when your firmware presents no frame within 60 ms of the press, the backdrop is a dark dithered field) and a 32 KB picture of the menu (drawn once per frame; without PSRAM it is drawn band by band); while it is open, a 4 KB table of what it sent (PSRAM when there is some).
 - While the menu is open your firmware keeps running (its tasks and sound), but the HAL holds back what would disturb it: `Display::Present*` send nothing and return `true` (the next frame after it closes goes whole, so your screen comes back by itself), `Keyboard::updateKeyList` reports no key (keys still down when it closes stay hidden until released), and the key lights show the menu's keys (your `setLED*` levels are kept and come back). A firmware that draws through the panel handles itself should pause while `SystemMenu::IsOpen()`.
 - `SystemMenu::SetListener` tells you when it opens and closes; `SystemMenu::SetLeaveHook` runs just before the board restarts, sleeps or enters the download mode (save what must survive). With the menu on, HOME is the menu's: a firmware that needs HOME for itself calls `SystemMenu::Enable(false)` (or builds without `CONFIG_CARDENZA_HAL_SYSTEM_MENU`).
-- The Launcher's code is in [system/menu/launcher/](system/menu/launcher/), copied unchanged by `tools/launcher_ui.py --launcher <203-launcher checkout>` (MIT, [licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)): its text and glyph code, canvas drawing, easing and the selection bar's slide; [system/menu/frame.cpp](system/menu/frame.cpp) is its `menuFrame` and status rail on the Cardenza, ported line by line. `--check` tells whether the copy is current, `--compare` draws every frame with the Launcher's real `menuFrame` too, the still ones and the slides frame by frame (a move, key repeat, a reversal, a scroll each way, every 4 ms until the bar settles: 1,910 frames in five languages), and fails on any pixel that differs (the host tests keep those frames' hashes). The words are `system/menu/strings.json`.
-- Its Chinese, Japanese and Vietnamese text uses the 203 Launcher's bitmaps of **HarmonyOS Sans** (12 px), read out of the Launcher's tables by the same tool for the menu's words only; the bitmaps are a work made with the font, which its license lets us distribute ([licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)); no font file is included. The 5x7 font is NullPerator's (BSD-3-Clause, notice in [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)).
+- The Launcher's code is in [system/menu/launcher/](system/menu/launcher/), copied unchanged by `tools/launcher_ui.py --launcher <203-launcher checkout>` (MIT, [licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)): its text and glyph code, canvas drawing, easing and the selection bar's slide; [system/menu/frame.cpp](system/menu/frame.cpp) is its `menuFrame` and status rail on the Cardenza, ported line by line. `--check` tells whether the copy is current, `--compare` draws every frame with the Launcher's real `menuFrame` and `drawDialog` too, the still ones (the main list, the Settings page, the languages and the Reset question) and the slides frame by frame (a move, key repeat, a reversal, a scroll each way, every 4 ms until the bar settles: 1,990 frames in five languages), and fails on any pixel that differs (the host tests keep those frames' hashes). The value page and About are the Launcher's Backlight page and About rows ported, which it draws inline. The words are `system/menu/strings.json`.
+- Its Chinese, Japanese and Vietnamese text uses the 203 Launcher's bitmaps of **HarmonyOS Sans** (12 px, and 16 px bold for the Reset question), read out of the Launcher's tables by the same tool for the menu's words only (a character the Launcher's tables lack yet, as 麦克风增益 and 默, is rendered by the Launcher's own `tools/i18n.py` from the font it names: `--fonts`); the bitmaps are a work made with the font, which its license lets us distribute ([licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)); no font file is included. The 5x7 font is NullPerator's (BSD-3-Clause, notice in [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)).
+
+## The board's settings (the same in every firmware)
+
+[`system/settings.h`](system/settings.h): the output volume (0–100 by ear, under a volume limit), the screen's
+brightness (the 203 Launcher's own setting), the key lights' level, the microphone's gain and the language are the
+board's, kept in its flash by the HAL and changed in the system menu (HOME > Settings) or over USB (`203cli board
+settings`). `CardenzaHAL::Init` applies them before your first frame; do not set the volume, the backlight or the key
+lights' master level yourself at start (that takes them over from the user's setting). Read them with
+`Settings::Get`, offer a shortcut with `Settings::Set` (applied at once, written a second later), apply the
+microphone's gain with `Mic::ApplyGain`. The flash is written by the HAL only, never per change, with the speaker
+faded out and the key lights dark around it: [docs/SETTINGS.md](docs/SETTINGS.md).
 
 ## USB device usage
 
@@ -457,9 +477,10 @@ With USB started, every firmware on the HAL answers a computer's questions about
 | `press` | Keys pressed from the computer (HOME too), seen by the firmware as real ones |
 | `coredump` | The last crash's core dump: its task and backtrace, the dump itself |
 | `files` | `ls`, `get`, `put`, `rm`, `mkdir`, `mv` on the SD card |
+| `settings` | The board's settings with their ranges; `get`, `set`, `reset` (answered also with the development channel off) |
 
 - It costs a firmware nothing until a computer asks: no task, no buffer, no polling. A question starts a task of priority 1 (a 6 KB stack in internal RAM, gone 10 s after the last question); a screenshot copies one frame at the firmware's next `Present` into PSRAM. Flash is read through the cache, never with the cache disabled. About 20 KB of flash and 0.4 KB of static internal RAM (measured on the template with USB started, 2026-11-20); `CONFIG_CARDENZA_HAL_USB_DEV` off leaves it out.
-- It never writes NVS or anything of the Launcher's, never sends the device token, and reaches no file outside the SD card. Its only writes are the ones asked for: files (`files put`, `rm`, `mkdir`, `mv`) and erasing the core dump.
+- It never sends the device token and reaches no file outside the SD card. Its only writes are the ones asked for: files (`files put`, `rm`, `mkdir`, `mv`), erasing the core dump, and a setting (written as every change of the settings is: [docs/SETTINGS.md](docs/SETTINGS.md)).
 - Tasks and CPU shares need `CONFIG_FREERTOS_USE_TRACE_FACILITY` and `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS`, a core dump `CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH`: the board's debug defaults ([`board/sdkconfig.debug`](board/sdkconfig.debug)) set them; a release build without them keeps about 5 KB of internal RAM, and the rest of the channel works there too.
 - A screenshot needs a firmware that presents a framebuffer (`Present`, `PresentChanged`); one that draws through the panel's handles has none.
 - It needs USB started: the template does not start it (its console stays on the serial port, which the community's boot check reads). Add `CardenzaHAL::USB::Init();` after `CardenzaHAL::Init()` to use it.

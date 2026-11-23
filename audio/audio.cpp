@@ -1,5 +1,6 @@
 #include "audio.h"
 #include "codec/es8156.h"
+#include "internal/duck.h"
 #include "../board/pins.h"
 #include "../system/system.h"
 
@@ -9,6 +10,7 @@
 #include <driver/i2s_std.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include <atomic>
 #include <mutex>
@@ -264,5 +266,28 @@ uint8_t GetVolume()
 {
     return outputVolume.load(std::memory_order_relaxed);
 }
+
+namespace detail {
+
+void Duck(bool down)
+{
+    // The codec's register is linear in dB (Codec::ES8156's percent too): 12 steps of the level, 2 ms apart,
+    // a slope of a few dB a step, about 25 ms end to end. The cached level stays (a codec that restarts
+    // meanwhile starts at it), and the last step writes it back exactly.
+    constexpr int kSteps = 12;
+    std::lock_guard<std::mutex> lock(codecMutex);
+    if (!codecReady.load(std::memory_order_relaxed)) return;
+    const int level = outputVolume.load(std::memory_order_relaxed);
+    if (level == 0) return;
+    for (int step = 1; step <= kSteps; ++step)
+    {
+        const int at = down ? level * (kSteps - step) / kSteps : level * step / kSteps;
+        if (!Codec::ES8156::SetVolume(static_cast<uint8_t>(at))) return;
+        if (step < kSteps) vTaskDelay(pdMS_TO_TICKS(2));
+    }
+    if (down) vTaskDelay(pdMS_TO_TICKS(2));  // the last buffer at zero has left the DAC's ramp
+}
+
+}  // namespace detail
 
 }  // namespace CardenzaHAL::Audio

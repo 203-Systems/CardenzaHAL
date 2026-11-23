@@ -32,6 +32,8 @@ if(COMMAND idf_component_register)
             system/menu/launcher/glyphs.cpp
             system/menu/launcher/lcd.cpp
             system/menu/logic.cpp
+            system/settings.cpp
+            system/settings_logic.cpp
             system/system.cpp
             usb/dev.cpp
             usb/usb.cpp
@@ -73,7 +75,7 @@ if(COMMAND idf_component_register)
     if(NOT CMAKE_BUILD_EARLY_EXPANSION)
         include(${CMAKE_CURRENT_LIST_DIR}/cmake/build_info.cmake)
         cardenza_hal_build_info(cardenza_hal_dev_definitions)
-        set_source_files_properties(usb/dev.cpp PROPERTIES COMPILE_DEFINITIONS "${cardenza_hal_dev_definitions}")
+        set_source_files_properties(usb/dev.cpp system/menu.cpp PROPERTIES COMPILE_DEFINITIONS "${cardenza_hal_dev_definitions}")
     endif()
     target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
     # Two TinyUSB calls are wrapped for the audio feedback endpoint (usb/usb.cpp): its TX FIFO size and the
@@ -113,6 +115,8 @@ set(cardenza_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/system/menu/launcher/glyphs.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/menu/launcher/lcd.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/menu/logic.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/settings.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/settings_logic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/system.cpp
     ${CMAKE_CURRENT_LIST_DIR}/usb/usb.cpp
 )

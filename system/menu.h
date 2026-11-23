@@ -8,15 +8,19 @@
 // and grey through a dither, and the menu comes through it (system/menu/logic.h). Its items:
 //
 //   Continue           back to the firmware (also ESC or del)
+//   Settings           the board's settings (system/settings.h): volume, volume limit, screen brightness,
+//                      key lights, microphone gain, language, reset to defaults; live, written to the flash
+//                      once when the menu closes
 //   Back to Launcher   the Launcher's home screen, whatever its settings (the restart ticket,
 //                      system/launcher.h)
 //   Restart            this firmware again (under the Launcher: its boot ticket, no countdown)
 //   Turn off           deep sleep; HOME turns the board on again and this firmware starts
+//   About this device  the firmware, the Launcher's and the HAL's versions, the MAC, flash, PSRAM, SD card
 //   Download mode      the ROM's download mode, to flash over USB (esptool)
 //
-// Keys, as in the Launcher: ; and , up, . and / down, ENTER or a tap on HOME choose, ESC or del go back;
-// they are lit while the menu is open, every other key light is off. The words follow the Launcher's
-// language (its NVS value launcher/lang, read without writing anything).
+// Keys, as in the Launcher: ; and , up (on a value: less), . and / down (more), ENTER or a tap on HOME
+// choose, ESC or del go back a page; they are lit while the menu is open, every other key light is off. The
+// words follow the board's language setting (the Launcher's NVS value launcher/lang).
 //
 // While the menu is open the firmware keeps running (its tasks, its sound), but the HAL holds back what
 // would disturb the menu: Display::Present* send nothing (they return true; the frame after the menu

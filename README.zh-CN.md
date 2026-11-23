@@ -139,12 +139,13 @@ extern "C" void app_main()
         for (int x = 0; x < Display::WIDTH; ++x)
             framebuffer[y * Display::WIDTH + x] = 0xFFFF;
 
-    if (!Display::SetBrightness(160) || !Display::Present(framebuffer)) {
+    // The screen's and key lights' brightness and the volume are the board's settings (system/settings.h):
+    // Init applied them; a firmware does not set them itself.
+    if (!Display::Present(framebuffer)) {
         ESP_LOGE("app", "Display submission failed");
         return;
     }
 
-    Keyboard::setLEDGlobalBrightness(8);
     Keyboard::enableLED(true);  // Key LEDs start disabled.
     while (true) {
         Keyboard::updateKeyList();
@@ -320,7 +321,7 @@ PDM 输入使用 I2S0，输出为 **44,100 Hz、单声道、有符号 16 位 PCM
 2. 调用 `Audio::StandbyCodec()` 并确认成功。
 3. 调用 `Mic::Init()`，获取 `Mic::InputChannel()`，检查初始化结果和句柄。
 4. 在 RX 禁用时调用 `Mic::RestoreInputPins()`；重新使用已存在的麦克风通道时也需要这一步。
-5. 用 `i2s_channel_enable()` 启用 RX，然后使用 `i2s_channel_read()` 读取。
+5. 用 `i2s_channel_enable()` 启用 RX，然后使用 `i2s_channel_read()` 读取，读到的样本交给 `Mic::ApplyGain(samples, count)`：加上板子的麦克风增益（HOME > 设置；芯片的 PDM 接收没有自己的增益），超出范围时削顶。
 
 恢复播放时，先停止读取并禁用 RX，再依次调用 `Audio::RestoreOutputPins()`、所需声道模式的 `Audio::Init()`，最后启用 TX；每步都检查结果。`InputChannel()` 可能初始化 RX，但不会启用它。HAL 不提供录音启停/读取封装，也不会自动仲裁引脚。
 
@@ -365,16 +366,20 @@ void ReadSettings()
 | 项 | 作用 |
 | --- | --- |
 | 继续 | 回到固件（ESC、del 也可以） |
+| 设置 | 这块板子的设置（见下）：输出音量、音量上限、屏幕亮度、按键灯亮度、麦克风增益、语言、恢复默认 |
 | 返回启动器 | 打开 Launcher 主页，不管它怎么设置（用它的重启票据：不走“启动上次的软件”倒计时） |
 | 重新启动 | 重新启动这个固件（在 Launcher 下用它的启动票据，不倒计时） |
 | 关机 | 深度睡眠：屏幕、背光和键灯全关；按 HOME 开机，固件重新启动 |
+| 本机信息 | 固件和它的版本、Launcher 的版本、HAL 的提交、MAC、Flash、PSRAM、SD 卡 |
 | 下载模式 | 进入 ROM 下载模式，用 USB 刷机（esptool） |
+
+设置页的样子是 Launcher 的“显示”页：每个设置一行，值在右边。在一个值上按 ENTER，打开 Launcher“背光”页那样的一页（大字的值，下面一条刻度；`;`、`,` 减小，`.`、`/` 增大，实时生效：音量马上听得到，亮度马上看得到；ENTER 保留，ESC 恢复原来的值）；语言是 Launcher 的语言列表，每种语言用它自己的文字写；恢复默认先用 Launcher 的确认框问一句（默认选中“取消”），语言不变。改过的设置在菜单关闭时写进 Flash，只写一次。
 
 不用菜单时：开机或复位时按住 fn（键盘左边一列的第三个键，键号 29）进入 Launcher；不是 HOME：复位时按住 HOME 会进入 ROM 下载模式。
 
 按键和 Launcher 一样：`;`、`,` 向上，`.`、`/` 向下，ENTER 或单击 HOME 确定，ESC 或 del 返回；菜单打开时这几个键会亮。
 
-屏幕上和 Launcher 一模一样：同样的灰度（只有黑、白、灰：菜单显示的每个像素在面板上红、绿、蓝都相等，背景也一样），同样的亮度（菜单显示期间用 Launcher 的背光设置，它 NVS 里的 `launcher/bright`，按它的占空比曲线和它的 256 Hz PWM，不管固件自己的亮度是多少；关闭后恢复固件的亮度）。
+屏幕上和 Launcher 一模一样：同样的灰度（只有黑、白、灰：菜单显示的每个像素在面板上红、绿、蓝都相等，背景也一样），同样的亮度（菜单显示期间用板子的屏幕亮度，也就是 Launcher 的背光设置，它 NVS 里的 `launcher/bright`，按它的占空比曲线和它的 256 Hz PWM，不管固件自己设的亮度是多少；关闭后恢复固件的亮度）。
 
 出现方式和动效（这块屏没有防撕裂信号线，任何一帧都可能在扫描中途写进去：会动的东西每帧只变几个像素，盖住整屏的东西一个像素一个像素地换）：
 
@@ -385,8 +390,12 @@ void ReadSettings()
 - 屏幕初始化成功后由 `CardenzaHAL::Init` 启动（`CONFIG_CARDENZA_HAL_SYSTEM_MENU`，默认开）：一个 5 KB 栈的任务，每 10 ms 读一次 GPIO0；约占 30 KB flash。菜单打开期间临时借用 2 KB 内存，固件有 PSRAM 时再在 PSRAM 里借 64 KB 存一份固件最新的画面（背景是用它做的；没有 PSRAM，或者按下后 60 ms 内固件没有提交过一帧时，背景是一片暗的 dither 灰），和 32 KB 的菜单画面（每帧画一次；没有 PSRAM 时逐条画）；菜单打开期间再借一张 4 KB 的表，记着已经发出去的画面（有 PSRAM 时放在 PSRAM 里）。
 - 菜单打开期间固件照常运行（任务和声音都不停），但 HAL 会挡住会干扰菜单的东西：`Display::Present*` 不发送并返回 `true`（菜单关闭后的下一帧整屏发送，固件画面自己回来）；`Keyboard::updateKeyList` 不报任何按键（关闭时还按着的键，松开之前都不报）；按键灯显示菜单的键（固件 `setLED*` 设的亮度会保留，关闭后恢复）。直接用面板句柄画屏的固件，应在 `SystemMenu::IsOpen()` 时暂停绘制。
 - `SystemMenu::SetListener` 在菜单打开和关闭时通知；`SystemMenu::SetLeaveHook` 在重启、关机或进入下载模式之前调用（保存需要留下的东西）。菜单开着时 HOME 归菜单：自己要用 HOME 的固件，调用 `SystemMenu::Enable(false)`（或者编译时关掉 `CONFIG_CARDENZA_HAL_SYSTEM_MENU`）。
-- Launcher 的代码在 [system/menu/launcher/](system/menu/launcher/)，由 `tools/launcher_ui.py --launcher <203-launcher 检出目录>` 原样复制（MIT，[licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)）：文字和字形、画布绘制、缓动和选中条的滑动；[system/menu/frame.cpp](system/menu/frame.cpp) 是它在 Cardenza 上的 `menuFrame` 和侧栏，逐行移植。`--check` 检查复制是否最新，`--compare` 再用 Launcher 真正的 `menuFrame` 画每一帧：静止的画面，加上逐帧的滑动（移一行、连按、中途折返、往下和往上翻过一屏，每 4 ms 一帧直到停稳：五种语言共 1910 帧），有任何一个像素不同就失败（主机测试里存着这些帧的哈希）。文字在 `system/menu/strings.json`。
-- 中文、日文和越南文用的是 203 Launcher 里由 **HarmonyOS Sans**（12 像素）生成的点阵，由同一个工具只为菜单的文字从 Launcher 的字形表里取出；点阵是用该字体制作的作品，授权允许分发（[licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)），仓库里不含字体文件。5x7 字体来自 NullPerator（BSD-3-Clause，声明见 [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)）。
+- Launcher 的代码在 [system/menu/launcher/](system/menu/launcher/)，由 `tools/launcher_ui.py --launcher <203-launcher 检出目录>` 原样复制（MIT，[licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)）：文字和字形、画布绘制、缓动和选中条的滑动；[system/menu/frame.cpp](system/menu/frame.cpp) 是它在 Cardenza 上的 `menuFrame` 和侧栏，逐行移植。`--check` 检查复制是否最新，`--compare` 再用 Launcher 真正的 `menuFrame` 和 `drawDialog` 画每一帧：静止的画面（主列表、设置页、语言列表、恢复默认的确认框），加上逐帧的滑动（移一行、连按、中途折返、往下和往上翻过一屏，每 4 ms 一帧直到停稳：五种语言共 1990 帧），有任何一个像素不同就失败（主机测试里存着这些帧的哈希）。数值页和本机信息页是 Launcher“背光”页和“关于”页那几行的移植（Launcher 是在别的函数里直接画的）。文字在 `system/menu/strings.json`。
+- 中文、日文和越南文用的是 203 Launcher 里由 **HarmonyOS Sans**（12 像素，恢复默认的确认框用 16 像素粗体）生成的点阵，由同一个工具只为菜单的文字从 Launcher 的字形表里取出（Launcher 的字形表里还没有的字，比如“麦克风增益”和“默”，由 Launcher 自己的 `tools/i18n.py` 用它指定的字体生成：`--fonts`）；点阵是用该字体制作的作品，授权允许分发（[licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)），仓库里不含字体文件。5x7 字体来自 NullPerator（BSD-3-Clause，声明见 [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)）。
+
+## 板子的设置（所有固件通用）
+
+[`system/settings.h`](system/settings.h)：输出音量（0–100，按听感，不超过音量上限）、屏幕亮度（就是 203 Launcher 自己的设置）、按键灯亮度、麦克风增益和语言属于这块板子，由 HAL 存在板子的 Flash 里，在系统菜单（HOME > 设置）或通过 USB（`203cli board settings`）修改。`CardenzaHAL::Init` 在固件的第一帧之前就把它们用上；固件启动时不要自己设音量、背光或按键灯总亮度（那样会盖过用户的设置）。用 `Settings::Get` 读，用 `Settings::Set` 做自己的快捷键（马上生效，一秒后写入），录音时用 `Mic::ApplyGain` 加上麦克风增益。Flash 只由 HAL 写，从不每改一次写一次，写的时候先把喇叭淡出、按键灯暂时熄灭：[docs/SETTINGS.md](docs/SETTINGS.md)。
 
 ## USB 设备用法
 
@@ -445,9 +454,10 @@ USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包�
 | `press` | 从电脑按键（包括 HOME），固件当作真的按键 |
 | `coredump` | 上一次崩溃的转储：崩在哪个任务、调用栈、转储文件本身 |
 | `files` | SD 卡上的 `ls`、`get`、`put`、`rm`、`mkdir`、`mv` |
+| `settings` | 板子的设置和它们的范围；`get`、`set`、`reset`（关掉开发通道时也能用） |
 
 - 电脑不问就没有任何开销：没有任务、没有缓冲、不轮询。来了查询才建一个优先级 1 的任务（内部 RAM 里 6 KB 栈，最后一次查询 10 秒后删掉）；截屏在固件下一次 `Present` 时往 PSRAM 拷一帧。Flash 都经缓存读，从不关缓存。约 20 KB Flash、0.4 KB 静态内部 RAM（2026-11-20 在启动了 USB 的模板上量的）；关掉 `CONFIG_CARDENZA_HAL_USB_DEV` 就整个不链接。
-- 从不写 NVS 或 Launcher 的任何东西，从不发设备令牌，碰不到 SD 卡以外的文件。只做被要求的写：文件（`files put`、`rm`、`mkdir`、`mv`）和擦掉崩溃转储。
+- 从不发设备令牌，碰不到 SD 卡以外的文件。只做被要求的写：文件（`files put`、`rm`、`mkdir`、`mv`）、擦掉崩溃转储，以及改一项设置（和设置的每次改动一样写入：[docs/SETTINGS.md](docs/SETTINGS.md)）。
 - 任务列表和 CPU 占用要 `CONFIG_FREERTOS_USE_TRACE_FACILITY` 和 `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS`，崩溃转储要 `CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH`：板子的调试配置（[`board/sdkconfig.debug`](board/sdkconfig.debug)）都打开了；正式版不开，省下约 5 KB 内部 RAM，其余功能照常可用。
 - 截屏要固件用帧缓冲显示（`Present`、`PresentChanged`）；直接用屏幕句柄画的固件没有帧缓冲。
 - 要先启动 USB：模板没有启动（它的日志留在串口上，社区的开机检查读的就是串口）。要用它，在 `CardenzaHAL::Init()` 之后加一行 `CardenzaHAL::USB::Init();`。

@@ -1,6 +1,7 @@
 #include "keyboard.h"
 
 #include "internal/keyboard_driver.h"
+#include "internal/flash_guard.h"
 #include "internal/overlay.h"
 
 namespace CardenzaHAL::Keyboard {
@@ -108,6 +109,16 @@ std::size_t OverlayKeys(Point2D_t* keys, std::size_t capacity)
 void LightsOffForSleep()
 {
     keyboard.lightsOffForSleep();
+}
+
+void HoldLightsDark(bool dark)
+{
+    keyboard.holdLightsDark(dark);
+}
+
+void SetOverlayFloor(bool on)
+{
+    keyboard.setOverlayFloor(on);
 }
 
 }  // namespace CardenzaHAL::Keyboard::detail

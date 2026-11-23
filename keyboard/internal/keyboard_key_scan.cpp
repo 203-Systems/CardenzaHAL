@@ -282,7 +282,8 @@ bool KeyboardDriver::handleTimerTickFromIsr()
     portENTER_CRITICAL_ISR(&detail::kKeyboardStateMux);
     _scan_keys_changed |= _scan_raw_key_scan[row] != input;
     _scan_raw_key_scan[row] = input;
-    const uint8_t next_col_mask = _scan_led_enabled ? _scan_led_col_mask[_pwm_phase][next_row] : 0;
+    const uint8_t next_col_mask = _scan_led_enabled && !_dark ? _scan_led_col_mask[_pwm_phase][next_row] : 0;
+    _dark_steps = _dark_steps + 1;
     const bool notify = next_row == 0 &&
         (_scan_keys_changed || _debounce_pending.load(std::memory_order_relaxed));
     if (next_row == 0) _scan_keys_changed = false;

@@ -208,9 +208,22 @@ void KeyTests()
 
 }  // namespace
 
+// The board's settings on the channel (docs/usb-dev.md): their ops after the files', protocol 3, SET's value.
+void SettingsOpTests()
+{
+    using namespace CardenzaHAL::USB::Dev;
+    static_assert(kSettings == 0x40 && kSettingGet == 0x41 && kSettingSet == 0x42 && kSettingsReset == 0x43);
+    static_assert(kSettings > kMv && kSettingsReset < kCancel);
+    static_assert(kProtocol == 3);
+    const uint8_t value[] = {0x50, 0x00, 0x00, 0x00, 0xF4, 0xFF, 0xFF, 0xFF};
+    assert(ReadI32(value) == 80);
+    assert(ReadI32(value + 4) == -12);
+}
+
 int main()
 {
     PackTests();
+    SettingsOpTests();
     FrameTests();
     PathTests();
     RleTests();
