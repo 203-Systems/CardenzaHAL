@@ -13,7 +13,6 @@
    npm install -g 203cli
    203cli skill install   # 把 Agent Skill 放到 AI 读取的目录
    ```
-   203cli 原名 `203c`（npm 包和命令，到 3.5.0 为止），现在只有 203cli：脚本、工作流或旧说明里写 `203c` 的，改成 `203cli`（命令、参数、JSON 回答和退出码都一样）。装过 203c 的：运行 `npm install -g 203cli && 203cli skill install`，再 `npm uninstall -g 203c`（登录会带过来）；改之前 203c 照样能用，并会提示改名。
    没装 203cli，基于 HAL 的固件编译不了：`idf.py build`、`tools/cardenza.py build` 和网页目标都会停下并给出安装命令（CI 里不检查，发布那一步会自己装）。只克隆 203-CLI 仓库不算安装。
    有更新时 203cli 和编译都会提示（每天最多查一次，查不到不出声，CI 里不查；`NO_UPDATE_NOTIFIER=1` 关掉）：「203cli X is out」就运行它给的 `npm install -g 203cli && 203cli skill install`；「CardenzaHAL in this project is N commits behind its main」就单独做一次更新：`git submodule update --remote components/CardenzaHAL`，编译并在板子上试过，再只提交子模块指针（`git add components/CardenzaHAL`）。`203cli updates` 立刻查。
    在 AI 的沙箱里（Claude Code 网页版、Codex 云端……）：npm 和 GitHub 一般默认能用，203 社区不在默认白名单里，只有用户能在环境的网络设置里放行 `cardenza.203.io` 和 `apps.203.io`（Claude Code 网页版：claude.ai/code 输入框下面的环境选择器 → Cloud → 环境的设置图标 → Network access 选 Limited，保持勾选 Allow package managers，在 Allowed domains 里加上这两个 → Save changes；仓库里的文件做不到）。`203cli doctor` 会检查这两个域名，被拦时 203cli 报 `network_blocked_sandbox` 并给出每一步（`203cli help sandbox`）；`network_blocked_cdn` 是网站的防火墙，不是沙箱。编译还可能要 Espressif 的域名（`*.espressif.com`）。
