@@ -53,7 +53,7 @@ What the Cardenza has, and where it is in the HAL. Pins: [`board/pins.h`](board/
 | Flash | 16 MB, quad I/O at 120 MHz; the 203 Launcher keeps everything below 0x170000 and lays out the rest up to the size its bootloader declares (16 MB, or 8 MB on a board flashed with Launcher 0.3.3 or earlier, until its bootloader is written again over USB); an app gets at most 0x690000 bytes, what every Cardenza can hold | [`board/partitions.csv`](board/partitions.csv), [`board/sdkconfig.defaults`](board/sdkconfig.defaults) |
 | Keys | 56 keys, 4 rows × 14 columns (numbers 1..56); at most 4 held at once are read reliably; the caps print a character and a shifted one, the arrows are on `;` `.` `,` `/` | [`keyboard/keyboard.h`](keyboard/keyboard.h): `updateKeyList`, `keyList`, `isKeyPressing`; the caps: [`keyboard/legends.h`](keyboard/legends.h); [Keyboard and key LEDs](#keyboard-and-key-leds) |
 | Key lights | a single-colour LED under each key, 16 levels, and a global brightness | [`keyboard/keyboard.h`](keyboard/keyboard.h): `setLED`, `setLEDFrame`, `setLEDGlobalBrightness`, `enableLED`; [`keyboard/led_light.h`](keyboard/led_light.h) |
-| Screen | 240 × 135 colour (RGB565), ST7789 on SPI, backlight on LEDC; a whole frame is 17 ms | [`display/display.h`](display/display.h): `Present`, `PresentChanged`, `SetBrightness`, `GetPanel`; [Display](#display) |
+| Screen | 240 × 135 colour (RGB565), ST7789 on SPI at 80 MHz, backlight on LEDC; a whole frame is about 8 ms | [`display/display.h`](display/display.h): `Present`, `PresentChanged`, `SetBrightness`, `GetPanel`; [`display/presenter.h`](display/presenter.h): `FramePacer`, `FrameStats`, `DoubleBuffer`; [Display](#display) |
 | Speaker | ES8156 codec, I2S, 44.1 kHz 16-bit, mono speaker (stereo slots available) | [`audio/audio.h`](audio/audio.h): `Init`, `GetTxChannel`, `SetVolume`; [Audio output](#audio-output) |
 | Microphone | PDM, 44.1 kHz mono; its clock shares GPIO43 with the speaker | [`mic/mic.h`](mic/mic.h); [Microphone and shared audio pins](#microphone-and-shared-audio-pins) |
 | SD card | microSD, 4-bit SDMMC, FAT at `/sdcard` | [`storage/storage.h`](storage/storage.h): `Init`, `IsMounted`, `CheckAfterIoError`; [`storage/app_dir.h`](storage/app_dir.h): this firmware's folder `/sdcard/Apps/<AppName>` ([layout](docs/SD-CARD.md)); [SD card storage](#sd-card-storage) |
@@ -261,10 +261,24 @@ Two optional helpers sit above the driver. Both are plain headers, so a simulato
 
 ## Display
 
-Public API: [`display/display.h`](display/display.h).
+Public API: [`display/display.h`](display/display.h) and [`display/presenter.h`](display/presenter.h). The guide, with what tears and the numbers: [docs/DISPLAY.md](docs/DISPLAY.md).
 
 - Landscape size: **240 × 135**, RGB565, `WIDTH * HEIGHT` 16-bit pixels (**64,800 bytes**), row stride `WIDTH`. The panel is configured for little-endian RGB data.
-- `Present(framebuffer)` submits a full frame synchronously. The buffer can be in PSRAM; the HAL copies through its own internal DMA band. The caller can reuse the framebuffer when the call returns, including on failure.
+- **The fast way**: draw the whole picture into a framebuffer and hand it to **`PresentChanged(framebuffer)`** in a **`FramePacer`** loop (a tick every 10 ms, a frame every other tick: 50 fps):
+
+```cpp
+CardenzaHAL::Display::FramePacer pacer;
+for (;;) {
+    Update();                                         // every tick
+    if (pacer.DrawTick()) {
+        Draw(frame);
+        CardenzaHAL::Display::PresentChanged(frame);  // only what changed goes out
+    }
+    pacer.Wait();
+}
+```
+
+- `Present(framebuffer)` submits a full frame synchronously. The buffer can be in PSRAM; the HAL copies through its own internal DMA blocks. The caller can reuse the framebuffer when the call returns, including on failure.
 - To update a region, modify the full framebuffer, then submit rectangles into that buffer:
 
 ```cpp
@@ -274,11 +288,13 @@ bool ok = CardenzaHAL::Display::Present(framebuffer, &dirty, 1);
 
 Rectangles must have positive dimensions and stay within the screen. The first submission and recovery after a failed submission always send the full screen. A zero rectangle count means unchanged pixels after that initial full frame.
 
-A whole frame is 17 ms of SPI, most of a 50 fps frame. **`PresentChanged(framebuffer)`** works out what changed by itself and sends only that: it hashes each row in 30-pixel segments, sends the changed rows of each 8-row band across the span of their changed segments, and sends one band whole every frame so the screen is refreshed completely about every 0.34 s. The framebuffer must be 4-byte aligned (`alignas(4)`); its 4.3 KB table of hashes is made on first use (PSRAM when there is some), and without room it sends whole frames. Use it or the other `Present` calls, not both. The calculation is [`display/changed_regions.h`](display/changed_regions.h), a plain header a host test or a firmware with its own presenting can use.
+**`PresentChanged(framebuffer)`** works out what changed by itself and sends only that: it hashes each row in 30-pixel segments, finds the changed rows of each 8-row band across the span of their changed segments, and sends one band whole every frame so the screen is refreshed completely about every 0.34 s. The framebuffer must be 4-byte aligned (`alignas(4)`, or `AllocateFramebuffer()`); its 4.3 KB table of hashes is made on first use (PSRAM when there is some), and without room it sends whole frames. Use it or the other `Present` calls, not both. The calculation is [`display/changed_regions.h`](display/changed_regions.h), a plain header a host test or a firmware with its own presenting can use.
+
+Every framebuffer `Present*` goes out the same way: in windows from left to right, along the panel's scan ([`display/scan_order.h`](display/scan_order.h): the panel has no tearing-effect line, and this turns the diagonal tear of a moving screen into a straight one, less often), through two DMA blocks of internal RAM (the next window is copied while the last one goes out), at 80 MHz (`CONFIG_CARDENZA_HAL_DISPLAY_SPI_MHZ`), and the waiting task wakes as soon as a block is out. A whole frame is about 8 ms; an unchanged screen costs its refresh band, about 0.5 ms. [`display/presenter.h`](display/presenter.h) adds the rest: `PresentOptions` (segment width, refresh bands, the second block), `RequestWholeFrame()`, what each frame cost (`LastFrame()`, `Totals()`, `SetFrameCallback`), `FramePacer`, `AllocateFramebuffer` (PSRAM or internal) and `DoubleBuffer` (draw the next frame while the last one is sent). While the system menu is open frames are held (`FrameStats::held`) and the first after it goes whole.
 
 `SetBrightness(0..255)` takes a perceived brightness level; the HAL applies gamma 2.2. The request is staged until the first successful `Present()`. Cold boots reset the panel; software restarts preserve its previous pixels until presentation.
 
-For a native renderer, use `GetPanel()` / `GetPanelIO()`, then the no-argument `Present()` to drain queued draws and reveal the frame. Do not combine a custom panel-IO callback with the framebuffer `Present()` path. Keep display submission and control on one task.
+For a native renderer, use `GetPanel()` / `GetPanelIO()`, then the no-argument `Present()` to drain queued draws and reveal the frame. Do not combine a custom panel-IO callback with the framebuffer `Present()` path. Keep frame submission on one task (a `DoubleBuffer`'s, when you use one).
 
 ## Audio output
 
@@ -680,7 +696,7 @@ Use [`board/pins.h`](board/pins.h) as the source for GPIO assignments. Avoid rec
 
 The HAL ships what the board is, as defaults a firmware can take (none is enforced):
 
-- [`board/sdkconfig.defaults`](board/sdkconfig.defaults): 16 MB flash in quad I/O at 120 MHz (as the 203 Launcher's bootloader runs it), the 2 MB PSRAM at 120 MHz, a 1000 Hz FreeRTOS tick (`Display::Present` waits per band; at 100 Hz a screen takes 170 ms), FAT with 512-byte sectors and long names. List it first in `SDKCONFIG_DEFAULTS`, your own defaults after it:
+- [`board/sdkconfig.defaults`](board/sdkconfig.defaults): 16 MB flash in quad I/O at 120 MHz (as the 203 Launcher's bootloader runs it), the 2 MB PSRAM at 120 MHz, a 1000 Hz FreeRTOS tick (delays and `FramePacer` periods in milliseconds; the display no longer needs it), FAT with 512-byte sectors and long names. List it first in `SDKCONFIG_DEFAULTS`, your own defaults after it:
   ```cmake
   set(SDKCONFIG_DEFAULTS "${CMAKE_CURRENT_LIST_DIR}/components/CardenzaHAL/board/sdkconfig.defaults;sdkconfig.defaults")
   include($ENV{IDF_PATH}/tools/cmake/project.cmake)
@@ -758,7 +774,7 @@ A firmware follows the HAL when it reaches the hardware only through the HAL's A
 | FreeRTOS | Tasks, priorities, two cores (`xTaskCreatePinnedToCore`), delays on the tick, queues, semaphores, mutexes with priority inheritance, queue sets, notifications, event groups, software timers, stream and message buffers, critical sections. pthreads, `std::thread`, `std::mutex`, `std::condition_variable` and sleeps run as tasks. |
 | Time | `esp_timer` (task and ISR dispatch), `esp_timer_get_time`, `xTaskGetTickCount` follow real time. |
 | Memory | Internal RAM (about 300 KB free at `app_main`) and the 2 MB PSRAM as separate heaps with the device's room; `malloc`, `new`, task stacks and DMA buffers come out of them as on the board; `heap_caps_*`, `CONFIG_SPIRAM_USE_MALLOC / CAPS_ALLOC / MEMMAP`, `esp_ptr_external_ram`. A firmware that runs out of internal RAM on the board runs out here at about the same point. |
-| Display | `Display::*` is the HAL's own code; the panel and panel IO handles drive a model of the ST7789 (window, MADCTL, inversion, sleep, byte order) with the SPI bus's timing (17 ms for a whole frame) and `on_color_trans_done`. LEDC on GPIO38 is the backlight. |
+| Display | `Display::*` is the HAL's own code; the panel and panel IO handles drive a model of the ST7789 (window, MADCTL, inversion, sleep, byte order) with the SPI bus's timing (its clock, and about 60 us a window for the commands and the interrupt: a whole frame about 7.4 ms at 80 MHz) and `on_color_trans_done`. LEDC on GPIO38 is the backlight. |
 | Keys, LEDs, HOME | `Keyboard::*` takes the page's keys through the HAL's debouncer and four-key guard; the LEDs show the levels the scan would drive and the global brightness. `System::GetFuncButton()` and GPIO0 are HOME. |
 | Audio | `Audio::*` and the ES8156 codec's registers over I2C (startup time, volume); the TX channel's DMA (descriptors × frames) is drained at 44.1 kHz by the page's audio clock, so `i2s_channel_write` blocks like on the board; `on_sent` / `on_send_q_ovf`. The microphone (`Mic::*`, PDM RX) hears the computer's microphone where the page may use it, and GPIO43 belongs to whichever side configured it last. |
 | Storage | `Storage::*` mounts `/sdcard` (none when the page says so, `?sd=0`); C and C++ files work; `esp_vfs_fat_info`; NVS kept with the page. |

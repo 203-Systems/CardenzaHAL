@@ -35,7 +35,9 @@
 
 ## 屏幕与时钟节拍
 
-`Display::Present` 一次发 8 行，每发一条都要等：FreeRTOS 保持 1000 Hz（100 Hz 时整屏要 170 ms），只发变了的矩形（整屏是 17 ms 的 SPI）。
+- **用 `Display::PresentChanged` 配 `Display::FramePacer` 循环提交画面**（[DISPLAY.zh-CN.md](DISPLAY.zh-CN.md)）：只发变了的，按屏幕的扫描顺序，80 MHz（还没在板子上测过：HAL 的模型 `tests/display_bench.cpp` 算出画面不动时每帧约 0.5 ms，整屏约 8 ms；`Display::LastFrame()` 可以测你自己的）。
+- **被 `esp_lcd` 或 SPI 回调唤醒的任务要等到下一个 tick 才运行**，除非回调里自己请求切换（`portYIELD_FROM_ISR`）：ESP-IDF 的 SPI 屏幕 IO 不看回调的返回值。HAL 的屏幕在 2026-11-23 以前就是这样等每条 8 行的带子：1000 Hz 时整屏 17 ms，ESP-IDF 默认的 100 Hz 时 170 ms。你自己的驱动如果在这种回调上等待，也有同样的问题。
+- **这块屏没有撕裂效应信号**：扫描时写进去的内容，可能在一次刷新里一半旧一半新。每帧小步移动、换页在一帧内完成，就看不出来；详见 [DISPLAY.zh-CN.md](DISPLAY.zh-CN.md)。
 
 ## USB
 

@@ -8,6 +8,10 @@
 // - The SD card: its files are in its own folder, /sdcard/Apps/<project name>/ (storage/app_dir.h,
 //   docs/SD-CARD.md): Settings/app.cfg counts its starts, Logs/log.txt gets a line at each.
 //
+// - The screen goes out as the HAL's presenter does it (display/presenter.h, docs/DISPLAY.md): the loop runs
+//   every 10 ms and draws every other time (50 fps), PresentChanged sends only what changed, and once a minute
+//   the log says what the screen cost.
+//
 // It reaches the hardware only through the HAL's public headers, so the same source builds for the board
 // (idf.py build) and for the browser (CardenzaHAL tools/cardenza_web.py build). Keep CardenzaHAL::Init()
 // first: its log lines are how a crash log, and the 203 community's checks, know the HAL.
@@ -50,7 +54,8 @@ constexpr uint16_t Rgb(int r, int g, int b)
     return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
-// The framebuffer: 64,800 bytes, static (not on the task's stack), 4-byte aligned for PresentChanged.
+// The framebuffer: 64,800 bytes, static (not on the task's stack), 4-byte aligned for PresentChanged. A firmware
+// short of internal RAM takes it from PSRAM instead: Display::AllocateFramebuffer().
 alignas(4) uint16_t g_frame[Display::WIDTH * Display::HEIGHT];
 
 void Fill(int x, int y, int width, int height, uint16_t colour)
@@ -178,7 +183,9 @@ extern "C" void app_main()
     bool inverted = false;
     bool homeBefore = false;
     const int versionLength = static_cast<int>(std::strlen(app->version));
-    TickType_t wake = xTaskGetTickCount();
+    // A tick every 10 ms (keys and lights), a frame every other tick (50 fps). Your loop's own work goes in
+    // every tick; drawing only on the ticks that draw.
+    Display::FramePacer pacer;
     for (;;)
     {
         Keyboard::updateKeyList();
@@ -192,8 +199,22 @@ extern "C" void app_main()
         for (const auto& key : keys) leds[key.y * Keyboard::LED_COLUMNS + key.x] = Keyboard::Light::PerceivedToLevel(15);
         Keyboard::setLEDFrame(leds);
 
-        Draw(keys, inverted, versionLength);
-        Display::PresentChanged(g_frame);  // only what changed: a whole frame is 17 ms of SPI
-        vTaskDelayUntil(&wake, pdMS_TO_TICKS(20));  // 50 fps
+        if (pacer.DrawTick())
+        {
+            Draw(keys, inverted, versionLength);
+            Display::PresentChanged(g_frame);  // only what changed (a whole frame is 64,800 bytes)
+        }
+        // What the screen costs, once a minute (Display::LastFrame() has the last frame's own numbers).
+        if (pacer.Tick() % 6000 == 5999)
+        {
+            const Display::PresentTotals totals = Display::Totals();
+            if (totals.frames > 0)
+                ESP_LOGI(kTag, "screen: %u frames, %u us a frame (max %u), %u bytes a frame, %u late ticks",
+                         static_cast<unsigned>(totals.frames), static_cast<unsigned>(totals.presentUs / totals.frames),
+                         static_cast<unsigned>(totals.maxPresentUs), static_cast<unsigned>(totals.bytes / totals.frames),
+                         static_cast<unsigned>(pacer.LateTicks()));
+            Display::ResetTotals();
+        }
+        pacer.Wait();
     }
 }

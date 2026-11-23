@@ -3,6 +3,7 @@
 #include <array>
 #include <cassert>
 #include <iostream>
+#include <vector>
 
 namespace Display = CardenzaHAL::Display;
 using Finder = Display::ChangedRegions;
@@ -68,6 +69,47 @@ int main()
     finder.Reset();
     count = finder.Find(frame.data(), regions.data());
     assert(Area(count) == static_cast<long>(Display::WIDTH) * Display::HEIGHT);
+
+    // The segment widths a comparison takes, and their tables.
+    static_assert(Finder::ValidSegment(8) && Finder::ValidSegment(16) && Finder::ValidSegment(240));
+    static_assert(!Finder::ValidSegment(6) && !Finder::ValidSegment(15) && !Finder::ValidSegment(7) && !Finder::ValidSegment(0));
+    static_assert(Finder::HashCount(30) == Finder::kHashCount && Finder::HashCount(16) == 135u * 15 && Finder::HashCount(7) == 0);
+    {
+        // 16-pixel segments: a changed pixel's rectangle is its 16 columns; no refresh band.
+        std::vector<uint32_t> table(Finder::HashCount(16));
+        Finder narrow(table.data(), 16, 0);
+        assert(narrow.SegmentPixels() == 16 && narrow.RefreshBands() == 0);
+        count = narrow.Find(frame.data(), regions.data());
+        assert(Area(count) == static_cast<long>(Display::WIDTH) * Display::HEIGHT);
+        assert(narrow.Find(frame.data(), regions.data()) == 0);  // unchanged, no refresh: nothing
+        frame[20 * Display::WIDTH + 33] ^= 1;
+        count = narrow.Find(frame.data(), regions.data());
+        assert(count == 1 && regions[0].x == 32 && regions[0].width == 16 && regions[0].y == 20 && regions[0].height == 1);
+        // An invalid width takes the default.
+        Finder fallback(hashes.data(), 7, 1);
+        assert(fallback.SegmentPixels() == Finder::kSegmentPixels);
+    }
+    {
+        // Two refresh bands a frame: the whole screen in nine frames, each row once.
+        Finder twice(hashes.data(), Finder::kSegmentPixels, 2);
+        (void)twice.Find(frame.data(), regions.data());
+        std::array<int, Display::HEIGHT> rows{};
+        for (int round = 0; round < (Finder::kBands + 1) / 2; ++round)
+        {
+            count = twice.Find(frame.data(), regions.data());
+            for (std::size_t index = 0; index < count; ++index)
+                for (int y = regions[index].y; y < regions[index].y + regions[index].height; ++y) ++rows[y];
+        }
+        int covered = 0;
+        for (int y = 0; y < Display::HEIGHT; ++y) covered += rows[y] > 0 ? 1 : 0;
+        assert(covered == Display::HEIGHT);
+        // Every band every frame: the whole screen each time, as one region.
+        Finder always(hashes.data(), Finder::kSegmentPixels, 99);
+        assert(always.RefreshBands() == Finder::kBands);
+        (void)always.Find(frame.data(), regions.data());
+        count = always.Find(frame.data(), regions.data());
+        assert(count == 1 && Area(count) == static_cast<long>(Display::WIDTH) * Display::HEIGHT);
+    }
     std::cout << "changed regions ok\n";
     return 0;
 }

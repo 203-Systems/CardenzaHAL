@@ -9,36 +9,60 @@
 namespace CardenzaHAL::Display {
 
 // What changed on screen since the last frame, as rectangles for Present(framebuffer, regions, count).
-// Pure (no ESP-IDF): usable in host tests. Display::PresentChanged() uses it; a firmware that
-// presents its own way can too.
+// Pure (no ESP-IDF): usable in host tests. Display::PresentChanged() uses it (display/presenter.h sets its
+// segment and refresh); a firmware that presents its own way can too.
 //
-// A whole frame is 17 ms of SPI, most of a frame at 50 fps, so sending only what changed is what
-// keeps the UI fast. Every row is hashed in segments of 30 pixels and compared with the last frame;
-// each band of eight rows (what Present sends at a time) gives one rectangle over its changed rows and
-// the span of its changed segments, and a band right under another of the same span joins it. One band
-// is reported whole every frame, a different one each time (the whole screen every kBands frames,
-// about 0.34 s at 50 fps, for about 1 ms of SPI a frame), so nothing a hash missed or the panel lost
-// stays on screen.
+// Sending only what changed is what keeps a UI fast: a whole frame is 64,800 bytes on the panel's SPI bus.
+// Every row is hashed in segments (30 pixels by default) and compared with the last frame; each band of
+// eight rows gives one rectangle over its changed rows and the span of its changed segments, and a band
+// right under another of the same span joins it. Some bands are reported whole every frame, a different
+// one each time (by default one: the whole screen every kBands frames, about 0.34 s at 50 fps, for 3.8 KB a
+// frame), so nothing a hash missed or the panel lost stays on screen.
 //
 // FindBand is the same comparison for one band given on its own, for a screen painted a band at a time
 // (the system menu's overlay, Display::detail::PaintOverlay): the rectangle over what changed in it.
 class ChangedRegions {
 public:
+    // The defaults (CardenzaSynth's, measured on the board) and the table they need.
     static constexpr int kSegmentPixels = 30;
     static constexpr int kSegments = WIDTH / kSegmentPixels;
     static constexpr int kBandRows = 8;
     static constexpr int kBands = (HEIGHT + kBandRows - 1) / kBandRows;
     static constexpr std::size_t kMaxRegions = kBands;
     static constexpr std::size_t kHashCount = static_cast<std::size_t>(HEIGHT) * kSegments;
-    static_assert(kSegments * kSegmentPixels == WIDTH && kSegments <= 32 && kSegmentPixels % 2 == 0);
+    static constexpr int kMaxSegments = 32;  // a row's changed segments are bits of one word
 
-    // hashes: kHashCount words the caller owns (any RAM: they are read once a frame).
-    explicit ChangedRegions(uint32_t* hashes) : hashes_(hashes) { Reset(); }
+    // A segment width the comparison takes: an even divisor of WIDTH with at most 32 segments a row
+    // (8, 10, 12, 16, 20, 24, 30, 40, 48, 60, 80, 120 or 240 pixels). Narrower finds smaller rectangles for a
+    // larger table and a little more time; 16 lines the rectangles up with the panel's 16-column scan bands.
+    static constexpr bool ValidSegment(int pixels)
+    {
+        return pixels >= 2 && pixels % 2 == 0 && WIDTH % pixels == 0 && WIDTH / pixels <= kMaxSegments;
+    }
+    // The table's words for a segment width (HEIGHT * segments a row; 0 for an invalid width).
+    static constexpr std::size_t HashCount(int segmentPixels)
+    {
+        return ValidSegment(segmentPixels) ? static_cast<std::size_t>(HEIGHT) * (WIDTH / segmentPixels) : 0;
+    }
+    // hashes: HashCount(segmentPixels) words the caller owns (any RAM: they are read once a frame).
+    // segmentPixels: see ValidSegment (an invalid width takes kSegmentPixels). refreshBands: bands reported
+    // whole every frame, 0 (none) to kBands (every frame whole).
+    explicit ChangedRegions(uint32_t* hashes, int segmentPixels = kSegmentPixels, int refreshBands = 1)
+        : hashes_(hashes),
+          segmentPixels_(ValidSegment(segmentPixels) ? segmentPixels : kSegmentPixels),
+          segments_(WIDTH / segmentPixels_),
+          refreshBands_(refreshBands < 0 ? 0 : refreshBands > kBands ? kBands : refreshBands)
+    {
+        Reset();
+    }
+
+    int SegmentPixels() const { return segmentPixels_; }
+    int RefreshBands() const { return refreshBands_; }
 
     // The next Find reports the whole screen (after the panel lost its pixels, say).
     void Reset()
     {
-        std::memset(hashes_, 0, kHashCount * sizeof(uint32_t));
+        std::memset(hashes_, 0, HashCount(segmentPixels_) * sizeof(uint32_t));
         everything_ = true;
     }
 
@@ -52,7 +76,7 @@ public:
             const int top = band * kBandRows;
             const int bottom = top + kBandRows < HEIGHT ? top + kBandRows : HEIGHT;
             Region region = FindBand(framebuffer + top * WIDTH, WIDTH, top, bottom, everything_);
-            if (band == refreshBand_) region = Region{0, top, WIDTH, bottom - top};
+            if ((band - refreshBand_ + kBands) % kBands < refreshBands_) region = Region{0, top, WIDTH, bottom - top};
             if (region.width == 0) continue;
             Region* above = count > 0 ? &regions[count - 1] : nullptr;
             if (above != nullptr && above->x == region.x && above->width == region.width && above->y + above->height == region.y)
@@ -60,7 +84,7 @@ public:
             else
                 regions[count++] = region;
         }
-        refreshBand_ = (refreshBand_ + 1) % kBands;
+        refreshBand_ = (refreshBand_ + refreshBands_) % kBands;
         everything_ = false;
         return count;
     }
@@ -76,12 +100,13 @@ public:
         for (int y = top; y < bottom; ++y)
         {
             uint32_t row = 0;
-            for (int segment = 0; segment < kSegments; ++segment)
+            const uint16_t* line = pixels + (y - top) * stride;
+            uint32_t* previous = hashes_ + y * segments_;
+            for (int segment = 0; segment < segments_; ++segment)
             {
-                const uint32_t hash = HashSegment(pixels + (y - top) * stride + segment * kSegmentPixels);
-                uint32_t& previous = hashes_[y * kSegments + segment];
-                if (hash == previous && !everything) continue;
-                previous = hash;
+                const uint32_t hash = HashSegment(line + segment * segmentPixels_, segmentPixels_);
+                if (hash == previous[segment] && !everything) continue;
+                previous[segment] = hash;
                 row |= 1u << segment;
             }
             if (row == 0) continue;
@@ -92,17 +117,17 @@ public:
         if (changed == 0) return Region{0, top, 0, 0};
         const int left = LowestBit(changed);
         const int right = HighestBit(changed);
-        return Region{left * kSegmentPixels, first, (right - left + 1) * kSegmentPixels, last - first + 1};
+        return Region{left * segmentPixels_, first, (right - left + 1) * segmentPixels_, last - first + 1};
     }
 
-private:
-    // A word at a time: segments start on word boundaries in a 4-byte aligned buffer. ESP-IDF builds
-    // with -fno-builtin-memcpy, where std::memcpy is a ROM call even for one word; __builtin_memcpy of an
-    // aligned word is one load (hashing a frame went from 3.6 ms to 0.4 ms).
-    static uint32_t HashSegment(const uint16_t* pixels)
+    // One segment's hash (FNV-1a over its words). A word at a time: segments start on word boundaries in a
+    // 4-byte aligned buffer. ESP-IDF builds with -fno-builtin-memcpy, where std::memcpy is a ROM call even
+    // for one word; __builtin_memcpy of an aligned word is one load (hashing a frame in internal RAM went
+    // from 3.6 ms to 0.4 ms, CardenzaSynth 2026-11-05).
+    static uint32_t HashSegment(const uint16_t* pixels, int count)
     {
         uint32_t hash = 2166136261u;
-        for (int index = 0; index < kSegmentPixels; index += 2)
+        for (int index = 0; index < count; index += 2)
         {
             uint32_t word;
 #if defined(__GNUC__)
@@ -115,6 +140,7 @@ private:
         return hash ^ (hash >> 15);
     }
 
+private:
     static int LowestBit(uint32_t bits)
     {
         int index = 0;
@@ -130,8 +156,13 @@ private:
     }
 
     uint32_t* hashes_;
+    int segmentPixels_;
+    int segments_;
+    int refreshBands_;
     int refreshBand_ = 0;
     bool everything_ = true;
 };
+
+static_assert(ChangedRegions::ValidSegment(ChangedRegions::kSegmentPixels));
 
 }  // namespace CardenzaHAL::Display

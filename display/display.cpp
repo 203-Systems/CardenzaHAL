@@ -1,5 +1,6 @@
 #include "display.h"
 #include "changed_regions.h"
+#include "scan_order.h"
 #include "backlight_brightness.h"
 #include "internal/overlay.h"
 #include "internal/snapshot.h"
@@ -9,6 +10,8 @@
 #include <algorithm>
 #include <cstring>
 #include <new>
+#include <optional>
+#include <sdkconfig.h>
 #include <driver/gpio.h>
 #include <driver/ledc.h>
 #include <driver/spi_master.h>
@@ -19,6 +22,7 @@
 #include <esp_lcd_panel_commands.h>
 #include <esp_lcd_panel_vendor.h>
 #include <esp_system.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
@@ -48,12 +52,35 @@ bool startupPolicySelected = false;
 bool preservePixels = false;
 bool firstFramePresented = false;
 bool fullRefreshRequired = true;
+// The panel's SPI clock (Kconfig CARDENZA_HAL_DISPLAY_SPI_MHZ). The 203 Launcher runs this panel at 80 MHz on
+// every Cardenza (its docs/UX_REVIEW_2026-11-04.md): at 40 MHz a whole frame took about as long as one panel
+// scan, so the write ran beside the scan and moving pictures tore in steps.
+#ifdef CONFIG_CARDENZA_HAL_DISPLAY_SPI_MHZ
+constexpr int kSpiClockMhz = CONFIG_CARDENZA_HAL_DISPLAY_SPI_MHZ;
+#else
+constexpr int kSpiClockMhz = 80;
+#endif
+// What goes out is copied into DMA blocks of internal RAM (a framebuffer in PSRAM cannot be sent by DMA), one
+// window at a time (scan_order.h). The first block is static; the second (PresentOptions::pipeline) comes from
+// the heap at the first frame, so the next window is copied while the panel takes the last one. The system
+// menu's overlay paints its bands of eight rows into the first.
 constexpr int kTransferBandRows = 8;
+constexpr int kBlockPixels = ScanOrder::kBlockPixels;
+static_assert(WIDTH * kTransferBandRows <= kBlockPixels);
 constexpr uint32_t kTransferTimeoutMs = 20;
-DMA_ATTR uint16_t transferBand[WIDTH * kTransferBandRows] = {};
+DMA_ATTR uint16_t transferBand[kBlockPixels] = {};
+uint16_t* secondBlock = nullptr;
+bool secondBlockTried = false;
+int blockInFlight = 0;  // the block the pending transfer reads (while transferPending)
 SemaphoreHandle_t transferDone = nullptr;
 bool completionCallbackInstalled = false;
 bool transferPending = false;
+// display/presenter.h: how PresentChanged works, and what the frames cost.
+PresentOptions presentOptions;
+FrameStats lastFrame;
+PresentTotals totals;
+FrameCallback frameCallback = nullptr;
+void* frameCallbackContext = nullptr;
 
 // The system menu (system/menu.h) draws over the firmware. Every submission takes displayLock, so the
 // menu's task and the firmware's never share the band or the panel.
@@ -247,6 +274,11 @@ bool IRAM_ATTR OnTransferDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_
 {
     BaseType_t wake = pdFALSE;
     xSemaphoreGiveFromISR(static_cast<SemaphoreHandle_t>(context), &wake);
+    // ESP-IDF's SPI panel IO ignores this callback's return value (esp_lcd_panel_io_spi.c,
+    // lcd_spi_post_trans_color_cb), so the task waiting for the block ran only at the next RTOS tick: a block of
+    // well under a millisecond took a whole tick, 10 ms at ESP-IDF's default 100 Hz (a screen took 170 ms). The
+    // switch is asked for here, as the 203 Launcher does.
+    portYIELD_FROM_ISR(wake);
     return wake == pdTRUE;
 }
 
@@ -292,21 +324,56 @@ bool ValidRegion(const Region& region)
            region.width <= WIDTH - region.x && region.height <= HEIGHT - region.y;
 }
 
-bool SendRegion(const uint16_t* framebuffer, const Region& region)
+TickType_t TransferTimeout()
 {
-    for (int y = region.y; y < region.y + region.height; y += kTransferBandRows)
+    const TickType_t ticks = pdMS_TO_TICKS(kTransferTimeoutMs);
+    return ticks > 0 ? ticks : 1;
+}
+
+// The second DMA block while PresentOptions::pipeline asks for it (taken once; given back when it stops).
+void UpdateSecondBlock()
+{
+    if (presentOptions.pipeline)
     {
-        const int rows = std::min(kTransferBandRows, region.y + region.height - y);
-        for (int row = 0; row < rows; ++row)
-            std::memcpy(transferBand + row * region.width, framebuffer + (y + row) * WIDTH + region.x,
-                        static_cast<std::size_t>(region.width) * sizeof(uint16_t));
-        while (xSemaphoreTake(transferDone, 0) == pdTRUE) {}
-        if (esp_lcd_panel_draw_bitmap(panel, region.x, y, region.x + region.width, y + rows, transferBand) != ESP_OK)
-            return false;
-        transferPending = true;
-        if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
+        if (secondBlockTried) return;
+        secondBlockTried = true;
+        secondBlock = static_cast<uint16_t*>(
+            heap_caps_malloc(kBlockPixels * sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        return;
     }
+    secondBlockTried = false;
+    if (secondBlock == nullptr || (transferPending && blockInFlight == 1)) return;
+    heap_caps_free(secondBlock);
+    secondBlock = nullptr;
+}
+
+// One window of the framebuffer (scan_order.h: at most kBlockPixels) to the panel. With two blocks it is copied
+// into the one the panel is not reading while the window before is still going out, then sent once that is done.
+bool SendWindow(const uint16_t* framebuffer, const Region& window)
+{
+    int index = 0;
+    if (secondBlock != nullptr && transferPending)
+        index = 1 - blockInFlight;
+    else if (!WaitForTransfer(TransferTimeout()))
+        return false;
+    uint16_t* block = index == 0 ? transferBand : secondBlock;
+    const uint16_t* source = framebuffer + window.y * WIDTH + window.x;
+    const std::size_t rowBytes = static_cast<std::size_t>(window.width) * sizeof(uint16_t);
+    for (int row = 0; row < window.height; ++row) std::memcpy(block + row * window.width, source + row * WIDTH, rowBytes);
+    if (!WaitForTransfer(TransferTimeout())) return false;
+    while (xSemaphoreTake(transferDone, 0) == pdTRUE) {}
+    if (esp_lcd_panel_draw_bitmap(panel, window.x, window.y, window.x + window.width, window.y + window.height, block) !=
+        ESP_OK)
+        return false;
+    transferPending = true;
+    blockInFlight = index;
     return true;
+}
+
+uint32_t MicrosSince(int64_t start)
+{
+    const int64_t elapsed = esp_timer_get_time() - start;
+    return elapsed > 0 ? static_cast<uint32_t>(elapsed) : 0;
 }
 
 }  // namespace
@@ -346,7 +413,7 @@ bool Init()
         ioConfig.cs_gpio_num = Pins::kDisplayCs;
         ioConfig.dc_gpio_num = Pins::kDisplayDc;
         ioConfig.spi_mode = 0;
-        ioConfig.pclk_hz = 40 * 1000 * 1000;
+        ioConfig.pclk_hz = kSpiClockMhz * 1000 * 1000;
         ioConfig.trans_queue_depth = 10;
         ioConfig.lcd_cmd_bits = 8;
         ioConfig.lcd_param_bits = 8;
@@ -414,29 +481,51 @@ bool Init()
 
 namespace {
 
-bool PresentLocked(const uint16_t* framebuffer, const Region* regions, std::size_t count)
+// Sends `regions` (or everything, when the panel needs it) in the panel's scan order and waits until the last
+// window is on the panel. Fills in what it sent.
+bool PresentLocked(const uint16_t* framebuffer, const Region* regions, std::size_t count, FrameStats& stats)
 {
     if (framebuffer == nullptr || (count != 0 && regions == nullptr)) return false;
+    stats.regions = static_cast<uint16_t>(std::min<std::size_t>(count, UINT16_MAX));
     Capture(framebuffer);
     // The system menu is on the screen: this frame is not sent, and the first one after it goes whole.
     if (overlayActive)
     {
         fullRefreshRequired = true;
+        stats.held = true;
         return true;
     }
     for (std::size_t index = 0; index < count; ++index)
         if (!ValidRegion(regions[index])) return false;
     if (!Init() || !EnsureCompletionCallback()) return false;
-    // A timed-out DMA still owns transferBand. Never overwrite it while the
+    // A timed-out DMA still owns its block. Never overwrite it while the
     // caller continues rendering into its own framebuffer.
     if (!WaitForTransfer(0)) return false;
-    const auto send = [&](Region region) { return SendRegion(framebuffer, region); };
-    bool sent = true;
+    UpdateSecondBlock();
+    const int64_t start = esp_timer_get_time();
+    const Region fullFrame{0, 0, WIDTH, HEIGHT};
     if (fullRefreshRequired)
-        sent = send(Region{0, 0, WIDTH, HEIGHT});
-    else
-        for (std::size_t index = 0; sent && index < count; ++index)
-            sent = send(regions[index]);
+    {
+        regions = &fullFrame;
+        count = 1;
+        stats.whole = true;
+    }
+    bool sent = true;
+    for (std::size_t first = 0; sent && first < count; first += ScanOrder::kMaxRegions)
+    {
+        ScanOrder order(regions + first, count - first);
+        Region window;
+        while (sent && order.Next(window))
+        {
+            sent = SendWindow(framebuffer, window);
+            if (!sent) break;
+            ++stats.windows;
+            stats.bytes += static_cast<uint32_t>(window.width * window.height) * sizeof(uint16_t);
+        }
+    }
+    // The last window is on the panel before the call returns (and before the light of a first frame comes on).
+    if (sent) sent = WaitForTransfer(TransferTimeout());
+    stats.sendUs = MicrosSince(start);
     if (!sent || !RevealFrame())
     {
         fullRefreshRequired = true;
@@ -444,6 +533,29 @@ bool PresentLocked(const uint16_t* framebuffer, const Region* regions, std::size
     }
     fullRefreshRequired = false;
     return true;
+}
+
+// What a framebuffer Present* cost, into the totals.
+void Account(FrameStats& stats, int64_t start, bool ok)
+{
+    stats.ok = ok;
+    stats.presentUs = MicrosSince(start);
+    stats.number = ++totals.frames;
+    if (stats.whole) ++totals.wholeFrames;
+    if (stats.held) ++totals.heldFrames;
+    if (!ok) ++totals.failures;
+    totals.bytes += stats.bytes;
+    totals.findUs += stats.findUs;
+    totals.presentUs += stats.presentUs;
+    totals.maxPresentUs = std::max(totals.maxPresentUs, stats.presentUs);
+    lastFrame = stats;
+}
+
+// After the display's lock is let go: the frame callback.
+bool Report(const FrameStats& stats, FrameCallback callback, void* context)
+{
+    if (callback != nullptr) callback(stats, context);
+    return stats.ok;
 }
 
 }  // namespace
@@ -456,43 +568,231 @@ bool Present(const uint16_t* framebuffer)
 
 bool Present(const uint16_t* framebuffer, const Region* regions, std::size_t count)
 {
-    DisplayLock lock;
-    return PresentLocked(framebuffer, regions, count);
+    FrameStats stats;
+    FrameCallback callback;
+    void* context;
+    {
+        DisplayLock lock;
+        const int64_t start = esp_timer_get_time();
+        const bool ok = PresentLocked(framebuffer, regions, count, stats);
+        Account(stats, start, ok);
+        callback = frameCallback;
+        context = frameCallbackContext;
+    }
+    return Report(stats, callback, context);
 }
 
 namespace {
-// PresentChanged's table of row hashes, made on its first frame (PSRAM when there is some: it is read
-// once a frame). Null after that: no room, so every frame goes whole.
-ChangedRegions* changedRegions = nullptr;
+// PresentChanged's table of row hashes, made on its first frame (PSRAM when there is some: it is read once a
+// frame) and again when the options change. Empty after that: no room, so every frame goes whole.
+std::optional<ChangedRegions> changedRegions;
+uint32_t* changedHashes = nullptr;
 bool changedRegionsTried = false;
+
+void UpdateChangedRegions()
+{
+    if (changedRegionsTried) return;
+    changedRegionsTried = true;
+    changedRegions.reset();
+    heap_caps_free(changedHashes);
+    changedHashes = nullptr;
+    const std::size_t bytes = ChangedRegions::HashCount(presentOptions.segmentPixels) * sizeof(uint32_t);
+    void* hashes = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (hashes == nullptr) hashes = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (hashes == nullptr) return;
+    changedHashes = static_cast<uint32_t*>(hashes);
+    changedRegions.emplace(changedHashes, presentOptions.segmentPixels, presentOptions.refreshBands);
 }
+}  // namespace
 
 bool PresentChanged(const uint16_t* framebuffer)
 {
     if (framebuffer == nullptr) return false;
+    FrameStats stats;
+    FrameCallback callback;
+    void* context;
+    {
+        DisplayLock lock;
+        const int64_t start = esp_timer_get_time();
+        bool ok = true;
+        if (overlayActive)
+        {
+            Capture(framebuffer);
+            fullRefreshRequired = true;
+            stats.held = true;
+        }
+        else
+        {
+            UpdateChangedRegions();
+            const Region fullFrame{0, 0, WIDTH, HEIGHT};
+            if (!changedRegions)
+                ok = PresentLocked(framebuffer, &fullFrame, 1, stats);
+            else
+            {
+                Region regions[ChangedRegions::kMaxRegions];
+                const std::size_t count = changedRegions->Find(framebuffer, regions);
+                stats.findUs = MicrosSince(start);
+                // A failed send leaves the panel unsure: Present sends the whole screen next time.
+                ok = PresentLocked(framebuffer, regions, count, stats);
+            }
+        }
+        Account(stats, start, ok);
+        callback = frameCallback;
+        context = frameCallbackContext;
+    }
+    return Report(stats, callback, context);
+}
+
+bool SetPresentOptions(const PresentOptions& options)
+{
+    if (!ChangedRegions::ValidSegment(options.segmentPixels) || options.refreshBands < 0 ||
+        options.refreshBands > ChangedRegions::kBands)
+        return false;
     DisplayLock lock;
-    if (overlayActive)
+    presentOptions = options;
+    changedRegionsTried = false;  // the next PresentChanged makes its table again
+    fullRefreshRequired = true;
+    return true;
+}
+
+PresentOptions GetPresentOptions()
+{
+    DisplayLock lock;
+    return presentOptions;
+}
+
+void RequestWholeFrame()
+{
+    DisplayLock lock;
+    fullRefreshRequired = true;
+}
+
+FrameStats LastFrame()
+{
+    DisplayLock lock;
+    return lastFrame;
+}
+
+PresentTotals Totals()
+{
+    DisplayLock lock;
+    return totals;
+}
+
+void ResetTotals()
+{
+    DisplayLock lock;
+    totals = PresentTotals{};
+}
+
+void SetFrameCallback(FrameCallback callback, void* context)
+{
+    DisplayLock lock;
+    frameCallback = callback;
+    frameCallbackContext = context;
+}
+
+uint16_t* AllocateFramebuffer(FrameMemory memory)
+{
+    constexpr std::size_t bytes = static_cast<std::size_t>(WIDTH) * HEIGHT * sizeof(uint16_t);
+    void* frame = nullptr;
+    if (memory != FrameMemory::Internal) frame = heap_caps_aligned_alloc(32, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (frame == nullptr && memory != FrameMemory::Psram)
+        frame = heap_caps_aligned_alloc(32, bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (frame != nullptr) std::memset(frame, 0, bytes);
+    return static_cast<uint16_t*>(frame);
+}
+
+void FreeFramebuffer(uint16_t* frame)
+{
+    heap_caps_free(frame);
+}
+
+FramePacer::FramePacer(const PacerOptions& options)
+    : pacing_(options.ticksPerFrame, options.yieldAfterLate),
+      period_(pdMS_TO_TICKS(options.tickMs) > 0 ? pdMS_TO_TICKS(options.tickMs) : 1),
+      lastWake_(xTaskGetTickCount())
+{
+}
+
+bool FramePacer::Wait()
+{
+    // xTaskDelayUntil keeps the schedule: a tick that ran late does not sleep, and the next ones catch up.
+    const bool onTime = xTaskDelayUntil(&lastWake_, period_) == pdTRUE;
+    if (pacing_.Ended(onTime))
     {
-        Capture(framebuffer);
-        fullRefreshRequired = true;
-        return true;
+        vTaskDelay(1);
+        lastWake_ = xTaskGetTickCount();
     }
-    if (!changedRegionsTried)
+    return onTime;
+}
+
+bool DoubleBuffer::Begin(const Options& options)
+{
+    if (task_ != nullptr) return true;
+    frames_[0] = AllocateFramebuffer(options.memory);
+    frames_[1] = frames_[0] != nullptr ? AllocateFramebuffer(options.memory) : nullptr;
+    handed_ = xSemaphoreCreateBinary();
+    idle_ = xSemaphoreCreateBinary();
+    const UBaseType_t priority = options.priority != 0 ? options.priority : uxTaskPriorityGet(nullptr);
+    if (frames_[1] == nullptr || handed_ == nullptr || idle_ == nullptr ||
+        xTaskCreatePinnedToCore(Run, "hal_present", options.stackBytes, this, priority, &task_, options.core) != pdPASS)
     {
-        changedRegionsTried = true;
-        const std::size_t bytes = ChangedRegions::kHashCount * sizeof(uint32_t);
-        void* hashes = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (hashes == nullptr) hashes = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        void* finder = hashes != nullptr ? heap_caps_malloc(sizeof(ChangedRegions), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) : nullptr;
-        if (finder != nullptr) changedRegions = new (finder) ChangedRegions(static_cast<uint32_t*>(hashes));
-        else if (hashes != nullptr) heap_caps_free(hashes);
+        task_ = nullptr;
+        End();
+        return false;
     }
-    const Region fullFrame{0, 0, WIDTH, HEIGHT};
-    if (changedRegions == nullptr) return PresentLocked(framebuffer, &fullFrame, 1);
-    Region regions[ChangedRegions::kMaxRegions];
-    const std::size_t count = changedRegions->Find(framebuffer, regions);
-    // A failed send leaves the panel unsure: Present sends the whole screen next time.
-    return PresentLocked(framebuffer, regions, count);
+    back_ = 0;
+    front_ = 1;
+    result_ = true;
+    xSemaphoreGive(idle_);
+    return true;
+}
+
+void DoubleBuffer::End()
+{
+    if (task_ != nullptr)
+    {
+        // The frame being sent finishes first; the task then waits for the next, and goes.
+        (void)xSemaphoreTake(idle_, portMAX_DELAY);
+        vTaskDelete(task_);
+        task_ = nullptr;
+    }
+    if (handed_ != nullptr) vSemaphoreDelete(handed_);
+    if (idle_ != nullptr) vSemaphoreDelete(idle_);
+    handed_ = idle_ = nullptr;
+    FreeFramebuffer(frames_[0]);
+    FreeFramebuffer(frames_[1]);
+    frames_[0] = frames_[1] = nullptr;
+}
+
+bool DoubleBuffer::Present()
+{
+    if (task_ == nullptr || xSemaphoreTake(idle_, portMAX_DELAY) != pdTRUE) return false;
+    front_ = back_;
+    back_ = 1 - back_;
+    xSemaphoreGive(handed_);
+    return true;
+}
+
+bool DoubleBuffer::Wait(TickType_t timeout)
+{
+    if (task_ == nullptr) return false;
+    if (xSemaphoreTake(idle_, timeout) != pdTRUE) return false;
+    const bool result = result_;
+    xSemaphoreGive(idle_);
+    return result;
+}
+
+void DoubleBuffer::Run(void* argument)
+{
+    auto* self = static_cast<DoubleBuffer*>(argument);
+    for (;;)
+    {
+        if (xSemaphoreTake(self->handed_, portMAX_DELAY) != pdTRUE) continue;
+        self->result_ = PresentChanged(self->frames_[self->front_]);
+        xSemaphoreGive(self->idle_);
+    }
 }
 
 bool Present()
@@ -550,7 +850,7 @@ bool PaintBands(RegionPainter painter, void* context, bool skipUnchanged)
     if (painter == nullptr || !Init() || !EnsureCompletionCallback()) return false;
     const int x = 0, width = WIDTH;
     // A timed-out DMA may still own the band.
-    if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
+    if (!WaitForTransfer(TransferTimeout())) return false;
     const bool track = overlayRegions != nullptr;
     const bool skip = track && skipUnchanged && overlayHashValid;
     overlayHashValid = false;  // until every band has gone out
@@ -578,7 +878,8 @@ bool PaintBands(RegionPainter painter, void* context, bool skipUnchanged)
                                       transferBand) != ESP_OK)
             return false;
         transferPending = true;
-        if (!WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs))) return false;
+        blockInFlight = 0;
+        if (!WaitForTransfer(TransferTimeout())) return false;
     }
     overlayHashValid = track;
     return true;
@@ -701,7 +1002,7 @@ bool SleepPanel()
 {
     DisplayLock lock;
     if (!Init()) return false;
-    (void)WaitForTransfer(pdMS_TO_TICKS(kTransferTimeoutMs));
+    (void)WaitForTransfer(TransferTimeout());
     bool ok = esp_lcd_panel_disp_sleep(panel, true) == ESP_OK;
     // Dark while the chip sleeps: the backlight's LEDC stops low and its pin is held there.
     if (backlightInitialized) ok = ledc_stop(kBacklightSpeedMode, kBacklightChannel, 0) == ESP_OK && ok;

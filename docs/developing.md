@@ -35,7 +35,9 @@ Reading the Launcher's Wi-Fi networks and community account needs no write acces
 
 ## Screen and ticks
 
-`Display::Present` sends 8-row bands and waits for each: keep FreeRTOS at 1000 Hz (at 100 Hz a whole screen takes 170 ms), and send only the rectangles that changed (a whole screen is 17 ms of SPI).
+- **Present with `Display::PresentChanged` in a `Display::FramePacer` loop** ([DISPLAY.md](DISPLAY.md)): it sends only what changed, in the panel's scan order, at 80 MHz (not yet measured on a board: the HAL's model, `tests/display_bench.cpp`, gives about 0.5 ms for an unchanged screen and 8 ms for a whole one; `Display::LastFrame()` measures yours).
+- **A task woken from an `esp_lcd` or SPI callback waits for the next tick** unless the callback asks for the switch (`portYIELD_FROM_ISR`): ESP-IDF's SPI panel IO ignores the callback's return value. The HAL's display waited so for each band of 8 rows until 2026-11-23: a whole screen took 17 ms at 1000 Hz and 170 ms at ESP-IDF's default of 100 Hz. Any driver of yours that waits on such a callback has the same problem.
+- **The panel has no tearing-effect line**: what is written while it scans can show half old and half new for one refresh. Small steps per frame and pages changed in one frame hide it; [DISPLAY.md](DISPLAY.md) has the details.
 
 ## USB
 

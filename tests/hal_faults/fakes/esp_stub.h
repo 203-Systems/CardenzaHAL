@@ -61,9 +61,22 @@ inline std::int64_t esp_timer_get_time() { return Fake::now; }
 
 // heap_caps: one RAM on the host; Fake::fail = "heap" makes every allocation fail.
 #define MALLOC_CAP_8BIT (1u << 2)
+#define MALLOC_CAP_DMA (1u << 3)
 #define MALLOC_CAP_SPIRAM (1u << 10)
 #define MALLOC_CAP_INTERNAL (1u << 11)
-inline void* heap_caps_malloc(std::size_t size, std::uint32_t) { return Fake::Bad("heap") ? nullptr : std::malloc(size); }
+namespace Fake {
+inline int dmaBlocks = 0;      // MALLOC_CAP_DMA blocks taken (the display's second transfer block)
+inline bool noDmaHeap = false;  // MALLOC_CAP_DMA allocations fail
+}
+inline void* heap_caps_malloc(std::size_t size, std::uint32_t caps) {
+  if (Fake::Bad("heap") || ((caps & MALLOC_CAP_DMA) != 0 && Fake::noDmaHeap)) return nullptr;
+  if ((caps & MALLOC_CAP_DMA) != 0) ++Fake::dmaBlocks;
+  return std::malloc(size);
+}
+inline void* heap_caps_aligned_alloc(std::size_t alignment, std::size_t size, std::uint32_t) {
+  if (Fake::Bad("heap")) return nullptr;
+  return std::aligned_alloc(alignment, (size + alignment - 1) / alignment * alignment);
+}
 inline void heap_caps_free(void* block) { std::free(block); }
 constexpr int ESP_RST_POWERON = 1, ESP_RST_SW = 3;
 inline int esp_reset_reason() { return Fake::resetReason; }
@@ -76,6 +89,8 @@ constexpr unsigned portMAX_DELAY = ~0u;
 #define portNUM_PROCESSORS 2
 #define configTICK_RATE_HZ 1000
 #define pdMS_TO_TICKS(ms) (ms)
+#define tskNO_AFFINITY 0x7FFFFFFF
+#define portYIELD_FROM_ISR(...) ((void)0)
 using portMUX_TYPE = int;
 #define portMUX_INITIALIZER_UNLOCKED 0
 #define portENTER_CRITICAL(...) ((void)0)
@@ -117,6 +132,23 @@ inline int xTaskCreate(void (*fn)(void*), const char* name, unsigned stack, void
 }
 inline void vTaskDelete(TaskHandle_t h) { if (h) { --Fake::tasks; delete h; } }
 inline void vTaskDelay(unsigned ticks) { Fake::now += ticks * 1000; }
+// The tick count follows Fake::now (a tick a millisecond). xTaskDelayUntil sleeps by moving the clock, unless
+// Fake::lateBy says the tick ran this many microseconds over (then, as FreeRTOS, it does not sleep).
+namespace Fake {
+inline std::int64_t lateBy = 0;
+inline int delays = 0;
+}
+inline unsigned xTaskGetTickCount() { return static_cast<unsigned>(Fake::now / 1000); }
+inline int xTaskDelayUntil(unsigned* previous, unsigned increment) {
+  ++Fake::delays;
+  Fake::now += Fake::lateBy;
+  const unsigned wake = *previous + increment;
+  const bool sleeps = xTaskGetTickCount() < wake;
+  *previous = wake;
+  if (sleeps) Fake::now = static_cast<std::int64_t>(wake) * 1000;
+  return sleeps ? pdTRUE : pdFALSE;
+}
+inline unsigned uxTaskPriorityGet(TaskHandle_t) { return 5; }
 inline void xTaskNotifyGive(TaskHandle_t) {}
 inline unsigned ulTaskNotifyTake(int, unsigned) { return 1; }
 inline void vTaskNotifyGiveFromISR(TaskHandle_t, int*) {}
@@ -283,10 +315,16 @@ inline int esp_lcd_panel_io_register_event_callbacks(void*, const esp_lcd_panel_
   Fake::displayCallback = callbacks->on_color_trans_done; Fake::displayContext = context;
   return ESP_OK;
 }
+namespace Fake {
+inline std::vector<std::array<int, 4>> drawLog;  // every window drawn, in order
+inline std::vector<const void*> blockLog;        // the buffer each one was sent from
+}
 inline int esp_lcd_panel_draw_bitmap(void*, int x0, int y0, int x1, int y1, const void* pixels) {
   ++Fake::draws;
   if (Fake::Bad("draw")) return ESP_FAIL;
   Fake::lastPixels = pixels; Fake::lastDraw = {x0, y0, x1, y1};
+  Fake::drawLog.push_back({x0, y0, x1, y1});
+  Fake::blockLog.push_back(pixels);
   const auto* words = static_cast<const std::uint16_t*>(pixels);
   Fake::pendingPixels.assign(words, words + (x1 - x0) * (y1 - y0));
   for (int row = y0; row < y1; ++row)
