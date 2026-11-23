@@ -52,6 +52,22 @@ add_executable(CardenzaChangedRegionsTests changed_regions_test.cpp ${cardenza_t
 target_include_directories(CardenzaChangedRegionsTests PRIVATE ${hal_root})
 add_test(NAME CardenzaChangedRegionsTests COMMAND CardenzaChangedRegionsTests)
 
+# display/scan_order.h (the windows a frame goes out in, left to right) and display/frame_pacing.h (which
+# ticks of a loop draw, and when it gives way).
+add_executable(CardenzaScanOrderTests scan_order_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaScanOrderTests PRIVATE ${hal_root})
+add_test(NAME CardenzaScanOrderTests COMMAND CardenzaScanOrderTests)
+add_executable(CardenzaFramePacingTests frame_pacing_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaFramePacingTests PRIVATE ${hal_root})
+add_test(NAME CardenzaFramePacingTests COMMAND CardenzaFramePacingTests)
+
+# The presenter's benchmark (display_bench.cpp): what PresentChanged finds and sends for typical screens, the
+# time it takes to find it on this computer, and a model of the board's SPI time. Run it yourself:
+#   ./CardenzaDisplayBench            (the table)       ./CardenzaDisplayBench --quick   (what ctest runs)
+add_executable(CardenzaDisplayBench display_bench.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaDisplayBench PRIVATE ${hal_root})
+add_test(NAME CardenzaDisplayBench COMMAND CardenzaDisplayBench --quick)
+
 # net/: the Launcher's saved-network storage (CRC-32 keys, base64, AES-128-CBC against vectors made by
 # the Launcher's own code), request checks, the order networks are tried in, the NVS page check.
 add_executable(CardenzaNetTests net_test.cpp

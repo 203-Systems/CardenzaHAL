@@ -11,6 +11,18 @@ menu "CardenzaHAL"
             other character '_', at most 31 characters. Choose it once: a firmware that renames its folder
             moves its users' files with CardenzaHAL::Storage::MigrateAppDir.
 
+    config CARDENZA_HAL_DISPLAY_SPI_MHZ
+        int "The display's SPI clock (MHz)"
+        range 10 80
+        default 80
+        help
+            The ST7789 panel's SPI clock; the chip makes 80, 40, 26.7, 20 MHz... from its 80 MHz APB clock and
+            takes the nearest. At 80 MHz, the 203 Launcher's on every Cardenza, the HAL moves a whole frame
+            in about 8 ms; at 40 MHz (the HAL's until 2026-11-23) a frame took about as long as the panel takes
+            to scan it out, so the write ran beside the scan and moving pictures tore in steps (203-launcher
+            docs/UX_REVIEW_2026-11-04.md). Lower it only to rule the clock out on a board whose screen
+            misbehaves (docs/DISPLAY.md).
+
     config CARDENZA_HAL_SYSTEM_MENU
         bool "System menu: press HOME (back to the Launcher, restart, turn off)"
         default y

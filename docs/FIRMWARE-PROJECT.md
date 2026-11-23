@@ -341,7 +341,7 @@ is; keep these:
 | `CONFIG_ESPTOOLPY_FLASHMODE_QIO=y`, `CONFIG_ESPTOOLPY_FLASHFREQ_120M=y` | the 203 Launcher's bootloader runs the flash in QIO; build so (DIO code ran ~40% slower) |
 | `CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y` | the chip's flash (16 MB). Under the Launcher the app sees the size the Launcher's bootloader declares (8 MB on a board flashed with Launcher 0.3.3 or earlier) and gets at most 0x690000 bytes of it; leave `CONFIG_SPI_FLASH_SIZE_OVERRIDE` off |
 | `CONFIG_SPIRAM=y`, `_MODE_QUAD`, `_SPEED_120M`, `_IGNORE_NOTFOUND=y` | the 2 MB PSRAM (ESP32-S3R2); how the heap uses it is yours (`CONFIG_SPIRAM_USE_*`, see [examples/psram_heap](https://github.com/203-Systems/CardenzaHAL/tree/main/examples/psram_heap)) |
-| `CONFIG_FREERTOS_HZ=1000` | `Display::Present` waits per band; at 100 Hz a screen takes 170 ms |
+| `CONFIG_FREERTOS_HZ=1000` | millisecond delays and frame periods (`Display::FramePacer`); the display no longer needs it |
 | `CONFIG_FATFS_SECTOR_512=y`, `CONFIG_FATFS_LFN_HEAP=y` | the SD card |
 
 Yours adds at least the partition table:
@@ -439,6 +439,7 @@ processing, file formats, the main loop). The rules (also in the HAL's
   | `keyboard/legends.h` | what each key cap says: its name, its character and shifted character, the arrows (`Legend`, `Typed`, `kKeyUp`, `kKeyOk`, …; a plain header) |
   | `keyboard/led_light.h`, `keyboard/key_settle.h` | perceived brightness to LED level; a filter for modifier keys (plain headers) |
   | `display/display.h`, `display/region.h`, `display/changed_regions.h` | the 240 × 135 screen (`Present`, `PresentChanged`, `SetBrightness`, `GetPanel`, `GetPanelIO`) |
+  | `display/presenter.h`, `display/scan_order.h`, `display/frame_pacing.h` | the frame presenter: `FramePacer` (a loop's ticks and frames), `PresentOptions`, `RequestWholeFrame`, what each frame cost (`LastFrame`, `Totals`, `SetFrameCallback`), `AllocateFramebuffer`, `DoubleBuffer` ([docs/DISPLAY.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/DISPLAY.md)) |
   | `audio/audio.h` | the speaker's I2S TX channel (`Init` mono / stereo, `GetTxChannel`, `SetVolume`) |
   | `mic/mic.h` | the PDM microphone's RX channel, and the board's microphone gain for what you read (`ApplyGain`) |
   | `storage/storage.h`, `storage/app_dir.h` | the SD card at `/sdcard` (`Init`, `IsMounted`, `CheckAfterIoError`); your firmware's folder on it, `/sdcard/Apps/<AppName>/` (`AppDir`, `AppPath`, `EnsureAppDir`, `MigrateAppDir`) |
@@ -446,7 +447,7 @@ processing, file formats, the main loop). The rules (also in the HAL's
   | `usb/usb.h` | USB MIDI, audio and HID, the app channel, the system commands |
   | `board/pins.h` | the pin map (reference: the HAL owns these pins) |
 
-- **Never re-implement what the HAL provides**: no keyboard scan, LED driver, display or codec setup, SD mount or USB stack of your own. Use its native ESP-IDF handles (`i2s_chan_handle_t`, `esp_lcd_panel_handle_t`, the I2C bus) for what it leaves to you.
+- **Never re-implement what the HAL provides**: no keyboard scan, LED driver, display or codec setup, SD mount or USB stack of your own. The screen: draw into a framebuffer and present it with `Display::PresentChanged` in a `Display::FramePacer` loop (only what changed goes out, in the panel's scan order: [docs/DISPLAY.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/DISPLAY.md)), not with change finding or DMA of your own. Use its native ESP-IDF handles (`i2s_chan_handle_t`, `esp_lcd_panel_handle_t`, the I2C bus) for what it leaves to you.
 - **Start with `CardenzaHAL::Init()`** and check it (`LastInitReport()` says which module failed). Its log lines (tag `CardenzaHAL`) are how the community recognises a firmware built with the HAL; a missing SD card or codec must not stop the firmware or restart it.
 - **Do not reconfigure what the HAL owns**: I2C0 (GPIO1/2), I2S1 and I2S0 (GPIO41/42/43/46; GPIO43 is shared by the speaker and the microphone), LEDC timers 0/1 and channels 6/7, GPIO47/48/21 (key LEDs), GPIO0 (HOME; held at a reset it is the ROM download mode), the USB PHY.
 - **HOME is the system's**: a press of HOME (the side key) opens the system menu (`system/menu.h`), the way back to the Launcher from any firmware. Do not give HOME another meaning, and do not turn the menu off (`SystemMenu::Enable(false)`, `CONFIG_CARDENZA_HAL_SYSTEM_MENU`) in a firmware for users. While the menu is open your frames are not sent and your keys read released: pause what must not run unseen (`SystemMenu::SetListener`), save before the board leaves (`SystemMenu::SetLeaveHook`).

@@ -39,7 +39,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方�
 | Flash | 16 MB，四线 120 MHz；0x170000 以下归 203 Launcher，其余由它划分，到它的 bootloader 声明的大小为止（16 MB；用 0.3.3 及以前的 Launcher 刷的板子是 8 MB，直到用 USB 重新写它的 bootloader）；一个应用最多 0x690000 字节，每台 Cardenza 都装得下 | [`board/partitions.csv`](board/partitions.csv)、[`board/sdkconfig.defaults`](board/sdkconfig.defaults) |
 | 按键 | 56 键，4 行 × 14 列（编号 1..56）；同时最多可靠读出 4 个；键帽印着字符和 shift 后的字符，方向键在 `;` `.` `,` `/` 上 | [`keyboard/keyboard.h`](keyboard/keyboard.h)：`updateKeyList`、`keyList`、`isKeyPressing`；键帽：[`keyboard/legends.h`](keyboard/legends.h)；[键盘与按键灯](#键盘与按键灯) |
 | 按键灯 | 每个键下一颗单色 LED，16 级，外加总亮度 | [`keyboard/keyboard.h`](keyboard/keyboard.h)：`setLED`、`setLEDFrame`、`setLEDGlobalBrightness`、`enableLED`；[`keyboard/led_light.h`](keyboard/led_light.h) |
-| 屏幕 | 240 × 135 彩屏（RGB565），SPI 接口的 ST7789，背光走 LEDC；整屏一帧 17 ms | [`display/display.h`](display/display.h)：`Present`、`PresentChanged`、`SetBrightness`、`GetPanel`；[屏幕显示](#屏幕显示) |
+| 屏幕 | 240 × 135 彩屏（RGB565），80 MHz SPI 接口的 ST7789，背光走 LEDC；整屏一帧约 8 ms | [`display/display.h`](display/display.h)：`Present`、`PresentChanged`、`SetBrightness`、`GetPanel`；[`display/presenter.h`](display/presenter.h)：`FramePacer`、`FrameStats`、`DoubleBuffer`；[屏幕显示](#屏幕显示) |
 | 喇叭 | ES8156 解码器，I2S，44.1 kHz 16 位，单声道喇叭（可用立体声声道） | [`audio/audio.h`](audio/audio.h)：`Init`、`GetTxChannel`、`SetVolume`；[音频输出](#音频输出) |
 | 麦克风 | PDM，44.1 kHz 单声道；时钟和喇叭共用 GPIO43 | [`mic/mic.h`](mic/mic.h)；[麦克风与音频共用引脚](#麦克风与音频共用引脚) |
 | SD 卡 | microSD，4 线 SDMMC，FAT 挂在 `/sdcard` | [`storage/storage.h`](storage/storage.h)：`Init`、`IsMounted`、`CheckAfterIoError`；[`storage/app_dir.h`](storage/app_dir.h)：本固件的文件夹 `/sdcard/Apps/<AppName>`（[目录结构](docs/SD-CARD.zh-CN.md)）；[SD 卡存储](#sd-卡存储) |
@@ -248,7 +248,7 @@ const char typed = Keyboard::Typed(key, Keyboard::isKeyPressing(Keyboard::kKeySh
 
 ## 屏幕显示
 
-接口：[`display/display.h`](display/display.h)。
+接口：[`display/display.h`](display/display.h) 和 [`display/presenter.h`](display/presenter.h)。指南（撕裂和数字）：[docs/DISPLAY.zh-CN.md](docs/DISPLAY.zh-CN.md)。
 
 - 横屏 **240 × 135**，RGB565；帧缓冲包含 `WIDTH * HEIGHT` 个 16 位像素，共 **64,800 字节**，行跨度为 `WIDTH`。面板配置为小端 RGB 数据。
 - `Present(framebuffer)` 同步提交全屏。帧缓冲可以在 PSRAM 中，HAL 使用内部 DMA 小块转发。调用返回后即可复用调用方的帧缓冲，失败时也一样。
@@ -263,9 +263,25 @@ bool ok = CardenzaHAL::Display::Present(framebuffer, &dirty, 1);
 
 `SetBrightness(0..255)` 接收感知亮度，HAL 已应用 gamma 2.2，无需重复校正。首次 `Present()` 成功前只记录亮度请求。冷启动会重置面板，软件重启会保留旧画面直到提交新帧。
 
-使用原生渲染接口时，获取 `GetPanel()` / `GetPanelIO()` 句柄，完成绘制提交后调用无参数的 `Present()`，等待排队绘制完成并显示画面。不要把自定义 panel-IO 回调与帧缓冲版 `Present()` 混用。屏幕提交和控制应由同一任务调用。
+使用原生渲染接口时，获取 `GetPanel()` / `GetPanelIO()` 句柄，完成绘制提交后调用无参数的 `Present()`，等待排队绘制完成并显示画面。不要把自定义 panel-IO 回调与帧缓冲版 `Present()` 混用。帧的提交放在同一个任务里（用 `DoubleBuffer` 时就是它的任务）。
 
-整屏一次是 17 ms 的 SPI，占了 50 fps 一帧的大半。**`PresentChanged(framebuffer)`** 自己算出哪里变了，只发那些：每行按 30 像素一段算哈希，每条 8 行的带子只发变了的行、横向覆盖变了的段；每帧另外整条重发一带，约 0.34 秒整屏刷新一遍。帧缓冲要 4 字节对齐（`alignas(4)`）；4.3 KB 的哈希表第一次用时才申请（有 PSRAM 就放 PSRAM），申请不到就整帧发送。它和其他 `Present` 二选一，不要混用。计算部分是 [`display/changed_regions.h`](display/changed_regions.h)，纯头文件，主机测试或自己负责发送的固件也能用。
+**最快的用法**：每帧把整幅画面画进帧缓冲，在 **`FramePacer`** 循环里交给 **`PresentChanged(framebuffer)`**（每 10 ms 一拍，每两拍一帧：50 fps）：
+
+```cpp
+CardenzaHAL::Display::FramePacer pacer;
+for (;;) {
+    Update();                                         // 每拍都做
+    if (pacer.DrawTick()) {
+        Draw(frame);
+        CardenzaHAL::Display::PresentChanged(frame);  // 只发变了的
+    }
+    pacer.Wait();
+}
+```
+
+**`PresentChanged(framebuffer)`** 自己算出哪里变了，只发那些：每行按 30 像素一段算哈希，每条 8 行的带子找出变了的行、横向覆盖变了的段；每帧另外整条重发一带，约 0.34 秒整屏刷新一遍。帧缓冲要 4 字节对齐（`alignas(4)`，或用 `AllocateFramebuffer()`）；4.3 KB 的哈希表第一次用时才申请（有 PSRAM 就放 PSRAM），申请不到就整帧发送。它和其他 `Present` 二选一，不要混用。计算部分是 [`display/changed_regions.h`](display/changed_regions.h)，纯头文件，主机测试或自己负责发送的固件也能用。
+
+所有提交帧缓冲的 `Present*` 都这样发：按窗口从左往右、顺着屏幕的扫描发（[`display/scan_order.h`](display/scan_order.h)：这块屏没有撕裂效应信号，这样画面移动时的斜向撕裂变成一条直线，而且更少），经过两块内部 RAM 的 DMA 块（前一个窗口在发时复制下一个），时钟 80 MHz（`CONFIG_CARDENZA_HAL_DISPLAY_SPI_MHZ`），一块发完等待的任务立刻醒来。整屏约 8 ms；画面不动时只发每帧重发的那条带子，约 0.5 ms。[`display/presenter.h`](display/presenter.h) 提供其余的：`PresentOptions`（哈希段宽、每帧重发几条带子、第二块 DMA 块）、`RequestWholeFrame()`、每帧花了多少（`LastFrame()`、`Totals()`、`SetFrameCallback`）、`FramePacer`、`AllocateFramebuffer`（PSRAM 或内部 RAM）和 `DoubleBuffer`（上一帧在发时画下一帧）。系统菜单打开时帧被挡住（`FrameStats::held`），关掉后第一帧整屏发。指南（撕裂、数字）：[docs/DISPLAY.zh-CN.md](docs/DISPLAY.zh-CN.md)。
 
 ## 音频输出
 
@@ -655,7 +671,7 @@ GPIO 以 [`board/pins.h`](board/pins.h) 为准。应用应避免重新配置 HAL
 
 HAL 附带了这块板子本身的事实，作为固件可以直接用的默认值（都不强制）：
 
-- [`board/sdkconfig.defaults`](board/sdkconfig.defaults)：16 MB 闪存，四线 120 MHz（和 203 Launcher 的 bootloader 一样）；2 MB PSRAM，120 MHz；FreeRTOS 1000 Hz（`Display::Present` 每发一条带子都要等，100 Hz 时整屏要 170 ms）；FAT 用 512 字节扇区和长文件名。在 `SDKCONFIG_DEFAULTS` 里把它放在最前，自己的默认值放后面：
+- [`board/sdkconfig.defaults`](board/sdkconfig.defaults)：16 MB 闪存，四线 120 MHz（和 203 Launcher 的 bootloader 一样）；2 MB PSRAM，120 MHz；FreeRTOS 1000 Hz（延时和 `FramePacer` 的拍子可以精确到毫秒；屏幕已经不依赖它）；FAT 用 512 字节扇区和长文件名。在 `SDKCONFIG_DEFAULTS` 里把它放在最前，自己的默认值放后面：
   ```cmake
   set(SDKCONFIG_DEFAULTS "${CMAKE_CURRENT_LIST_DIR}/components/CardenzaHAL/board/sdkconfig.defaults;sdkconfig.defaults")
   include($ENV{IDF_PATH}/tools/cmake/project.cmake)
@@ -733,7 +749,7 @@ python3 components/CardenzaHAL/tools/cardenza_web.py serve build-web/site   # ht
 | FreeRTOS | 任务、优先级、两个核（`xTaskCreatePinnedToCore`）、按 tick 的延时、队列、信号量、带优先级继承的互斥量、队列集、任务通知、事件组、软件定时器、流缓冲和消息缓冲、临界区。pthread、`std::thread`、`std::mutex`、`std::condition_variable` 和 sleep 都以任务运行。 |
 | 时间 | `esp_timer`（任务和 ISR 两种派发）、`esp_timer_get_time`、`xTaskGetTickCount` 跟随真实时间。 |
 | 内存 | 内部 RAM（`app_main` 开始时约 300 KB 可用）和 2 MB PSRAM 是两个独立的堆，容量与设备相同；`malloc`、`new`、任务栈和 DMA 缓冲都像在板子上一样从中分配；`heap_caps_*`、`CONFIG_SPIRAM_USE_MALLOC / CAPS_ALLOC / MEMMAP`、`esp_ptr_external_ram` 都可用。在板子上内部 RAM 不够的固件，在这里也会在差不多的地方不够。 |
-| 屏幕 | `Display::*` 就是 HAL 自己的代码；panel 和 panel IO 句柄驱动一个 ST7789 模型（窗口、MADCTL、反色、睡眠、字节序），带 SPI 总线的耗时（整屏 17 ms）和 `on_color_trans_done`。GPIO38 上的 LEDC 就是背光。 |
+| 屏幕 | `Display::*` 就是 HAL 自己的代码；panel 和 panel IO 句柄驱动一个 ST7789 模型（窗口、MADCTL、反色、睡眠、字节序），带 SPI 总线的耗时（按时钟算，每个窗口另加约 60 us 的命令和中断：80 MHz 时整屏约 7.4 ms）和 `on_color_trans_done`。GPIO38 上的 LEDC 就是背光。 |
 | 按键、按键灯、HOME | `Keyboard::*` 把页面的按键交给 HAL 自己的去抖和四键上限；按键灯显示扫描会输出的亮度和总亮度。`System::GetHomeButton()` 和 GPIO0 就是 HOME。 |
 | 音频 | `Audio::*`，以及经 I2C 访问的 ES8156 编解码器寄存器（启动耗时、音量）；TX 通道的 DMA（描述符 × 帧数）由页面的音频时钟按 44.1 kHz 取走，所以 `i2s_channel_write` 会像在板子上一样阻塞；有 `on_sent` / `on_send_q_ovf`。麦克风（`Mic::*`，PDM RX）在页面被允许时使用电脑的麦克风；GPIO43 归最后配置它的一方。 |
 | 存储 | `Storage::*` 挂载 `/sdcard`（页面说没有卡时 `?sd=0` 就没有）；C 和 C++ 的文件操作都可用；`esp_vfs_fat_info`；NVS 随页面保存。 |

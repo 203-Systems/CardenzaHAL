@@ -3,6 +3,7 @@
 #include "display/internal/overlay.h"
 
 #include <array>
+#include <cstdint>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -236,6 +237,170 @@ void OverlayBacklight()
     Require(Fake::backlightDuty < firmwareDuty && Fake::backlightDuty > 0, "the firmware's brightness did not come back");
 }
 
+// Every framebuffer Present* goes out in the panel's scan order (display/scan_order.h): a whole frame as 15
+// windows of 16 columns from left to right, through two DMA blocks taken in turn (one when the heap has no
+// room for the second, or when the options say so).
+void Scan(bool secondBlock)
+{
+    if (!secondBlock) Fake::noDmaHeap = true;
+    const auto frame = MakeFrame();
+    Fake::drawLog.clear();
+    Fake::blockLog.clear();
+    Require(Display::Present(frame.data()) && Fake::displayPixels == frame, "a whole frame did not reach the panel");
+    Require(Fake::drawLog.size() == 15, "a whole frame was not 15 windows");
+    for (std::size_t index = 0; index < Fake::drawLog.size(); ++index)
+        Require(Fake::drawLog[index] == std::array<int, 4>{static_cast<int>(index) * 16, 0, static_cast<int>(index) * 16 + 16,
+                                                            Display::HEIGHT},
+                "the windows were not the screen's columns from left to right");
+    for (std::size_t index = 1; index < Fake::blockLog.size(); ++index)
+        Require((Fake::blockLog[index] != Fake::blockLog[index - 1]) == secondBlock,
+                secondBlock ? "consecutive windows did not take the two blocks in turn" : "one block was not reused");
+    Require(Fake::dmaBlocks == (secondBlock ? 1 : 0), "the second block was not taken once");
+    // A short strip across the screen is one window; a tall narrow rectangle a column band.
+    Fake::drawLog.clear();
+    const Display::Region strip{0, 40, Display::WIDTH, 8}, column{100, 0, 10, Display::HEIGHT};
+    const Display::Region both[] = {column, strip};
+    Require(Display::Present(frame.data(), both, 2), "two rectangles failed");
+    Require(Fake::drawLog.size() == 2 && Fake::drawLog[0] == std::array<int, 4>{0, 40, 240, 48} &&
+                Fake::drawLog[1] == std::array<int, 4>{100, 0, 110, Display::HEIGHT},
+            "the rectangles did not go out left to right, each in its window");
+    if (secondBlock)
+    {
+        // The options can give the second block back: one block from then on.
+        Display::PresentOptions options = Display::GetPresentOptions();
+        options.pipeline = false;
+        Require(Display::SetPresentOptions(options), "valid options were refused");
+        Fake::blockLog.clear();
+        Require(Display::Present(frame.data()) && Fake::blockLog.size() == 15, "a whole frame failed with one block");
+        for (const void* block : Fake::blockLog) Require(block == Fake::blockLog.front(), "one block was not reused");
+    }
+    Fake::noDmaHeap = false;
+}
+
+// FrameStats, PresentTotals and the frame callback (display/presenter.h).
+void Stats()
+{
+    alignas(4) static Frame frame;
+    frame = MakeFrame();
+    struct Seen { int calls = 0; Display::FrameStats last; } seen;
+    Display::SetFrameCallback([](const Display::FrameStats& stats, void* context) {
+        auto& record = *static_cast<Seen*>(context);
+        ++record.calls;
+        record.last = stats;
+        // The callback runs outside the display's lock: it may ask the display.
+        Require(Display::LastFrame().number == stats.number, "the callback could not read the last frame");
+    }, &seen);
+    Require(Display::Init() && Display::PresentChanged(frame.data()), "the first frame failed");
+    auto stats = Display::LastFrame();
+    Require(stats.ok && stats.whole && !stats.held && stats.number == 1 && stats.bytes == 64800 && stats.windows == 15,
+            "the first frame's stats were wrong");
+    Require(seen.calls == 1 && seen.last.number == 1 && seen.last.bytes == 64800, "the callback did not see the first frame");
+    frame[70 * Display::WIDTH + 100] ^= 0xffff;
+    Require(Display::PresentChanged(frame.data()), "a changed frame failed");
+    stats = Display::LastFrame();
+    Require(stats.ok && !stats.whole && stats.number == 2 && stats.regions == 2 && stats.windows == 2 &&
+                stats.bytes == (30 + Display::WIDTH * 8) * 2,
+            "a changed pixel's stats were not its segment and the refresh band");
+    // The system menu holds the screen: held, nothing sent.
+    Require(Display::detail::BeginOverlay(), "the overlay did not begin");
+    Require(Display::PresentChanged(frame.data()) && Display::LastFrame().held && Display::LastFrame().bytes == 0,
+            "a held frame was not reported as held");
+    Display::detail::EndOverlay();
+    // A failed frame, then the whole screen after it.
+    Fake::fail = "draw";
+    Require(!Display::PresentChanged(frame.data()) && !Display::LastFrame().ok, "a failed frame was reported as sent");
+    Fake::fail.clear();
+    Require(Display::PresentChanged(frame.data()) && Display::LastFrame().whole, "the frame after a failure was not whole");
+    auto totals = Display::Totals();
+    Require(totals.frames == 5 && totals.wholeFrames == 3 && totals.heldFrames == 1 && totals.failures == 1 &&
+                totals.bytes == 64800 * 2 + (30 + Display::WIDTH * 8) * 2 && seen.calls == 5,
+            "the totals did not add up");
+    Display::ResetTotals();
+    Require(Display::Totals().frames == 0 && Display::Totals().bytes == 0, "the totals were not reset");
+    Display::SetFrameCallback(nullptr);
+    Require(Display::PresentChanged(frame.data()) && seen.calls == 5, "a removed callback still ran");
+}
+
+// PresentOptions and RequestWholeFrame.
+void Options()
+{
+    alignas(4) static Frame frame;
+    frame = MakeFrame();
+    Require(Display::Init() && Display::PresentChanged(frame.data()), "the first frame failed");
+    Display::PresentOptions options;
+    options.segmentPixels = 7;
+    Require(!Display::SetPresentOptions(options), "a segment of 7 pixels was accepted");
+    options.segmentPixels = 16;
+    options.refreshBands = 18;
+    Require(!Display::SetPresentOptions(options), "18 refresh bands were accepted");
+    options.refreshBands = -1;
+    Require(!Display::SetPresentOptions(options), "negative refresh bands were accepted");
+    Require(Display::GetPresentOptions().segmentPixels == 30, "a refused option changed the options");
+    options.refreshBands = 0;
+    Require(Display::SetPresentOptions(options) && Display::GetPresentOptions().segmentPixels == 16,
+            "valid options were refused");
+    Require(Display::PresentChanged(frame.data()) && Display::LastFrame().whole, "new options did not start with a whole frame");
+    Require(Display::PresentChanged(frame.data()) && Display::LastFrame().bytes == 0 && Display::LastFrame().windows == 0,
+            "without refresh bands an unchanged frame sent something");
+    frame[20 * Display::WIDTH + 33] ^= 1;
+    Fake::drawLog.clear();
+    Require(Display::PresentChanged(frame.data()) && Fake::drawLog.size() == 1 &&
+                Fake::drawLog[0] == std::array<int, 4>{32, 20, 48, 21} && Fake::displayPixels == frame,
+            "a changed pixel did not go out as its 16-pixel segment");
+    Display::RequestWholeFrame();
+    Require(Display::PresentChanged(frame.data()) && Display::LastFrame().whole && Display::LastFrame().bytes == 64800,
+            "RequestWholeFrame did not send the whole screen");
+    Require(Display::PresentChanged(frame.data()) && Display::LastFrame().bytes == 0, "the frame after it was not back to changes");
+}
+
+// FramePacer on the fake clock: draws every other tick, sleeps to each tick, gives way after three late ones.
+void Pacer()
+{
+    Fake::now = 5000000;  // tick 5000
+    Display::PacerOptions options;
+    Display::FramePacer pacer(options);
+    Require(pacer.Period() == 10 && pacer.DrawTick() && pacer.Tick() == 0, "the pacer did not start on a drawing tick");
+    Require(pacer.Wait() && Fake::now == 5010000 && !pacer.DrawTick(), "an on-time tick did not sleep to the next");
+    Require(pacer.Wait() && Fake::now == 5020000 && pacer.DrawTick(), "the second tick did not sleep to the next");
+    // Each tick now takes 15 ms: late, no sleep; the third late one in a row sleeps one RTOS tick.
+    Fake::lateBy = 15000;
+    Require(!pacer.Wait() && !pacer.Wait(), "late ticks slept");
+    const auto before = Fake::now;
+    Require(!pacer.Wait() && Fake::now == before + 15000 + 1000 && pacer.Yields() == 1 && pacer.LateTicks() == 3,
+            "the third late tick did not give way for one RTOS tick");
+    // Back on time: the schedule starts again from the tick after giving way.
+    Fake::lateBy = 0;
+    const auto restart = Fake::now;
+    Require(pacer.Wait() && Fake::now == restart + 10000, "the schedule did not restart from giving way");
+}
+
+// AllocateFramebuffer and DoubleBuffer (on the fakes the presenting task does not run: what can be checked is
+// what it keeps and gives back).
+void Buffers()
+{
+    uint16_t* frame = Display::AllocateFramebuffer();
+    Require(frame != nullptr && reinterpret_cast<std::uintptr_t>(frame) % 32 == 0, "a framebuffer was not 32-byte aligned");
+    for (int index = 0; index < Display::WIDTH * Display::HEIGHT; ++index) Require(frame[index] == 0, "a framebuffer was not zeroed");
+    Display::FreeFramebuffer(frame);
+    Fake::fail = "heap";
+    Require(Display::AllocateFramebuffer(Display::FrameMemory::Internal) == nullptr, "no room gave a framebuffer");
+    {
+        Display::DoubleBuffer chain;
+        Require(!chain.Begin() && chain.Back() == nullptr && Fake::tasks == 0 && Fake::binarySemaphores == 0,
+                "a double buffer without room kept something");
+    }
+    Fake::fail.clear();
+    {
+        Display::DoubleBuffer chain;
+        Require(chain.Begin() && Fake::tasks == 1 && Fake::binarySemaphores == 2, "a double buffer did not begin");
+        uint16_t* first = chain.Back();
+        Require(first != nullptr && chain.Present() && chain.Back() != nullptr && chain.Back() != first,
+                "Present did not hand over the back frame");
+        chain.End();
+        Require(Fake::tasks == 0 && Fake::binarySemaphores == 0 && chain.Back() == nullptr, "End did not give everything back");
+    }
+}
+
 void Invalid()
 {
     const auto frame = MakeFrame();
@@ -263,6 +428,11 @@ int main(int argc, char** argv)
         else if (scenario == "changed" || scenario == "changed_no_memory") Changed(scenario == "changed");
         else if (scenario == "overlay" || scenario == "overlay_no_memory") Overlay(scenario == "overlay");
         else if (scenario == "overlay_backlight") OverlayBacklight();
+        else if (scenario == "scan" || scenario == "scan_one_block") Scan(scenario == "scan");
+        else if (scenario == "stats") Stats();
+        else if (scenario == "options") Options();
+        else if (scenario == "pacer") Pacer();
+        else if (scenario == "buffers") Buffers();
         else FailAndRetry(scenario);
         std::cout << "Display " << scenario << " passed\n";
     } catch (const std::exception& error) {

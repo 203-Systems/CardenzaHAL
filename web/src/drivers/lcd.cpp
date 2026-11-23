@@ -1,8 +1,8 @@
 // esp_lcd on the web target: the SPI bus, the SPI panel IO and the ST7789 panel driver, ending in the
 // display model (st7789.h). The HAL's own display code (display/display.cpp) runs on these unchanged.
 //
-// Timing is the device's: a colour transfer takes the time its bytes need on the 40 MHz bus (a whole
-// 240 x 135 frame about 17 ms, as measured on the board), transfers queue up to trans_queue_depth,
+// Timing is the device's: a colour transfer takes the time its bytes need at the bus's clock (the HAL's
+// 80 MHz: a whole 240 x 135 frame in 15 windows about 7.4 ms), transfers queue up to trans_queue_depth,
 // on_color_trans_done runs in ISR context when one is done, and a parameter transfer waits for the
 // queue to drain. The pixels reach the model when queued.
 
@@ -37,9 +37,13 @@ namespace {
 constexpr int kDisplayHost = SPI3_HOST;
 constexpr int kDisplayCs = 37;
 constexpr int kDisplayDc = 34;
-// 64,800 bytes took 17 ms on the board at 40 MHz: the bus runs at about 76% of its clock.
-constexpr double kBusEfficiency = 12.96 / 17.0;
-constexpr uint64_t kTransactionOverheadUs = 12;
+// The bus moves a colour transfer's bytes at its clock. Each draw costs about 60 us besides: the three polled
+// commands before its pixels (CASET, RASET, RAMWR: about 11 us each) and its interrupt (about 26 us), ESP-IDF's
+// figures for the S3 (spi_master.rst, "Transaction Duration"). The 17 ms a whole frame took at 40 MHz with the
+// HAL of 2026-11-05 were 17 bands each finished at the next 1 ms tick, not a slow bus (the HAL now switches to
+// the waiting task from the completion: tests/display_bench.cpp).
+constexpr double kBusEfficiency = 1.0;
+constexpr uint64_t kTransactionOverheadUs = 60;
 constexpr int kMaxQueue = 32;
 
 bool g_busInitialized[SPI_HOST_MAX] = {};
