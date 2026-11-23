@@ -94,9 +94,9 @@ extern "C" void app_main()
     const esp_app_desc_t* app = esp_app_get_description();
     ESP_LOGI(kTag, "%s %s ready", app->project_name, app->version);
 
-    Display::SetBrightness(200);
+    // The screen's and the key lights' brightness and the volume are the board's settings (system/settings.h,
+    // HOME > Settings): CardenzaHAL::Init applied them. Setting them here would override the user's choice.
     Keyboard::enableLED(true);
-    Keyboard::setLEDGlobalBrightness(15);
 
     bool inverted = false;
     bool homeBefore = false;

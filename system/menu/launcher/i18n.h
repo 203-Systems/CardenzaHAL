@@ -1,5 +1,5 @@
 // Copied from the 203 Launcher (https://github.com/203-Systems/203-launcher, MIT; LICENSE and
-// NOTICE.md there) by tools/launcher_ui.py: src/platform/i18n.h at 6c318426bec3.
+// NOTICE.md there) by tools/launcher_ui.py: src/platform/i18n.h at 4409843d25be.
 // Do not edit: change it in the Launcher and copy it again.
 #pragma once
 

@@ -90,8 +90,8 @@ namespace CardenzaHAL::USB {
     inline constexpr uint8_t kReportSystem = 0xCB;
     inline constexpr uint8_t kReportApp = 0xFF;
     inline constexpr std::size_t kReportSize = 63;
-    // 2: the development channel (kCommandDev).
-    inline constexpr uint8_t kProtocolVersion = 2;
+    // 2: the development channel (kCommandDev). 3: the board's settings on it (docs/usb-dev.md).
+    inline constexpr uint8_t kProtocolVersion = 3;
     enum Command : uint8_t {
         kCommandBootloader = 0x40,  // Matrix OS: the update mode; here the Launcher, else the ROM download mode
         kCommandReboot = 0x41,      // restarts the firmware

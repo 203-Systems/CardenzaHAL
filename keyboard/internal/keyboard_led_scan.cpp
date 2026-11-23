@@ -6,6 +6,7 @@
 
 #include <driver/gpio.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <hal/spi_ll.h>
 
 namespace CardenzaHAL::Keyboard {
@@ -40,9 +41,38 @@ void KeyboardDriver::beginOverlay(const LedFrame& lights)
     if (!_initialized) return;
     (void)_overlay_frame.Assign(lights);
     _overlay.store(true);
+    _overlay_floor.store(true);
     _commit_led_frame();
     if (_global_brightness < kOverlayGlobalLevel)
         detail::SetKeyboardLedGlobalDuty(detail::LedGlobalDutyForLevel(kOverlayGlobalLevel));
+}
+
+void KeyboardDriver::holdLightsDark(bool dark)
+{
+    if (!_initialized)
+    {
+        _dark = dark;
+        return;
+    }
+    if (!dark)
+    {
+        _dark = false;
+        return;
+    }
+    portENTER_CRITICAL(&detail::kKeyboardStateMux);
+    _dark = true;
+    _dark_steps = 0;
+    portEXIT_CRITICAL(&detail::kKeyboardStateMux);
+    // The scan steps every 13 to 103 us: two steps and the lit row has been gated off. A tick or two at most.
+    for (int wait = 0; wait < 10 && _dark_steps < 2; ++wait) vTaskDelay(1);
+}
+
+void KeyboardDriver::setOverlayFloor(bool on)
+{
+    _overlay_floor.store(on);
+    uint8_t level = _global_brightness;
+    if (_overlay.load() && on && level < kOverlayGlobalLevel) level = kOverlayGlobalLevel;
+    detail::SetKeyboardLedGlobalDuty(detail::LedGlobalDutyForLevel(level));
 }
 
 void KeyboardDriver::lightsOffForSleep()
@@ -132,7 +162,7 @@ void KeyboardDriver::setLEDGlobalBrightness(uint8_t level)
         level = LED_BRIGHTNESS_MAX;
     }
     _global_brightness = level;
-    if (_overlay.load() && level < kOverlayGlobalLevel) level = kOverlayGlobalLevel;
+    if (_overlay.load() && _overlay_floor.load() && level < kOverlayGlobalLevel) level = kOverlayGlobalLevel;
     detail::SetKeyboardLedGlobalDuty(detail::LedGlobalDutyForLevel(level));
 }
 

@@ -6,6 +6,7 @@
 #include "keyboard/keyboard.h"
 #include "mic/mic.h"
 #include "storage/storage.h"
+#include "system/settings.h"
 #include "system/system.h"
 
 

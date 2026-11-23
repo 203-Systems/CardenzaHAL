@@ -2,25 +2,16 @@
 #include "system/menu/logic.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
+#include "display/backlight_brightness.h"
 #include "system/menu/launcher/lcd.h"
 #include "system/menu/launcher/motion.h"
 
 namespace CardenzaHAL::SystemMenu::detail {
 
-namespace {
-
-// ---- Keys and the list --------------------------------------------------------------------------------
-
-void KeepInView(State& state)
-{
-    state.selected = std::clamp(state.selected, 0, kItemCount - 1);
-    state.scroll = std::clamp(state.scroll, state.selected - (kVisibleRows - 1), state.selected);
-    state.scroll = std::clamp(state.scroll, 0, std::max(0, kItemCount - kVisibleRows));
-}
-
-}  // namespace
+// ---- Keys, lists and pages ------------------------------------------------------------------------------
 
 Key KeyAt(int x, int y)
 {
@@ -29,27 +20,214 @@ Key KeyAt(int x, int y)
     return Key::None;
 }
 
-Outcome Apply(State& state, Key key)
+bool Move(ListState& list, int delta, int count)
 {
-    Outcome outcome;
-    const State before = state;
+    const ListState before = list;
+    list.selected = std::clamp(list.selected + delta, 0, count - 1);
+    list.scroll = std::clamp(list.scroll, list.selected - (kVisibleRows - 1), list.selected);
+    list.scroll = std::clamp(list.scroll, 0, std::max(0, count - kVisibleRows));
+    return list.selected != before.selected || list.scroll != before.scroll;
+}
+
+Settings::Id RowSetting(Row row)
+{
+    switch (row)
+    {
+        case Row::VolumeLimit: return Settings::Id::VolumeLimit;
+        case Row::ScreenBrightness: return Settings::Id::ScreenBrightness;
+        case Row::KeyBrightness: return Settings::Id::KeyBrightness;
+        case Row::MicGain: return Settings::Id::MicGain;
+        case Row::Language: return Settings::Id::Language;
+        default: return Settings::Id::Volume;
+    }
+}
+
+namespace {
+
+int Delta(Key key)
+{
+    return key == Key::Up ? -1 : key == Key::Down ? 1 : 0;
+}
+
+void Open(State& state, Outcome& outcome, Page page)
+{
+    state.page = page;
+    outcome.page = true;
+    outcome.changed = true;
+}
+
+// A setting changed on the page: in the menu's values and in the outcome.
+void SetValue(State& state, Outcome& outcome, Settings::Id id, int value)
+{
+    const uint32_t changed = Settings::detail::Apply(state.values, id, value);
+    if (changed == 0) return;
+    outcome.set = true;
+    outcome.id = id;
+    outcome.value = state.values[Settings::detail::Index(id)];
+    outcome.changed = true;
+}
+
+void ApplyMain(State& state, Key key, Outcome& outcome)
+{
     switch (key)
     {
-        case Key::Up: --state.selected; break;
-        case Key::Down: ++state.selected; break;
+        case Key::Up:
+        case Key::Down: outcome.changed = Move(state.main, Delta(key), kItemCount); break;
+        case Key::Back: outcome.close = true; break;
         case Key::Select:
-            outcome.chosen = true;
-            outcome.item = static_cast<Item>(std::clamp(state.selected, 0, kItemCount - 1));
+        {
+            const auto item = static_cast<Item>(std::clamp(state.main.selected, 0, kItemCount - 1));
+            if (item == Item::Continue) outcome.close = true;
+            else if (item == Item::Settings) Open(state, outcome, Page::Settings);
+            else if (item == Item::About) Open(state, outcome, Page::About);
+            else
+            {
+                outcome.leave = true;
+                outcome.item = item;
+            }
             break;
+        }
+        case Key::None: break;
+    }
+}
+
+void ApplySettings(State& state, Key key, Outcome& outcome)
+{
+    switch (key)
+    {
+        case Key::Up:
+        case Key::Down: outcome.changed = Move(state.settings, Delta(key), kRowCount); break;
+        case Key::Back: Open(state, outcome, Page::Main); break;
+        case Key::Select:
+        {
+            const auto row = static_cast<Row>(std::clamp(state.settings.selected, 0, kRowCount - 1));
+            if (row == Row::Reset)
+            {
+                state.button = 1;  // Cancel, as the Launcher's uiConfirm
+                Open(state, outcome, Page::Reset);
+            }
+            else if (row == Row::Language)
+            {
+                const int at = Settings::detail::LanguageIndex(state.values[Settings::detail::Index(Settings::Id::Language)]);
+                state.language = ListState{};
+                Move(state.language, std::max(at, 0), Settings::detail::kLanguageCount);
+                Open(state, outcome, Page::Language);
+            }
+            else
+            {
+                state.editing = RowSetting(row);
+                state.original = state.values[Settings::detail::Index(state.editing)];
+                Open(state, outcome, Page::Value);
+            }
+            break;
+        }
+        case Key::None: break;
+    }
+}
+
+void ApplyValue(State& state, Key key, Outcome& outcome)
+{
+    const int now = state.values[Settings::detail::Index(state.editing)];
+    switch (key)
+    {
+        case Key::Up:
+        case Key::Down:
+            SetValue(state, outcome, state.editing, now + Delta(key) * Settings::detail::kInfo[Settings::detail::Index(state.editing)].step);
+            break;
+        case Key::Select: Open(state, outcome, Page::Settings); break;
         case Key::Back:
-            outcome.chosen = true;
-            outcome.item = Item::Continue;
+            // Back cancels: the value it had when the page opened.
+            if (now != state.original) SetValue(state, outcome, state.editing, state.original);
+            Open(state, outcome, Page::Settings);
             break;
         case Key::None: break;
     }
-    KeepInView(state);
-    outcome.changed = state.selected != before.selected || state.scroll != before.scroll;
+}
+
+void ApplyLanguage(State& state, Key key, Outcome& outcome)
+{
+    switch (key)
+    {
+        case Key::Up:
+        case Key::Down: outcome.changed = Move(state.language, Delta(key), Settings::detail::kLanguageCount); break;
+        case Key::Select:
+        {
+            const int at = std::clamp(state.language.selected, 0, Settings::detail::kLanguageCount - 1);
+            SetValue(state, outcome, Settings::Id::Language, Settings::detail::kLanguageCodes[at]);
+            Open(state, outcome, Page::Settings);
+            break;
+        }
+        case Key::Back: Open(state, outcome, Page::Settings); break;
+        case Key::None: break;
+    }
+}
+
+void ApplyReset(State& state, Key key, Outcome& outcome)
+{
+    switch (key)
+    {
+        case Key::Up:
+        case Key::Down:
+        {
+            const int next = std::clamp(state.button + Delta(key), 0, 1);
+            outcome.changed = next != state.button;
+            state.button = next;
+            break;
+        }
+        case Key::Select:
+            if (state.button == 0)
+            {
+                outcome.reset = true;
+                (void)Settings::detail::ApplyReset(state.values);
+            }
+            Open(state, outcome, Page::Settings);
+            break;
+        case Key::Back: Open(state, outcome, Page::Settings); break;
+        case Key::None: break;
+    }
+}
+
+}  // namespace
+
+Outcome Apply(State& state, Key key)
+{
+    Outcome outcome;
+    switch (state.page)
+    {
+        case Page::Main: ApplyMain(state, key, outcome); break;
+        case Page::Settings: ApplySettings(state, key, outcome); break;
+        case Page::Value: ApplyValue(state, key, outcome); break;
+        case Page::Language: ApplyLanguage(state, key, outcome); break;
+        case Page::Reset: ApplyReset(state, key, outcome); break;
+        case Page::About:
+            if (key == Key::Select || key == Key::Back) Open(state, outcome, Page::Main);
+            break;
+    }
     return outcome;
+}
+
+void ValueText(Settings::Id id, int value, char* out, std::size_t size)
+{
+    if (size == 0) return;
+    const char* unit = Settings::detail::kInfo[Settings::detail::Index(id)].unit;
+    if (id == Settings::Id::MicGain)
+        std::snprintf(out, size, value > 0 ? "+%d %s" : "%d %s", value, unit);
+    else
+        std::snprintf(out, size, "%d%s", value, unit);
+}
+
+void SizeText(uint64_t bytes, char* out, std::size_t size)
+{
+    constexpr uint64_t kMb = 1024ull * 1024, kGb = kMb * 1024;
+    if (bytes >= kGb)
+    {
+        const uint64_t tenths = (bytes * 10 + kGb / 2) / kGb;  // integers: no float formatting in a firmware's libc
+        std::snprintf(out, size, "%u.%u GB", static_cast<unsigned>(tenths / 10), static_cast<unsigned>(tenths % 10));
+    }
+    else if (bytes >= kMb)
+        std::snprintf(out, size, "%u MB", static_cast<unsigned>((bytes + kMb / 2) / kMb));
+    else
+        std::snprintf(out, size, "%u KB", static_cast<unsigned>((bytes + 512) / 1024));
 }
 
 Key KeyRepeat::Update(Key held, uint32_t nowMs)
@@ -141,10 +319,8 @@ int LauncherBrightness(bool found, int32_t stored)
 
 int LauncherBacklightDuty(int percent, int full)
 {
-    // Its backlightDuty: 1023 * (1100 + 89 * p) / 10000 of 1023, so 20 % of the time at 10 and always on at
-    // 100 (the backlight's driver needs a pulse long enough to rise).
-    percent = std::clamp(percent, 0, 100);
-    return percent == 0 ? 0 : (full * (1100 + 89 * percent) + 5000) / 10000;
+    // Its backlightDuty (display/backlight_brightness.h, where the board's screen setting takes it too).
+    return Display::detail::LauncherBacklightDuty(percent, full);
 }
 
 // ---- NVS ----------------------------------------------------------------------------------------------

@@ -80,6 +80,7 @@
 #include "net/internal/nvs_page.h"
 #include "net/internal/shared_use.h"
 #include "net/presence_logic.h"
+#include "system/internal/nvs_access.h"
 
 #if CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC
 extern "C" void* esp_mbedtls_mem_calloc(size_t n, size_t size);
@@ -798,6 +799,8 @@ static SettingsResult ReadSettingsNow(LauncherSettings& settings, bool quiet)
     settings.receiveFirmware = true;
     const int64_t startUs = esp_timer_get_time();
     std::lock_guard<std::mutex> lock(g_settingsMutex);
+    // Not while the system settings' writer has the partition open (it may close it): system/settings.cpp.
+    std::lock_guard<std::mutex> nvsLock(System::detail::NvsWriteMutex());
     bool opened = false;
     const SettingsResult result = OpenForReading(opened);
     if (result != SettingsResult::Ok) return result;
@@ -1362,6 +1365,8 @@ SettingsResult Internal::ReadAccount(LauncherAccount& account, bool& receiveFirm
     account = LauncherAccount{};
     receiveFirmware = true;
     std::lock_guard<std::mutex> lock(g_settingsMutex);
+    // Not while the system settings' writer has the partition open (it may close it): system/settings.cpp.
+    std::lock_guard<std::mutex> nvsLock(System::detail::NvsWriteMutex());
     bool opened = false;
     const SettingsResult result = OpenForReading(opened);
     if (result != SettingsResult::Ok) return result;
@@ -1408,6 +1413,8 @@ bool Internal::WritePending(const PendingCommand& pending)
     namespace Keys = Presence::Logic::Pending;
     if (pending.command == nullptr || pending.action == nullptr || pending.api == nullptr) return false;
     std::lock_guard<std::mutex> lock(g_settingsMutex);
+    // The system settings' writer (system/settings.cpp) opens and closes the partition too: one at a time.
+    std::lock_guard<std::mutex> nvsLock(System::detail::NvsWriteMutex());
     nvs_handle_t handle = 0;
     bool opened = false;
     if (!OpenForWriting(handle, opened)) return false;
@@ -1426,6 +1433,7 @@ bool Internal::WritePending(const PendingCommand& pending)
 bool Internal::ClearPending()
 {
     std::lock_guard<std::mutex> lock(g_settingsMutex);
+    std::lock_guard<std::mutex> nvsLock(System::detail::NvsWriteMutex());
     nvs_handle_t handle = 0;
     bool opened = false;
     if (!OpenForWriting(handle, opened)) return false;

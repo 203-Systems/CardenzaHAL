@@ -34,4 +34,14 @@ constexpr uint16_t BacklightDuty(uint8_t brightness)
     return kBacklightDuty[brightness];
 }
 
+// The 203 Launcher's backlight on the Cardenza (its src/platform/board.cpp backlightDuty), at its PWM
+// frequency (256 Hz): the duty of its brightness `percent` (10 to 100) out of `full`, 1023 * (1100 + 89 p) /
+// 10000 of 1023, so 20 % of the time at 10 and always on at 100 (the backlight's driver needs a pulse long
+// enough to rise). The system menu and the board's screen brightness setting (system/settings.h) use it.
+constexpr int LauncherBacklightDuty(int percent, int full)
+{
+    percent = percent < 0 ? 0 : percent > 100 ? 100 : percent;
+    return percent == 0 ? 0 : (full * (1100 + 89 * percent) + 5000) / 10000;
+}
+
 }  // namespace CardenzaHAL::Display::detail

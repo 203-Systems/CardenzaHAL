@@ -3,6 +3,7 @@
 #include "backlight_brightness.h"
 #include "internal/overlay.h"
 #include "internal/snapshot.h"
+#include "internal/system_brightness.h"
 #include "../board/pins.h"
 
 #include <algorithm>
@@ -64,6 +65,11 @@ bool transferPending = false;
 //   screen as it does in the Launcher (the backlight's driver takes 400 us to rise: the same duty is dimmer in
 //   shorter pulses).
 bool overlayActive = false;
+// The board's screen brightness setting (system/settings.h, internal/system_brightness.h): -1 none (a firmware
+// without CardenzaHAL::Init: its own `brightness` as before). firmwareOwns: the firmware set its own level
+// since the setting last changed.
+int systemPercent = -1;
+bool firmwareOwns = false;
 // The development channel's screenshot (internal/snapshot.h): the framebuffer last presented, and a frame to
 // copy the next one into.
 const uint16_t* lastFramebuffer = nullptr;
@@ -115,9 +121,21 @@ class DisplayLock {
     bool held_ = false;
 };
 
+// The setting's light: the Launcher's duty curve, at its PWM frequency.
+bool SystemShown()
+{
+    return systemPercent >= 0 && !firmwareOwns;
+}
+
+uint16_t FirmwareDuty(uint8_t requested)
+{
+    return SystemShown() ? static_cast<uint16_t>(detail::LauncherBacklightDuty(systemPercent, detail::kBacklightFullDuty))
+                         : detail::BacklightDuty(requested);
+}
+
 uint16_t ShownDuty(uint8_t requested)
 {
-    return overlayDuty >= 0 ? static_cast<uint16_t>(overlayDuty) : detail::BacklightDuty(requested);
+    return overlayDuty >= 0 ? static_cast<uint16_t>(overlayDuty) : FirmwareDuty(requested);
 }
 
 void Capture(const uint16_t* framebuffer)
@@ -136,8 +154,9 @@ void Capture(const uint16_t* framebuffer)
 
 esp_err_t ApplyDuty(uint16_t duty)
 {
-    // The PWM's frequency first: the Launcher's while the system menu asks for it, the HAL's otherwise.
-    const bool launcherPwm = overlayDuty >= 0 && overlayLauncherPwm;
+    // The PWM's frequency first: the Launcher's while the system menu asks for it or the system setting is
+    // shown, the HAL's otherwise.
+    const bool launcherPwm = overlayDuty >= 0 ? overlayLauncherPwm : SystemShown();
     if (backlightInitialized && launcherPwm != launcherPwmApplied &&
         ledc_set_freq(kBacklightSpeedMode, kBacklightTimer,
                       launcherPwm ? kLauncherBacklightFrequencyHz : kBacklightFrequencyHz) == ESP_OK)
@@ -503,6 +522,7 @@ bool SetBrightness(uint8_t value)
 {
     DisplayLock lock;
     brightness = value;
+    firmwareOwns = true;
 
     if (!firstFramePresented)
     {
@@ -651,7 +671,15 @@ void SetBacklightDuty(int duty, bool launcherPwm)
 int FirmwareBacklightDuty()
 {
     DisplayLock lock;
-    return BacklightDuty(brightness);
+    return FirmwareDuty(brightness);
+}
+
+void SetSystemBrightness(int percent)
+{
+    DisplayLock lock;
+    systemPercent = std::clamp(percent, 0, 100);
+    firmwareOwns = false;
+    if (firstFramePresented) (void)ApplyDuty(ShownDuty(brightness));
 }
 
 void EndOverlay()

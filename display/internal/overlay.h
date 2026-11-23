@@ -28,7 +28,7 @@ namespace CardenzaHAL::Display::detail {
     // backlight_brightness.h), with `launcherPwm` at the 203 Launcher's PWM frequency (256 Hz), where a duty is
     // as bright as in the Launcher; -1: the firmware's brightness and the HAL's frequency again.
     void SetBacklightDuty(int duty, bool launcherPwm);
-    // The duty of the firmware's brightness.
+    // The duty of the firmware's light: the system setting's (system/settings.h), or the firmware's own level.
     int FirmwareBacklightDuty();
     // Back to the firmware: its next frame is sent whole, its brightness back; the table goes.
     void EndOverlay();

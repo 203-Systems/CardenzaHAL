@@ -5,8 +5,9 @@ menu "CardenzaHAL"
         default y
         help
             CardenzaHAL::Init starts the system menu (system/menu.h): a press of the side key (HOME,
-            GPIO0) opens a menu drawn like the 203 Launcher's over the firmware, with Continue, Back
-            to Launcher, Restart, Turn off and Download mode. While it is open the firmware keeps running,
+            GPIO0) opens a menu drawn like the 203 Launcher's over the firmware, with Continue, Settings
+            (the board's settings, system/settings.h), Back to Launcher, Restart, Turn off, About this
+            device and Download mode. While it is open the firmware keeps running,
             but its frames are not sent, it sees no key and the key lights show the menu's keys.
 
             Costs: a task with a 3 KB stack that reads GPIO0 every 10 ms, about 10 KB of flash (words and
@@ -25,8 +26,9 @@ menu "CardenzaHAL"
             Costs: nothing until a computer asks (no task, no buffer, no polling); about 20 KB of flash and
             0.4 KB of static internal RAM (measured on the template with USB started, 2026-11-20). A
             question starts a task of priority 1 with a 6 KB stack in internal RAM, deleted 10 s after the last
-            one; a screenshot copies one frame at the firmware's next Present into PSRAM. Off, every question is
-            answered "off" and none of it is linked.
+            one; a screenshot copies one frame at the firmware's next Present into PSRAM. Off, these questions
+            are answered "off" and none of them is linked; the board's settings (203cli board settings) are
+            answered either way.
 
     config CARDENZA_HAL_PRESENCE
         bool "Reachable from the 203 community while this firmware runs (presence service)"

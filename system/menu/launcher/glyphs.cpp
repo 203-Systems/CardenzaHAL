@@ -1,6 +1,6 @@
 // The glyph lookups of the Launcher's i18n.h over the system menu's glyphs (glyphs.inc, read out of the
 // Launcher's tables by tools/launcher_ui.py), and the Launcher's own language state, UTF-8 and text
-// measuring (i18n_text.inc). Only text scale 1 (12 px) is there: the menu draws nothing larger.
+// measuring (i18n_text.inc). Text scales 1 (12 px) and 2 (16 px, the Reset dialog's words) are there.
 #include <algorithm>
 #include <cstring>
 
@@ -28,22 +28,30 @@ const Bitmap* Find(const Bitmap (&bitmaps)[N], uint32_t cp)
 
 bool cjkGlyph(uint32_t cp, int size, CjkGlyph& glyph)
 {
-    const CjkBitmap* bitmap = size == 12 ? Find(kCjkBitmaps, cp) : nullptr;
-    if (bitmap == nullptr) return false;
     std::memset(glyph.rows, 0, sizeof(glyph.rows));
-    glyph.em = 12;
-    for (int row = 0; row < 12; ++row) glyph.rows[row] = uint32_t(bitmap->rows[row]) << 20;
+    if (size == 12)
+    {
+        const CjkBitmap12* bitmap = Find(kCjkBitmaps12, cp);
+        if (bitmap == nullptr) return false;
+        glyph.em = 12;
+        for (int row = 0; row < 12; ++row) glyph.rows[row] = uint32_t(bitmap->rows[row]) << 20;
+        return true;
+    }
+    const CjkBitmap16* bitmap = size == 16 ? Find(kCjkBitmaps16, cp) : nullptr;
+    if (bitmap == nullptr) return false;
+    glyph.em = 16;
+    for (int row = 0; row < 16; ++row) glyph.rows[row] = uint32_t(bitmap->rows[row]) << 16;
     return true;
 }
 
 bool cjkHasGlyph(uint32_t cp)
 {
-    return cp >= 0x80 && Find(kCjkBitmaps, cp) != nullptr;
+    return cp >= 0x80 && Find(kCjkBitmaps12, cp) != nullptr;
 }
 
 bool latinGlyph(uint32_t cp, int size, LatinGlyph& glyph)
 {
-    const LatinBitmap* bitmap = size == 12 ? Find(kLatinBitmaps, cp) : nullptr;
+    const LatinBitmap* bitmap = size == 12 ? Find(kLatinBitmaps12, cp) : size == 16 ? Find(kLatinBitmaps16, cp) : nullptr;
     if (bitmap == nullptr) return false;
     std::memset(glyph.rows, 0, sizeof(glyph.rows));
     glyph.left = bitmap->left;
@@ -57,21 +65,22 @@ bool latinGlyph(uint32_t cp, int size, LatinGlyph& glyph)
 
 bool latinHasGlyph(uint32_t cp)
 {
-    return Find(kLatinBitmaps, cp) != nullptr;
+    return Find(kLatinBitmaps12, cp) != nullptr;
 }
 
 bool latinGlyphAt(uint32_t cp, int scale, LatinGlyph& glyph, int& size, int& multiplier)
 {
-    if (scale != 1) return false;
-    size = 12;
+    // Text scale 1 at 12 px, 2 at 16 px (the Launcher's latinPick for what the menu draws).
+    if (scale != 1 && scale != 2) return false;
+    size = scale == 1 ? 12 : 16;
     multiplier = 1;
-    return latinGlyph(cp, 12, glyph);
+    return latinGlyph(cp, size, glyph);
 }
 
-int latinBaseline(int scale) { return kLatinBaseline1 * scale; }
-int latinTop(int scale) { return kLatinTop1 * scale; }
-int latinHeight(int scale) { return kLatinHeight1 * scale; }
-int latinHighest(int scale) { return kLatinHighest1 * scale; }
+int latinBaseline(int scale) { return scale == 2 ? kLatinBaseline2 : kLatinBaseline1 * scale; }
+int latinTop(int scale) { return scale == 2 ? kLatinTop2 : kLatinTop1 * scale; }
+int latinHeight(int scale) { return scale == 2 ? kLatinHeight2 : kLatinHeight1 * scale; }
+int latinHighest(int scale) { return scale == 2 ? kLatinHighest2 : kLatinHighest1 * scale; }
 int textInkTop(int scale) { return std::min({0, cjkTop(scale), latinHighest(scale)}); }
 
 // As the Launcher's (i18n.cpp there), with the advance from the glyph rather than its packed record.

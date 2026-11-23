@@ -2,13 +2,42 @@
 // frames with the HAL's copy and checks them against what the Launcher's own menuFrame and status()
 // drew, by language (en, zh-Hans, ja, id, vi).
 
-// FNV-1a (64 bits) of each still frame, by language and selected row.
+// The still frames, in this order in each language: the page (0 main, 1 settings, 2 language, 3 the
+// Reset question) and how many (a row selected, or a button focused, each).
+struct StillPage { int page, count; };
+static const StillPage kStillPages[] = {{0, 7}, {1, 7}, {2, 5}, {3, 2}};
+static const int kStillCount = 21;
+// The Settings page's values in them: volume, limit, screen, key lights, mic gain (the language: its own).
+static const int kSampleValues[] = {64, 90, 80, 12, 6};
+// FNV-1a (64 bits) of each still frame, by language.
 static const uint64_t kLauncherFrameHashes[] = {
-    0xd935f0cd30dbf7d0ull, 0x0a8beb7f3afe7cc2ull, 0x20aeaae6733f1130ull, 0x133f634a3189a702ull, 0xbc28a7899c038922ull,
-    0x88231454d8caf88bull, 0xea712612b2298835ull, 0x8ce7fc2a843c879dull, 0xb0e22c910280062bull, 0x69d07bf3d165ef45ull,
-    0x54e8cbd8e05886acull, 0x166b591d64c97080ull, 0xeb68b7a2025ac682ull, 0xb376ff1c5b1442c8ull, 0x0c7695f5a6a4670eull,
-    0xbda76f271c651a90ull, 0x5c4a28d143888176ull, 0xde5286e290980e06ull, 0x3f44ea3fbd6e8a08ull, 0xdb65598ebc21b77eull,
-    0x9aee90fa20eb52e1ull, 0x373858ae2f688d67ull, 0xea2acb6161d24a67ull, 0x23f4bbefdb07b8c0ull, 0x0786070df378f80aull,
+    0xe84f344a5c6c8b6aull, 0xd9636028495c4beeull, 0x0bd61006717fb3f8ull, 0xdad8a5905d8ea94aull,
+    0x3f8fe6735d860f50ull, 0x1af9bf71bf899fcdull, 0xe29f85c6d4e67b75ull, 0x988e85ea1e70b804ull,
+    0x852ce4dcbfc7502full, 0xcf68e1f20561cdabull, 0xe035fd9233f74bdcull, 0xb3c238774ee902dfull,
+    0x74463a1a77ed9da5ull, 0x5884fa2618e7a71dull, 0xf883556f5251e86cull, 0x0059f1a6ab4bfc28ull,
+    0xaf35de6e180e9bbeull, 0x8d089ed02827abfcull, 0xe3e3078d6a5160c9ull, 0x778b3a29b2896fc7ull,
+    0x6e1a3fa664e45897ull, 0x289bff35dd8b88f3ull, 0x95228ce13d7aa0dfull, 0xcc71f87d3e2ea27dull,
+    0x08ba274a2bd315c9ull, 0xd287710a8189b344ull, 0x050b3dea67a6441eull, 0x81c9531a3db4892eull,
+    0x3b3c63960cd5b1a5ull, 0x88d9e9a41bc8e020ull, 0x8b9b667e3b004d38ull, 0xb407a316966b4d2full,
+    0xd95ae8ca21e2d80full, 0x975c706efc2c2b31ull, 0x4e4a35c672038da2ull, 0x79f59719a831ce98ull,
+    0x4b3218052df9ac8cull, 0x52cbfc6536dc0432ull, 0x441ca8d6758aea56ull, 0x6a25d12d2c2df351ull,
+    0xbb28b1ce8abcff2bull, 0xeb22e1193e60d35dull, 0x55df86cef3945e24ull, 0xbf4cc6da1b2f8f84ull,
+    0x21dc3b32c265fdccull, 0x366a0561e9a62232ull, 0xb79142f8b2ae201dull, 0xa727027a72a3c2b4ull,
+    0xa2728ab065059d13ull, 0xb190b413f1ad48d6ull, 0x2fd16b5d98ace491ull, 0xc9609e6eb492ac09ull,
+    0x385a40b141c70b4eull, 0x8446869308ca6805ull, 0x0fc5b444d9c3183cull, 0xbbccbafde1a147abull,
+    0xd662781a6e192cccull, 0x914a26f0480cd3ceull, 0x042818c8a513d04cull, 0x87405feb88660250ull,
+    0xc9abd003eee08235ull, 0xfd386c869c2a45e2ull, 0x555b5d45123276f6ull, 0x9a9d7811b194622eull,
+    0x513f94c7793b673eull, 0x983a457b150dacc4ull, 0x06f5066e204c69b8ull, 0x6b3d64a2c6538cdfull,
+    0x6380efcfbf756287ull, 0x11825e3d4a4f7379ull, 0x0a9d2ab706a5c900ull, 0x706e6040b6b5adcdull,
+    0x3478673b77c25425ull, 0x0988f5a01efd5b9cull, 0x2676869078294395ull, 0x9c10ebb0e657b5a9ull,
+    0x3d0468435caf5066ull, 0x3b679a2e39b02b7cull, 0x6327fc1aae2d5ec0ull, 0x7e7a435a112c1dcaull,
+    0x8b094a2056d0bd88ull, 0x493cf517a0407d11ull, 0xfc3de4d0fda1ec2full, 0x7061075183a3aeb2ull,
+    0xaefedba0e6958707ull, 0x859de07feb504581ull, 0xd7f0b977f0cbc761ull, 0xb2492fc1d220b75dull,
+    0x3d2291e7ef2d282eull, 0x9a4e5b69cc86b14full, 0x5d75acef0859ce4aull, 0x31f900f42c9981f9ull,
+    0x7e71e4425d88f925ull, 0x5c0785903c8e8921ull, 0xc4dbca6479dc0648ull, 0x1e124502e2dd58f2ull,
+    0xa8ef8bfaae132087ull, 0xe0da6e07574d1742ull, 0xb620f231852e23fcull, 0x080257980bab46e0ull,
+    0x4e0e7f6924a94c18ull, 0x3be7d1045d2487beull, 0xd88e4cc66e2c95fdull, 0xf09af9637fe6074aull,
+    0x6d7a23767505c6bcull,
 };
 
 // The selection bar's slides (SLIDES there): the bar placed at kSlideStart on the first press's row,
@@ -26,9 +55,9 @@ static const SlideRun kSlideRuns[] = {
 static const int kSlideRunCount = int(sizeof(kSlideRuns) / sizeof(kSlideRuns[0]));
 // CRC-32 (zlib's) of each slide's frames one after another, by language and slide.
 static const uint32_t kLauncherSlideCrcs[] = {
-    0xa0911409u, 0xb6cee9a5u, 0xe1916a56u, 0xeea3dcc1u, 0xc289b480u,
-    0xd6f8e8f3u, 0x2eb64e00u, 0xab3f2c00u, 0x762ee4b4u, 0x0a93a9b7u,
-    0xc7f58341u, 0xa8d36af0u, 0x50cb8b25u, 0x9c1f45e0u, 0x7103ded2u,
-    0xd9034b15u, 0xe517a3c2u, 0x61e8d2ebu, 0x94d7ac70u, 0xfc52251cu,
-    0x290e3396u, 0x672e7541u, 0xefb136b8u, 0xa59254ebu, 0xe09d052cu,
+    0x6df64de2u, 0x99589a26u, 0xa609d9fcu, 0x1aadc46fu, 0x18089133u,
+    0x109849a1u, 0x393bc609u, 0xf6deac59u, 0x86950457u, 0x4af67991u,
+    0x11d55449u, 0x10565b6cu, 0xe658075fu, 0xde8f5fc9u, 0x467b4640u,
+    0x25d7c7c0u, 0xb0a08d32u, 0xe990f9b0u, 0xadf7ebd4u, 0xfeb43096u,
+    0x922c3a60u, 0x31352326u, 0xdac05263u, 0x3883cfbbu, 0xb99b3d92u,
 };

@@ -4,6 +4,7 @@
 #include <sdkconfig.h>
 
 #include "net/presence.h"
+#include "system/internal/settings_hooks.h"
 #include "system/menu.h"
 
 namespace {
@@ -52,6 +53,10 @@ bool Init()
         return g_initReport.overall;
     }
 
+    // The board's settings (system/settings.h) from the flash, before the drivers: the codec starts at the
+    // volume, the backlight at the brightness.
+    Settings::detail::Load();
+
     g_initReport.keyboard = Keyboard::init();
     LogModuleResult("keyboard", g_initReport.keyboard, false);
 
@@ -66,6 +71,8 @@ bool Init()
 
     g_initReport.ir = IR::Init();
     LogModuleResult("ir", g_initReport.ir, true);
+
+    Settings::detail::ApplyAfterInit();
 
     g_initReport.overall = g_initReport.system && g_initReport.keyboard && g_initReport.audio && g_initReport.display;
     g_initialized = g_initReport.overall;

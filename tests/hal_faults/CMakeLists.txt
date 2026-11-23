@@ -16,7 +16,7 @@ add_library(CardenzaHalFaultSources STATIC
   ${hal_root}/cardenzaHAL.cpp
   ${hal_root}/audio/audio.cpp ${hal_root}/audio/codec/es8156.cpp
   ${hal_root}/display/display.cpp ${hal_root}/storage/storage.cpp
-  ${hal_root}/ir/ir.cpp ${hal_root}/mic/mic.cpp
+  ${hal_root}/ir/ir.cpp ${hal_root}/mic/mic.cpp ${hal_root}/system/settings_logic.cpp
   ${hal_root}/keyboard/keyboard.cpp
   ${hal_root}/keyboard/internal/keyboard_key_scan.cpp
   ${hal_root}/keyboard/internal/keyboard_led_scan.cpp

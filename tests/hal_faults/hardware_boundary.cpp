@@ -1,6 +1,7 @@
 #include "esp_stub.h"
 #include "system/system.h"
 #include "keyboard/internal/keyboard_hardware.h"
+#include "system/internal/settings_hooks.h"
 
 namespace CardenzaHAL::System {
 bool Init() { return !Fake::Bad("system"); }
@@ -10,6 +11,13 @@ void EnterDeepSleep() {}
 namespace detail {
 void RestoreHomeButton() { ++Fake::funcButtonRestores; }
 }
+}
+// The board's settings (system/settings.cpp reads the NVS partition, which these fakes do not have): their
+// defaults, nothing written.
+namespace CardenzaHAL::Settings::detail {
+void Load() {}
+void ApplyAfterInit() {}
+int32_t MicGainQ12Now() { return 4096; }
 }
 namespace CardenzaHAL::Keyboard::detail {
 portMUX_TYPE kKeyboardStateMux = portMUX_INITIALIZER_UNLOCKED;

@@ -72,9 +72,15 @@ add_test(NAME CardenzaPresenceTests COMMAND CardenzaPresenceTests)
 # (display/changed_regions.h), NVS reader.
 add_executable(CardenzaSystemMenuTests system_menu_test.cpp ${hal_root}/system/menu/logic.cpp
   ${hal_root}/system/menu/frame.cpp ${hal_root}/system/menu/launcher/glyphs.cpp
-  ${hal_root}/system/menu/launcher/lcd.cpp ${cardenza_test_guard})
+  ${hal_root}/system/menu/launcher/lcd.cpp ${hal_root}/system/settings_logic.cpp ${cardenza_test_guard})
 target_include_directories(CardenzaSystemMenuTests PRIVATE ${hal_root})
 add_test(NAME CardenzaSystemMenuTests COMMAND CardenzaSystemMenuTests)
+
+# system/settings_logic.h: the board's settings (ranges, the volume limit, the volume's curve, the codec's
+# level, the microphone's gain, the values in the flash and when they are written).
+add_executable(CardenzaSettingsTests settings_test.cpp ${hal_root}/system/settings_logic.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaSettingsTests PRIVATE ${hal_root})
+add_test(NAME CardenzaSettingsTests COMMAND CardenzaSettingsTests)
 
 add_subdirectory(hal_faults)
 
