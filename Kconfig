@@ -1,5 +1,16 @@
 menu "CardenzaHAL"
 
+    config CARDENZA_HAL_APP_NAME
+        string "This firmware's folder on the SD card: /sdcard/Apps/<name> (empty: the CMake project's name)"
+        default ""
+        help
+            Every firmware on CardenzaHAL keeps its files on the SD card in a folder of its own,
+            /sdcard/Apps/<name> (storage/app_dir.h, docs/SD-CARD.md); the 203 Launcher keeps its own in
+            /sdcard/Launcher. Empty, the name is the app description's project name (CMake's project()).
+            Either way it is made a safe FAT folder name: ASCII letters, digits, '-', '_' and '.', every
+            other character '_', at most 31 characters. Choose it once: a firmware that renames its folder
+            moves its users' files with CardenzaHAL::Storage::MigrateAppDir.
+
     config CARDENZA_HAL_SYSTEM_MENU
         bool "System menu: press HOME (back to the Launcher, restart, turn off)"
         default y

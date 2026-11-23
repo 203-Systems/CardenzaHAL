@@ -25,6 +25,8 @@ if(COMMAND idf_component_register)
             net/net.cpp
             net/presence.cpp
             net/presence_logic.cpp
+            storage/app_dir.cpp
+            storage/app_dir_logic.cpp
             storage/storage.cpp
             system/launcher.cpp
             system/menu.cpp
@@ -137,6 +139,8 @@ list(APPEND cardenza_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/keyboard/internal/keyboard_hardware.cpp
     ${CMAKE_CURRENT_LIST_DIR}/keyboard/internal/keyboard_key_scan.cpp
     ${CMAKE_CURRENT_LIST_DIR}/keyboard/internal/keyboard_led_scan.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/storage/app_dir.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/storage/app_dir_logic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/storage/storage.cpp
 )
 
