@@ -1,0 +1,6 @@
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../board/partitions.csv"
+# No Wi-Fi beside the microphone while it is measured (and nothing of Net linked).
+CONFIG_CARDENZA_HAL_PRESENCE=n
+# The UI task formats and prints the results table.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

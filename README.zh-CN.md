@@ -694,6 +694,7 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`examples/launcher_net`](examples/launcher_net)：读出 Launcher 的设置，连上它的 Wi-Fi，发一个 HTTPS 请求再把一切关掉，每一步都打印耗时和内存；它的 `sdkconfig.defaults` 是使用 Net 的固件的参考配置。`idf.py -C examples/launcher_net build`。
 - [`examples/community_presence`](examples/community_presence)：带在线服务的 `CardenzaHAL::Init()`、交接钩子、在日志里打印服务的状态。`idf.py -C examples/community_presence build`。
 - [`examples/hal_check`](examples/hal_check)：通过 HAL 逐个检查板子：每个键的格子和按键灯、音频任务为每个按住的键发一个音、HOME。同一份源码既能编译到板子上，也能编译成网页版。
+- [`examples/mic-check`](examples/mic-check)：麦克风的原始电平（不加增益），在几个距离、几种音量下测，屏幕上一步步引导；每段的数值写进日志（`MICTEST` 行）、RTC 内存和 SD 卡（`Apps/MicCheck/`，带 WAV）。用来定麦克风的默认增益。`idf.py -C examples/mic-check build`；纯计算部分在电脑上测（`examples/mic-check/test`）。
 - [`.github/actions/community-publish`](.github/actions/community-publish/action.yml)：每个固件的标准发布，用 `203cli` 和受信任发布把版本发到 203 社区的 GitHub Action（推送到 main 是 dev，`vX.Y.Z-beta.N` 和 `vX.Y.Z` 标签是 beta 和 stable；见[发布](#发布)）。
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：旧的 Launcher hub，只用于过渡期：还有人在用只读 hub 目录的 203 Launcher 0.2.0，所以 203 Systems 的官方固件把正式版同时镜像到那里。新固件不要用它。
 - **AI 代理与 203 社区**：要发布固件版本、读取用户需求、查看检查报告或把固件发到设备，先装一次 203cli 和它的 Agent Skill：`npm install -g 203cli && 203cli skill install`（Skill 装到 `~/.claude/skills/203-community`；说明见 https://community.203.io/agents）。203cli 原名 `203c`：脚本或旧说明里写 `203c` 的，改用 `203cli`。
