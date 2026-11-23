@@ -148,7 +148,7 @@ namespace CardenzaHAL::SystemMenu::detail {
     struct AboutInfo {
         char firmware[40] = "";   // the firmware's name
         char version[40] = "";    // its version
-        char launcher[24] = "";   // the 203 Launcher's version (empty: no Launcher on this board)
+        char launcher[40] = "";   // the 203 Launcher's version (empty: no Launcher on this board)
         char hal[24] = "";        // the HAL's commit at build time ("+": with local changes)
         char mac[20] = "";        // as the Launcher's About shows it
         uint32_t flashBytes = 0;  // the flash the firmware sees
