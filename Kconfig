@@ -87,7 +87,7 @@ menu "CardenzaHAL"
         config CARDENZA_HAL_USB_WEBUSB_URL
             string "WebUSB landing page (https://, without the scheme)"
             depends on CARDENZA_HAL_USB_WEBUSB
-            default "stage.203.io"
+            default "stage.203.io/devices"
 
         config CARDENZA_HAL_USB_SERIAL
             bool "USB serial port (CDC: the console, the system channel as lines, esptool's reset)"
