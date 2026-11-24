@@ -68,6 +68,8 @@ namespace CardenzaHAL::USB::detail {
     // give; told when the host goes or comes.
     std::size_t DriveDescriptor(uint8_t* out, std::size_t capacity, uint8_t itf, uint8_t stringIndex, uint8_t epOut, uint8_t epIn);
     void DriveHostGone();
+    // The bus suspended (the host sleeps, or a board on its own power lost the cable) or resumed; from the USB task.
+    void DriveSuspended(bool suspended);
 
     // The camera (the screen stream): usb/internal/camera.h.
 
