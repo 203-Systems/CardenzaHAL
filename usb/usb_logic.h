@@ -23,6 +23,7 @@ inline constexpr int kInSerial = 2;        // CDC-ACM: its notification endpoint
 inline constexpr int kInDrive = 1;         // mass storage (bulk, both ways)
 inline constexpr int kInCamera = 1;        // the screen stream (bulk, on the WebUSB interface)
 inline constexpr int kInWebUsb = 0;        // control requests on EP0 only
+inline constexpr int kInNetwork = 2;       // CDC-NCM: its notification endpoint and its data (bulk, both ways)
 // Adaptive playback has no feedback endpoint: its OUT endpoint takes a number no IN endpoint can have.
 inline constexpr uint8_t kAdaptiveAudioOut = 0x05;
 
@@ -36,19 +37,21 @@ struct Classes {
     bool serial = false;
     bool drive = false;
     bool camera = false;
+    bool network = false;  // USB network (CDC-NCM)
 };
 
 inline constexpr bool operator==(const Classes& a, const Classes& b)
 {
     return a.midi == b.midi && a.audio == b.audio && a.playback == b.playback && a.feedback == b.feedback && a.hid == b.hid && a.webusb == b.webusb &&
-           a.serial == b.serial && a.drive == b.drive && a.camera == b.camera;
+           a.serial == b.serial && a.drive == b.drive && a.camera == b.camera && a.network == b.network;
 }
 
 inline constexpr int InEndpoints(const Classes& classes)
 {
     return (classes.midi ? kInMidi : 0) + (classes.hid ? kInHid : 0) + (classes.audio ? kInAudio : 0) +
            (classes.audio && classes.playback && classes.feedback ? kInAudioFeedback : 0) + (classes.serial ? kInSerial : 0) +
-           (classes.drive ? kInDrive : 0) + (classes.camera ? kInCamera : 0) + (classes.webusb ? kInWebUsb : 0);
+           (classes.drive ? kInDrive : 0) + (classes.camera ? kInCamera : 0) + (classes.webusb ? kInWebUsb : 0) +
+           (classes.network ? kInNetwork : 0);
 }
 
 // A class that carries the system channel (identify, info, launcher, download, the development channel): MIDI
@@ -61,7 +64,8 @@ inline constexpr bool HasCommandChannel(const Classes& classes)
 
 // The build's classes, as tusb_config.h derives them from Kconfig: the serial port is added when the build has
 // no other command channel.
-inline constexpr Classes Built(bool midi, bool audio, bool feedback, bool hid, bool webusb, bool serial, bool drive, bool camera)
+inline constexpr Classes Built(bool midi, bool audio, bool feedback, bool hid, bool webusb, bool serial, bool drive, bool camera,
+                                bool network = false)
 {
     Classes classes;
     classes.midi = midi;
@@ -73,6 +77,7 @@ inline constexpr Classes Built(bool midi, bool audio, bool feedback, bool hid, b
     classes.serial = serial || !(midi || hid || webusb);
     classes.drive = drive;
     classes.camera = camera;
+    classes.network = network;
     return classes;
 }
 
@@ -90,6 +95,7 @@ inline constexpr Classes Effective(const Classes& asked, const Classes& built)
     classes.webusb = asked.webusb && built.webusb;
     classes.serial = asked.serial && built.serial;
     classes.drive = asked.drive && built.drive;
+    classes.network = asked.network && built.network;
     // The camera is the WebUSB interface's stream: it brings WebUSB with it.
     classes.camera = asked.camera && built.camera && built.webusb;
     if (classes.camera) classes.webusb = true;
@@ -141,6 +147,7 @@ struct Endpoints {
     uint8_t serialNotify = 0, serialOut = 0, serialIn = 0;
     uint8_t driveOut = 0, driveIn = 0;
     uint8_t cameraIn = 0;
+    uint8_t networkNotify = 0, networkOut = 0, networkIn = 0;
     int inCount = 0;
     bool fits = false;
 };
@@ -192,6 +199,14 @@ inline constexpr Endpoints Allocate(const Classes& classes)
     if (classes.camera)
     {
         endpoints.cameraIn = static_cast<uint8_t>(0x80 | next);
+        ++next;
+    }
+    if (classes.network)
+    {
+        endpoints.networkNotify = static_cast<uint8_t>(0x80 | next);
+        ++next;
+        endpoints.networkOut = next;
+        endpoints.networkIn = static_cast<uint8_t>(0x80 | next);
         ++next;
     }
     endpoints.inCount = next - 1;

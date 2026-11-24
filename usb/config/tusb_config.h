@@ -44,6 +44,11 @@ extern "C" {
 #else
 #define CARDENZA_USB_BUILD_SERIAL 0
 #endif
+#ifdef CONFIG_CARDENZA_HAL_USB_NETWORK
+#define CARDENZA_USB_BUILD_NETWORK 1
+#else
+#define CARDENZA_USB_BUILD_NETWORK 0
+#endif
 #ifdef CONFIG_CARDENZA_HAL_USB_DRIVE
 #define CARDENZA_USB_BUILD_DRIVE 1
 #else
@@ -87,6 +92,7 @@ extern "C" {
 
 #define CFG_TUD_CDC CARDENZA_USB_BUILD_SERIAL
 #define CFG_TUD_MSC CARDENZA_USB_BUILD_DRIVE
+#define CFG_TUD_NCM CARDENZA_USB_BUILD_NETWORK
 #define CFG_TUD_VENDOR 0  // WebUSB is the HAL's own driver (usb/usb.cpp): no endpoints, no FIFOs
 #define CFG_TUD_MIDI CARDENZA_USB_BUILD_MIDI
 #define CFG_TUD_HID CARDENZA_USB_BUILD_HID
@@ -102,6 +108,10 @@ extern "C" {
 #define CFG_TUD_CDC_EP_BUFSIZE 64
 #define CFG_TUD_CDC_RX_BUFSIZE 256
 #define CFG_TUD_CDC_TX_BUFSIZE 512
+
+// The USB network (CDC-NCM): one transfer block each way (internal RAM, only in a build with it).
+#define CFG_TUD_NCM_IN_NTB_MAX_SIZE 3200
+#define CFG_TUD_NCM_OUT_NTB_MAX_SIZE 3200
 
 // The drive: one buffer of 8 sectors between the card and the endpoint (internal RAM: the SD card's DMA).
 #define CFG_TUD_MSC_EP_BUFSIZE 4096

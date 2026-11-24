@@ -42,6 +42,7 @@ if(COMMAND idf_component_register)
             usb/dev.cpp
             usb/drive.cpp
             usb/hid.cpp
+            usb/network.cpp
             usb/usb.cpp
         INCLUDE_DIRS
             .
@@ -128,6 +129,7 @@ set(cardenza_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/usb/camera.cpp
     ${CMAKE_CURRENT_LIST_DIR}/usb/drive.cpp
     ${CMAKE_CURRENT_LIST_DIR}/usb/hid.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/usb/network.cpp
     ${CMAKE_CURRENT_LIST_DIR}/usb/usb.cpp
 )
 

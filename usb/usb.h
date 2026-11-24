@@ -83,6 +83,8 @@ namespace CardenzaHAL::USB {
         // Camera::Enable), which find them an endpoint.
         bool drive = false;
         bool camera = false;
+        // The USB network (CDC-NCM, usb/network.h): asked for at run time by Network::Start.
+        bool network = false;
         // The console (stdout, stderr and ESP_LOG) goes to the system channel (and to the serial port).
         bool console = true;
         // Development safety: when no host has sent a system command this many seconds after Init, the
@@ -107,7 +109,7 @@ namespace CardenzaHAL::USB {
     Config CurrentConfig();
     struct Presented {
         bool midi = false, audio = false, audioPlayback = false, audioFeedback = false, hid = false, webusb = false, serial = false,
-             drive = false, camera = false;
+             drive = false, camera = false, network = false;
     };
     Presented Classes();
 

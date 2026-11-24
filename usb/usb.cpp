@@ -43,7 +43,8 @@ constexpr char kManufacturer[] = "203 Systems";
 // What the build has (tusb_config.h, from Kconfig).
 constexpr Logic::Classes kBuilt =
     Logic::Built(CARDENZA_USB_BUILD_MIDI, CARDENZA_USB_BUILD_AUDIO, CARDENZA_USB_BUILD_AUDIO_FEEDBACK, CARDENZA_USB_BUILD_HID,
-                 CARDENZA_USB_BUILD_WEBUSB, CARDENZA_USB_BUILD_SERIAL, CARDENZA_USB_BUILD_DRIVE, CARDENZA_USB_BUILD_CAMERA);
+                 CARDENZA_USB_BUILD_WEBUSB, CARDENZA_USB_BUILD_SERIAL, CARDENZA_USB_BUILD_DRIVE, CARDENZA_USB_BUILD_CAMERA,
+                 CARDENZA_USB_BUILD_NETWORK);
 
 constexpr Logic::Classes Asked(const Config& config)
 {
@@ -57,6 +58,7 @@ constexpr Logic::Classes Asked(const Config& config)
     classes.serial = config.serial;
     classes.drive = config.drive;
     classes.camera = config.camera;
+    classes.network = config.network;
     return classes;
 }
 
@@ -75,6 +77,8 @@ enum : uint8_t {
     kStringSerialPort,
     kStringWebUsb,
     kStringDrive,
+    kStringNetwork,
+    kStringNetworkMac,
     kStringCount
 };
 enum : uint8_t { kReportKeyboard = 1, kReportConsumer = 3 };  // as in Matrix OS
@@ -88,7 +92,8 @@ constexpr std::size_t kMsOs20Length = 0xB2;
 constexpr std::size_t kBosLength = TUD_BOS_DESC_LEN + TUD_BOS_WEBUSB_DESC_LEN + TUD_BOS_MICROSOFT_OS_DESC_LEN;
 
 constexpr std::size_t kConfigurationMax = TUD_CONFIG_DESC_LEN + CARDENZA_USB_AUDIO_DESC_LEN + 8 + TUD_MIDI_DESC_LEN +
-                                          TUD_HID_INOUT_DESC_LEN + TUD_CDC_DESC_LEN + 9 + 7 + TUD_MSC_DESC_LEN;
+                                          TUD_HID_INOUT_DESC_LEN + TUD_CDC_DESC_LEN + 9 + 7 + TUD_MSC_DESC_LEN +
+                                          TUD_CDC_NCM_DESC_LEN;
 
 // Everything the computer reads about the device: built together, swapped together.
 struct Descriptors {
@@ -914,6 +919,16 @@ void BuildDescriptors(const Logic::Classes& classes, const Logic::Endpoints& ep,
             interfaces += 1;
         }
     }
+    if (classes.network)
+    {
+        const std::size_t length = detail::NetworkDescriptor(at, static_cast<std::size_t>(end - at), interfaces, kStringNetwork,
+                                                             kStringNetworkMac, ep.networkNotify, ep.networkOut, ep.networkIn);
+        if (length != 0)
+        {
+            at += length;
+            interfaces += 2;
+        }
+    }
     out.configurationLength = static_cast<uint16_t>(at - out.configuration);
     const uint8_t header[] = {TUD_CONFIG_DESCRIPTOR(1, interfaces, 0, out.configurationLength, 0x00, 500)};
     std::memcpy(out.configuration, header, sizeof(header));
@@ -948,7 +963,7 @@ void ClassList(const Logic::Classes& classes, char* out, std::size_t capacity)
     std::snprintf(out, capacity, "%s%s%s%s%s%s%s%s", classes.midi ? " midi" : "",
                   classes.audio ? (!classes.playback ? " audio(recording)" : classes.feedback ? " audio" : " audio(adaptive)") : "", classes.hid ? " hid" : "",
                   classes.webusb ? " webusb" : "", classes.serial ? " serial" : "", classes.drive ? " drive" : "",
-                  classes.camera ? " camera" : "", "");
+                  classes.camera ? " camera" : "", classes.network ? " network" : "");
 }
 
 // ---- Audio's playback watch ---------------------------------------------------------------------------------
@@ -1250,6 +1265,7 @@ Presented Classes()
     presented.serial = g_classes.serial;
     presented.drive = g_classes.drive;
     presented.camera = g_classes.camera;
+    presented.network = g_classes.network;
     return presented;
 }
 
@@ -1629,6 +1645,8 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t)
         case kStringSerialPort: text = "Cardenza Serial"; break;
         case kStringWebUsb: text = "Cardenza WebUSB"; break;
         case kStringDrive: text = "Cardenza Storage"; break;
+        case kStringNetwork: text = "Cardenza Network"; break;
+        case kStringNetworkMac: text = CardenzaHAL::USB::detail::NetworkMacString(); break;
         default: return nullptr;
     }
     const std::size_t length = std::min<std::size_t>(std::strlen(text), TU_ARRAY_SIZE(g_string) - 1);

@@ -123,6 +123,16 @@ void FitTests()
     keepFeedback.feedback = true;
     fitted = Fit(onlyHid, keepFeedback);
     assert(fitted.classes.hid && !fitted.dropped.hid && fitted.dropped.audio && Allocate(fitted.classes).fits);
+    // The USB network (two IN endpoints) in the default set: the feedback endpoint and HID give way, MIDI, audio
+    // (adaptive) and WebUSB stay; its endpoints are numbered within 1-4.
+    Classes keepNetwork;
+    keepNetwork.network = true;
+    Classes withNetwork = Make(true, true, true, true, true, false);
+    withNetwork.network = true;
+    fitted = Fit(withNetwork, keepNetwork);
+    assert(fitted.dropped.feedback && fitted.dropped.hid && fitted.classes.midi && fitted.classes.audio && fitted.classes.webusb);
+    const Endpoints net = Allocate(fitted.classes);
+    assert(net.fits && net.inCount == 4 && net.networkNotify == 0x83 && net.networkIn == 0x84 && net.networkOut == 0x04);
     // What fits is left alone.
     fitted = Fit(Make(true, true, true, true, true, false), Classes{});
     assert(!fitted.dropped.feedback && !fitted.dropped.hid && fitted.classes == Make(true, true, true, true, true, false));

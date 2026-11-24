@@ -107,6 +107,16 @@ menu "CardenzaHAL"
                 taken from what gives way (usb/usb.h). About 4 KB of internal RAM for the class's buffer, and a task
                 with a 6 KB stack while the card is lent. examples/usb_drive shows it.
 
+        config CARDENZA_HAL_USB_NETWORK
+            bool "USB network: the board as a network adapter (CDC-NCM; USB::Network)"
+            default n
+            help
+                Builds a USB network interface (CDC-NCM, driverless on macOS, Linux and Windows 11) and its lwIP
+                glue (usb/network.h): the device answers at a fixed address with its own DHCP server and mDNS
+                (cardenza.local), or uses the computer's shared internet as a DHCP client. USB::Network::Start
+                presents it (the computer finds the device again); its two IN endpoints are taken from what gives
+                way. About 7 KB of internal RAM for its transfer blocks while the class is built.
+
         config CARDENZA_HAL_USB_CAMERA
             bool "USB camera: the screen as a lossless stream, for recording and streaming tutorials (USB::Camera)"
             depends on CARDENZA_HAL_USB_WEBUSB

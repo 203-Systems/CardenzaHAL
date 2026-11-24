@@ -78,4 +78,11 @@ namespace CardenzaHAL::USB::detail {
 
     // The camera (the screen stream): usb/internal/camera.h.
 
+    // The USB network (usb/network.cpp): its descriptor (an interface association of two interfaces from `itf`;
+    // `macStringIndex` names the string NetworkMacString answers), 0 when it has none to give; the MAC the
+    // computer's side of the link takes, as 12 hex digits.
+    std::size_t NetworkDescriptor(uint8_t* out, std::size_t capacity, uint8_t itf, uint8_t stringIndex, uint8_t macStringIndex,
+                                  uint8_t epNotify, uint8_t epOut, uint8_t epIn);
+    const char* NetworkMacString();
+
 }  // namespace CardenzaHAL::USB::detail

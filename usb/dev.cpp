@@ -408,6 +408,7 @@ void Info(Stream& stream)
     if (classes.serial) json.Str("serial");
     if (classes.drive) json.Str("drive");
     if (classes.camera) json.Str("camera");
+    if (classes.network) json.Str("network");
     json.End();
     json.End();
     json.Key("uptime_ms").Uint(static_cast<unsigned long long>(esp_timer_get_time() / 1000));
