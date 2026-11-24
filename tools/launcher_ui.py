@@ -105,7 +105,7 @@ TEXT_IDS = ["title", "continue", "settings", "settings.detail", "launcher", "lau
             "restart.detail", "off", "off.detail", "about", "about.detail", "about.rail", "download",
             "download.detail", "release", "volume", "volume.detail", "volume_limit", "volume_limit.detail",
             "volume_limit.rail", "screen", "screen.rail", "shared.detail", "keys", "keys.detail", "language",
-            "reset", "reset.detail", "reset.question", "reset.explain",
+            "webusb", "webusb.detail", "webusb.first", "webusb.always", "webusb.never", "reset", "reset.detail", "reset.question", "reset.explain",
             "reset.button", "cancel", "select_saves", "version", "about.launcher", "about.flash", "about.card",
             "about.free", "none", "english", "chinese", "japanese", "indonesian", "vietnamese"]
 # A glyph the Launcher's tables do not have yet (a word only the system menu uses; the user's own words,
@@ -131,10 +131,12 @@ SLIDES = [
 SLIDE_PRESSES = 8
 
 # The still frames --compare draws in every language, in this order: the main list with each row selected,
-# the Settings page with each row selected (SAMPLE_VALUES; the language's own), the Language page with each
-# selected, and the Reset question with each button focused. (page, rows): page 0 main, 1 settings,
-# 2 language, 3 reset.
-STILLS = [(0, 7), (1, 6), (2, 5), (3, 2)]
+# the Settings page with each row selected (SAMPLE_VALUES; the language's own; the browser notice at its default,
+# the first time only), the Language page with each selected, the Reset question with each button focused, and
+# the browser notice's three choices with each selected. (page, rows): page 0 main, 1 settings, 2 language,
+# 3 reset, 4 the browser notice.
+STILLS = [(0, 7), (1, 7), (2, 5), (3, 2), (4, 3)]
+STILL_PAGE_NAMES = ["main", "settings", "language", "reset", "browser notice"]
 # Volume, volume limit, screen brightness, key lights on the Settings page's stills.
 SAMPLE_VALUES = [64, 90, 80, 12]
 SAMPLE_TEXTS = ["64", "90", "80%", "12"]
@@ -568,8 +570,9 @@ def launcher_reference(launcher, strings, work):
                  f"      {{{w('screen')}, nullptr, NO_COLOR, {w('shared.detail')}, \"{SAMPLE_TEXTS[2]}\"}},",
                  f"      {{{w('keys')}, nullptr, NO_COLOR, {w('keys.detail')}, \"{SAMPLE_TEXTS[3]}\"}},",
                  f"      {{{w('language')}, nullptr, NO_COLOR, {w('shared.detail')}, {names[li]}}},",
+                 f"      {{{w('webusb')}, nullptr, NO_COLOR, {w('webusb.detail')}, {w('webusb.first')}}},",
                  f"      {{{w('reset')}, nullptr, NO_COLOR, {w('reset.detail')}}}}};",
-                 "    for (int selected = 0; selected < 6; ++selected) {",
+                 "    for (int selected = 0; selected < 7; ++selected) {",
                  still("menuFrame(settings, selected, selected < 4 ? 0 : selected - 3); status()"),
                  "    }",
                  f"    pageTitle = {w('language')};",
@@ -585,6 +588,15 @@ def launcher_reference(launcher, strings, work):
                  f"    pageTitle = {w('reset.button')};",
                  "    for (int button = 0; button < 2; ++button) {",
                  still(f"drawDialog({w('reset.question')}, {w('reset.explain')}, {w('reset.button')}, {w('cancel')}, button)"),
+                 "    }",
+                 # The browser notice's choices: a list like the languages' (the Launcher's lists), no details.
+                 f"    pageTitle = {w('webusb')};",
+                 "    std::vector<Option> landing = {",
+                 f"      {{{w('webusb.first')}, nullptr, NO_COLOR, \"\"}},",
+                 f"      {{{w('webusb.always')}, nullptr, NO_COLOR, \"\"}},",
+                 f"      {{{w('webusb.never')}, nullptr, NO_COLOR, \"\"}}}};",
+                 "    for (int selected = 0; selected < 3; ++selected) {",
+                 still("menuFrame(landing, selected, 0); status()"),
                  "    }",
                  # The slides: loopMenu on the Cardenza (selection and viewport set at once, the bar aimed at
                  # the row as menuFrame draws).
@@ -692,6 +704,12 @@ int main() {
       detail::PaintGrey(view, nullptr, 0, 0, detail::kHeight, canvas.data());
       out();
     }
+    for (int selected = 0; selected < detail::kLandingChoices; ++selected) {
+      view.state.page = detail::Page::Landing;
+      view.state.landing = list(selected);
+      detail::PaintGrey(view, nullptr, 0, 0, detail::kHeight, canvas.data());
+      out();
+    }
     view.state.page = detail::Page::Main;
     // The slides: system/menu.cpp's loop (the bar aimed at the selected row as each frame is drawn).
     uint32_t now = 0;
@@ -747,7 +765,7 @@ def compare(launcher, strings):
         if at < stills:
             for page, rows in STILLS:
                 if at < rows:
-                    return f"{language} {['main', 'settings', 'language', 'reset'][page]} {at}"
+                    return f"{language} {STILL_PAGE_NAMES[page]} {at}"
                 at -= rows
         at -= stills
         for (run, presses), frames in zip(SLIDES, slides):
@@ -782,11 +800,12 @@ def compare(launcher, strings):
            "// drew, by language (" + ", ".join(LANGUAGES) + ").",
            "",
            "// The still frames, in this order in each language: the page (0 main, 1 settings, 2 language, 3 the",
-           "// Reset question) and how many (a row selected, or a button focused, each).",
+           "// Reset question, 4 the browser notice's choices) and how many (a row selected, or a button focused, each).",
            "struct StillPage { int page, count; };",
            "static const StillPage kStillPages[] = {" + ", ".join(f"{{{p}, {n}}}" for p, n in STILLS) + "};",
            f"static const int kStillCount = {stills};",
-           "// The Settings page's values in them: volume, limit, screen, key lights (the language: its own).",
+           "// The Settings page's values in them: volume, limit, screen, key lights (the language: its own; the",
+           "// browser notice: its default).",
            "static const int kSampleValues[] = {" + ", ".join(str(v) for v in SAMPLE_VALUES) + "};",
            "// FNV-1a (64 bits) of each still frame, by language.",
            "static const uint64_t kLauncherFrameHashes[] = {"]

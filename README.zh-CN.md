@@ -394,7 +394,7 @@ void ReadSettings()
 | 本机信息 | 固件和它的版本、Launcher 的版本、HAL 的提交、MAC、Flash、PSRAM、SD 卡 |
 | 下载模式 | 进入 ROM 下载模式，用 USB 刷机（esptool） |
 
-设置页的样子是 Launcher 的“显示”页：每个设置一行，值在右边。在一个值上按 ENTER，打开 Launcher“背光”页那样的一页（大字的值，下面一条刻度；`;`、`,` 减小，`.`、`/` 增大，实时生效：音量马上听得到，亮度马上看得到；ENTER 保留，ESC 恢复原来的值）；语言是 Launcher 的语言列表，每种语言用它自己的文字写；恢复默认先用 Launcher 的确认框问一句（默认选中“取消”），语言不变。改过的设置在菜单关闭时写进 Flash，只写一次。
+设置页的样子是 Launcher 的“显示”页：每个设置一行，值在右边。在一个值上按 ENTER，打开 Launcher“背光”页那样的一页（大字的值，下面一条刻度；`;`、`,` 减小，`.`、`/` 增大，实时生效：音量马上听得到，亮度马上看得到；ENTER 保留，ESC 恢复原来的值）；语言是 Launcher 的语言列表，每种语言用它自己的文字写；网页提示（插上电脑时 Chromium 内核的浏览器弹出的 WebUSB 落地页提示：仅第一次、总是、从不；即 [docs/SETTINGS.md](docs/SETTINGS.md) 的 `webusb_landing`）也是同样的三项列表，从电脑下一次找到板子起生效；恢复默认先用 Launcher 的确认框问一句（默认选中“取消”），语言不变。改过的设置在菜单关闭时写进 Flash，只写一次。
 
 不用菜单时：开机或复位时按住 fn（键盘左边一列的第三个键，键号 29）进入 Launcher；不是 HOME：复位时按住 HOME 会进入 ROM 下载模式。
 
@@ -411,7 +411,7 @@ void ReadSettings()
 - 屏幕初始化成功后由 `CardenzaHAL::Init` 启动（`CONFIG_CARDENZA_HAL_SYSTEM_MENU`，默认开）：一个 5 KB 栈的任务，每 10 ms 读一次 GPIO0；约占 30 KB flash。菜单打开期间临时借用 2 KB 内存，固件有 PSRAM 时再在 PSRAM 里借 64 KB 存一份固件最新的画面（背景是用它做的；没有 PSRAM，或者按下后 60 ms 内固件没有提交过一帧时，背景是一片暗的 dither 灰），和 32 KB 的菜单画面（每帧画一次；没有 PSRAM 时逐条画）；菜单打开期间再借一张 4 KB 的表，记着已经发出去的画面（有 PSRAM 时放在 PSRAM 里）。
 - 菜单打开期间固件照常运行（任务和声音都不停），但 HAL 会挡住会干扰菜单的东西：`Display::Present*` 不发送并返回 `true`（菜单关闭后的下一帧整屏发送，固件画面自己回来）；`Keyboard::updateKeyList` 不报任何按键（关闭时还按着的键，松开之前都不报）；按键灯显示菜单的键（固件 `setLED*` 设的亮度会保留，关闭后恢复）。直接用面板句柄画屏的固件，应在 `SystemMenu::IsOpen()` 时暂停绘制。
 - `SystemMenu::SetListener` 在菜单打开和关闭时通知；`SystemMenu::SetLeaveHook` 在重启、关机或进入下载模式之前调用（保存需要留下的东西）。菜单开着时 HOME 归菜单：自己要用 HOME 的固件，调用 `SystemMenu::Enable(false)`（或者编译时关掉 `CONFIG_CARDENZA_HAL_SYSTEM_MENU`）。
-- Launcher 的代码在 [system/menu/launcher/](system/menu/launcher/)，由 `tools/launcher_ui.py --launcher <203-launcher 检出目录>` 原样复制（MIT，[licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)）：文字和字形、画布绘制、缓动和选中条的滑动；[system/menu/frame.cpp](system/menu/frame.cpp) 是它在 Cardenza 上的 `menuFrame` 和侧栏，逐行移植。`--check` 检查复制是否最新，`--compare` 再用 Launcher 真正的 `menuFrame` 和 `drawDialog` 画每一帧：静止的画面（主列表、设置页、语言列表、恢复默认的确认框），加上逐帧的滑动（移一行、连按、中途折返、往下和往上翻过一屏，每 4 ms 一帧直到停稳：五种语言共 1990 帧），有任何一个像素不同就失败（主机测试里存着这些帧的哈希）。数值页和本机信息页是 Launcher“背光”页和“关于”页那几行的移植（Launcher 是在别的函数里直接画的）。文字在 `system/menu/strings.json`。
+- Launcher 的代码在 [system/menu/launcher/](system/menu/launcher/)，由 `tools/launcher_ui.py --launcher <203-launcher 检出目录>` 原样复制（MIT，[licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)）：文字和字形、画布绘制、缓动和选中条的滑动；[system/menu/frame.cpp](system/menu/frame.cpp) 是它在 Cardenza 上的 `menuFrame` 和侧栏，逐行移植。`--check` 检查复制是否最新，`--compare` 再用 Launcher 真正的 `menuFrame` 和 `drawDialog` 画每一帧：静止的画面（主列表、设置页、语言列表、恢复默认的确认框、网页提示的三项），加上逐帧的滑动（移一行、连按、中途折返、往下和往上翻过一屏，每 4 ms 一帧直到停稳：五种语言共 2005 帧），有任何一个像素不同就失败（主机测试里存着这些帧的哈希）。数值页和本机信息页是 Launcher“背光”页和“关于”页那几行的移植（Launcher 是在别的函数里直接画的）。文字在 `system/menu/strings.json`。
 - 中文、日文和越南文用的是 203 Launcher 里由 **HarmonyOS Sans**（12 像素，恢复默认的确认框用 16 像素粗体）生成的点阵，由同一个工具只为菜单的文字从 Launcher 的字形表里取出（Launcher 的字形表里还没有的字，比如“默”，由 Launcher 自己的 `tools/i18n.py` 用它指定的字体生成：`--fonts`）；点阵是用该字体制作的作品，授权允许分发（[licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)），仓库里不含字体文件。5x7 字体来自 NullPerator（BSD-3-Clause，声明见 [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)）。
 
 ## 板子的设置（所有固件通用）
