@@ -445,6 +445,7 @@ bool started = CardenzaHAL::USB::Init(config);
 | 串口（`serial`，Kconfig `CONFIG_CARDENZA_HAL_USB_SERIAL`）：CDC | 2 | 是，按行，外加 esptool 的复位 | 关（没有别的类带系统通道时自动加上） |
 | U 盘（`USB::Drive`）：SD 卡 | 1 | 否 | 运行时再要 |
 | 摄像头（`USB::Camera`）：屏幕的无损画面流，在 WebUSB 接口上 | 1 | 否 | 运行时再要 |
+| 网络（`USB::Network`，Kconfig `CONFIG_CARDENZA_HAL_USB_NETWORK`）：CDC-NCM | 2 | 否 | 运行时再要 |
 
 ESP32-S3 除 EP0 外有四个 IN 端点（IN 端点的 TX FIFO 就是它编号的那个，所以编号只能是 1 到 4），默认的类正好占满。默认打开的类放不下时，编译直接停下并说明该关哪个（`usb/config/tusb_config.h`）。固件借出 SD 卡或打开摄像头时，端点从下面这些里按顺序让出来：播放的反馈端点（播放改为自适应：HAL 偶尔丢一帧或重复一帧，不超过万分之一）、HID、串口、音频、MIDI，每一项都只在还有别的类带着系统通道时才让。日志会写出让了什么。
 
@@ -537,6 +538,22 @@ CardenzaHAL::USB::Init(usb);
 - 显示的是固件用 `Display::Present(framebuffer...)` 或 `PresentChanged` 提交的画面：直接通过面板句柄绘制的固件看不到，系统菜单也不在其中。
 - 电脑开始读取之前零开销。读取时：130 KB PSRAM、一个优先级 1 的任务（栈 3.5 KB），以及每次 `Present` 时把提交的行和屏幕副本比较。占一个 IN 端点，从让位的类中取得（首先是音频回放的反馈端点：回放改为自适应）。
 - 普通页面的关键帧 8-27 KB（原样 64.8 KB）；界面变化每秒几十 KB；电脑比固件慢时，变化合并成更少的帧，不会积压。
+
+### USB 网络：板子当网卡
+
+[`usb/network.h`](usb/network.h)（Kconfig `CONFIG_CARDENZA_HAL_USB_NETWORK`，按需打开）让板子成为电脑的一块有线网卡（CDC-NCM），跑在 lwIP 上，和 HAL 的 Wi-Fi 是同一个协议栈：ESP-IDF 的 `esp_http_server`、socket、`esp_http_client` 都和在 Wi-Fi 上一样用。`Network::Start(mode)` 加上这个类（电脑会重新找到设备；它要的两个 IN 端点从让出来的里面拿：先是播放的反馈端点，再是 HID），`Stop()` 去掉它。[`examples/usb_network`](examples/usb_network) 在 <http://cardenza.local> 提供一个显示板子信息的网页。
+
+| 模式 | 板子 | 电脑 | 上网 |
+| --- | --- | --- | --- |
+| `Mode::Device`（默认） | `192.168.203.1/24`，DHCP 服务器，`<hostname>.local`（`cardenza.local`）的 mDNS | 从 `192.168.203.2` 起租地址：租约里没有路由器，也没有 DNS 服务器 | 电脑的网络照旧（什么都不经过板子） |
+| `Mode::Uplink` | 链路上的 DHCP 客户端 | 要在电脑上为这个链路打开网络共享（macOS 的互联网共享、Windows 的 ICS、Linux 的 NAT） | 板子通过电脑上网 |
+
+- **和 Wi-Fi 并存**（[Net](#网络wi-fi-与-https)）：Wi-Fi 连着时它是默认路由；Wi-Fi 不在时由 USB 上行接替（`Options::preferOverWifi`：上行优先）。DNS 服务器永远是默认接口的：这个选项会打开 ESP-IDF 的 `CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF`，USB 链路上的租约不会顶掉 Wi-Fi 的 DNS，任何一边断了 Net 都照常工作。设备模式永远不当默认路由（没有网关，优先级最低）。
+- **mDNS**：HAL 自己在 lwIP 的 UDP 上写的应答器（约 1 KB Flash，不用加组件，不碰其他接口）：只在 USB 链路上回答 `<hostname>.local` 的 A 查询（组播；一次性查询回到它的端口，TTL 10 秒），链路连上时宣告三次。不回答 AAAA，也没有服务记录：`http://cardenza.local` 和 `ping cardenza.local` 都能用。一台电脑接两块板子：给它们不同的 `Options::hostname`。
+- **链路**：跟着线缆、电脑睡眠和设备的类变化走（`GetState().link`：`Waiting`、`Up`、`Ready`；`SetListener`）。每次变化、电脑租到的地址、上行拿到的租约都写在日志里（`usb-net:` 开头）。换一种模式重新启动时，会告诉电脑线拔掉又插上，让它重新要地址。
+- **电脑**：macOS、Linux 和 Windows 11 自带 NCM 驱动；Windows 10 没有（看得到接口，没有驱动）。Chrome OS 和 Android 用 Linux 的驱动。
+- **开销**：编进这个类时静态内部 RAM 约 6.6 KB（NCM 的收发块，每个方向 3.2 KB；2026-11-24 在模板上量的），lwIP 之外约 3 KB Flash（在线服务本来就链接了 lwIP；关掉它的固件还要算上 lwIP 和 esp_netif）。启动后：一个任务（3 KB 栈）、四个发送槽（6 KB，有 PSRAM 就放 PSRAM）和每个包 lwIP 的 pbuf。电脑来的帧在 USB 任务里拷进 pbuf 交给 lwIP，从不等待；发给电脑的帧最多等 10 毫秒空出的槽。
+- 速率：全速 USB，最多约 1 MB/s，和其他类共用。
 
 ### 开发通道（`203cli board`）
 
@@ -792,6 +809,7 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`examples/launcher_net`](examples/launcher_net)：读出 Launcher 的设置，连上它的 Wi-Fi，发一个 HTTPS 请求再把一切关掉，每一步都打印耗时和内存；它的 `sdkconfig.defaults` 是使用 Net 的固件的参考配置。`idf.py -C examples/launcher_net build`。
 - [`examples/community_presence`](examples/community_presence)：带在线服务的 `CardenzaHAL::Init()`、交接钩子、在日志里打印服务的状态。`idf.py -C examples/community_presence build`。
 - [`examples/hal_check`](examples/hal_check)：通过 HAL 逐个检查板子：每个键的格子和按键灯、音频任务为每个按住的键发一个音、HOME。同一份源码既能编译到板子上，也能编译成网页版。
+- [`examples/usb_network`](examples/usb_network)：板子当 USB 网卡（`usb/network.h`）：<http://cardenza.local> 上有一个实时显示板子信息和链路状态的网页；按任意键切到上行模式（用电脑共享的网络）并通过它取一个网页，再按切回。屏幕颜色就是状态（灰：关，琥珀：等电脑，绿：设备模式就绪，蓝：上行就绪，白条：取网页成功）。`idf.py -C examples/usb_network build`。
 - [`examples/usb_drive`](examples/usb_drive)：SD 卡当 U 盘（`usb/drive.h`）：按任意键把卡借给电脑、再按收回，屏幕颜色就是状态（灰：固件在用，琥珀：交接中，绿：电脑在用，红：失败）。`idf.py -C examples/usb_drive build`。
 - [`.github/actions/community-publish`](.github/actions/community-publish/action.yml)：每个固件的标准发布，用 `203cli` 和受信任发布把版本发到 203 社区的 GitHub Action（推送到 main 是 dev，`vX.Y.Z-beta.N` 和 `vX.Y.Z` 标签是 beta 和 stable；见[发布](#发布)）。
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：旧的 Launcher hub，只用于过渡期：还有人在用只读 hub 目录的 203 Launcher 0.2.0，所以 203 Systems 的官方固件把正式版同时镜像到那里。新固件不要用它。

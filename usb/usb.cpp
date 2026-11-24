@@ -1039,6 +1039,7 @@ void PumpAll()
     PumpSerial();
 #endif
     PumpWebUsbConsole();
+    detail::NetworkPump();
 }
 
 void UsbTask(void*)
@@ -1190,6 +1191,8 @@ namespace detail {
 
 // usb/drive.cpp defines it when the drive needs to know (a weak default otherwise).
 __attribute__((weak)) void DriveSuspended(bool) {}
+// usb/network.cpp defines it in a build with the USB network.
+__attribute__((weak)) void NetworkPump() {}
 
 void AutoStart()
 {
@@ -1242,10 +1245,11 @@ bool Reconfigure(const Config& config)
     if (!g_started.load()) return false;
     xSemaphoreTake(g_configLock, portMAX_DELAY);
     g_auto.store(false);
-    // The drive and the camera stay as their own calls left them.
+    // The drive, the camera and the network stay as their own calls left them.
     Logic::Classes asked = Asked(config);
     asked.drive = g_asked.drive;
     asked.camera = g_asked.camera;
+    asked.network = g_asked.network;
     const bool applied = Apply(config, asked, Logic::Classes{}, true);
     xSemaphoreGive(g_configLock);
     return applied;

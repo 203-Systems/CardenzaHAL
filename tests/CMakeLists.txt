@@ -12,6 +12,7 @@
 # - drive_test: the USB drive's states and the bounds of its reads and writes (usb/drive_logic.h).
 # - camera_test (+ screen_stream_test.mjs with Node): the screen stream's encoder (usb/camera_logic.h) and the
 #   reference reader tools/web/screen-stream.js on the streams it records.
+# - network_test: the USB network's address plan, MACs and mDNS answers (usb/network_logic.h).
 # - app_dir_test: a firmware's folder on the card and moving its old one there (storage/app_dir_logic.h).
 # - hal_faults: the HAL's driver sources against fake ESP-IDF drivers (fakes/esp_stub.h) that fail on
 #   purpose, so every error path is taken and leaves the hardware in a known state.
@@ -80,6 +81,11 @@ if(CARDENZA_NODE)
   add_test(NAME CardenzaScreenStreamReaderTests COMMAND ${CARDENZA_NODE} ${CMAKE_CURRENT_SOURCE_DIR}/screen_stream_test.mjs ${CMAKE_CURRENT_BINARY_DIR})
   set_tests_properties(CardenzaScreenStreamReaderTests PROPERTIES FIXTURES_REQUIRED screen_stream)
 endif()
+
+# usb/network_logic.h: the USB network's addresses, MACs, host name and the mDNS responder's queries and answers.
+add_executable(CardenzaNetworkTests network_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaNetworkTests PRIVATE ${hal_root})
+add_test(NAME CardenzaNetworkTests COMMAND CardenzaNetworkTests)
 
 # display/changed_regions.h: what PresentChanged sends.
 add_executable(CardenzaChangedRegionsTests changed_regions_test.cpp ${cardenza_test_guard})

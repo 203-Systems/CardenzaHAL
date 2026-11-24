@@ -68,6 +68,7 @@ if(COMMAND idf_component_register)
             esp_event
             esp_http_client
             esp_netif
+            lwip
             esp_partition
             esp_wifi
             mbedtls

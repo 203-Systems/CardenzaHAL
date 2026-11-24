@@ -468,6 +468,7 @@ A device always keeps a way to be recognised and flashed: whatever you turn off,
 | Serial port (`serial`, Kconfig `CONFIG_CARDENZA_HAL_USB_SERIAL`): CDC | 2 | yes, as lines, plus esptool's reset | off (added when nothing else carries the channel) |
 | USB drive (`USB::Drive`): the SD card | 1 | no | asked for at run time |
 | Camera (`USB::Camera`): the screen as a lossless stream, on the WebUSB interface | 1 | no | asked for at run time |
+| Network (`USB::Network`, Kconfig `CONFIG_CARDENZA_HAL_USB_NETWORK`): CDC-NCM | 2 | no | asked for at run time |
 
 The ESP32-S3 has four IN endpoints besides EP0 (an IN endpoint's TX FIFO is the one of its number, so they are numbered 1 to 4), and the default classes take all four. The build stops with what to turn off when the classes on by default need more (`usb/config/tusb_config.h`). When the firmware lends the card or shows the camera, the endpoint comes from what gives way, in this order: the playback's feedback endpoint (the playback becomes adaptive: the HAL drops or repeats a frame now and then, a frame in 10,000 or fewer), HID, the serial port, audio, MIDI, each only while another class still carries the system channel. The log says what gave way.
 
@@ -581,6 +582,43 @@ CardenzaHAL::USB::Init(usb);
   (the audio playback's feedback endpoint first: the playback becomes adaptive).
 - A keyframe of a typical page is 8-27 KB (64.8 KB raw); UI changes cost tens of KB a second; a computer slower than the
   firmware gets the changes merged into fewer frames, never a backlog.
+
+### USB network: the board as a network adapter
+
+[`usb/network.h`](usb/network.h) (Kconfig `CONFIG_CARDENZA_HAL_USB_NETWORK`, opt-in) makes the board a wired
+network adapter for the computer (CDC-NCM) on lwIP, the same stack as the HAL's Wi-Fi: ESP-IDF's
+`esp_http_server`, sockets and `esp_http_client` work on it as on Wi-Fi. `Network::Start(mode)` presents the
+class (the computer finds the device again; its two IN endpoints come from what gives way: the playback's
+feedback endpoint, then HID), `Stop()` removes it. [`examples/usb_network`](examples/usb_network) serves a page
+with the board's information at <http://cardenza.local>.
+
+| Mode | The board | The computer | Internet |
+| --- | --- | --- | --- |
+| `Mode::Device` (default) | `192.168.203.1/24`, a DHCP server, mDNS for `<hostname>.local` (`cardenza.local`) | leases `192.168.203.2` onwards: no router and no DNS server in the lease | the computer's stays as it is (nothing goes through the board) |
+| `Mode::Uplink` | a DHCP client on the link | its internet sharing for the link must be on (macOS Internet Sharing, Windows ICS, a Linux NAT) | the board's, through the computer |
+
+- **Beside Wi-Fi** ([Net](#network-wi-fi-and-https)): Wi-Fi stays the default route while it is up; the uplink takes
+  over when it is not (`Options::preferOverWifi`: the uplink first). The DNS servers are always the default
+  interface's: the option selects ESP-IDF's `CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF`, so a lease on the USB link
+  never replaces Wi-Fi's DNS and Net keeps working when either goes. The device mode is never a default route (no
+  gateway, the lowest priority).
+- **mDNS**: a responder of the HAL's own on lwIP's UDP (about 1 KB of flash, no component to add, nothing on other
+  interfaces): it answers A questions for `<hostname>.local` on the USB link (multicast, and one-shot queries back
+  to their port with a 10 s TTL) and announces it three times when the link comes up. No AAAA and no service
+  records: `http://cardenza.local` and `ping cardenza.local` work. Two boards on one computer: give them
+  different `Options::hostname`s.
+- **Link**: it follows the cable, the computer's sleep and the device's classes changing (`GetState().link`:
+  `Waiting`, `Up`, `Ready`; `SetListener`). The log says every change, the address the computer leased and the
+  uplink's lease (`usb-net:` lines). Starting it again in another mode tells the computer the cable went and came
+  back, so it asks for an address again.
+- **Computers**: macOS, Linux and Windows 11 have NCM drivers built in; Windows 10 has none (it shows the
+  interface without a driver). Chrome OS and Android: Linux's driver.
+- **Costs**: about 6.6 KB of static internal RAM while the class is built (the NCM transfer blocks, 3.2 KB each way;
+  measured on the template, 2026-11-24) and about 3 KB of flash beside lwIP (which the presence service links
+  anyway; a firmware with it off pays for lwIP and esp_netif too). While started: a task (3 KB stack), four
+  transmit slots (6 KB, PSRAM when there is some) and lwIP's pbufs per packet. Frames from the computer are copied
+  into pbufs on the USB task and posted to lwIP, which never waits; frames to it wait at most 10 ms for a slot.
+- Data rate: full-speed USB, about 1 MB/s at best, shared with the other classes.
 
 ### Development channel (`203cli board`)
 
@@ -838,6 +876,7 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`examples/launcher_net`](examples/launcher_net): reads the Launcher's settings, joins its Wi-Fi, makes one HTTPS request and takes everything down, logging time and RAM at each step; its `sdkconfig.defaults` is the reference set of options for a firmware using Net. `idf.py -C examples/launcher_net build`.
 - [`examples/community_presence`](examples/community_presence): `CardenzaHAL::Init()` with the presence service, a handover hook, the service's state in the log. `idf.py -C examples/community_presence build`.
 - [`examples/hal_check`](examples/hal_check): the board through the HAL, key by key: every key's cell and LED, a tone per held key from an audio task, HOME. It builds for the board and for the browser alike.
+- [`examples/usb_network`](examples/usb_network): the board as a USB network adapter (`usb/network.h`): a page at <http://cardenza.local> with the board's information and the link, live; any key switches to the uplink mode (the computer's shared internet) and fetches a page through it, and back. The screen's colour is the state (grey: off, amber: waiting for the computer, green: device mode ready, blue: uplink ready, a white bar: the fetch worked). `idf.py -C examples/usb_network build`.
 - [`examples/usb_drive`](examples/usb_drive): the SD card as a USB drive (`usb/drive.h`): any key lends the card to the computer and takes it back, the screen's colour is the state (grey: the firmware's, amber: moving, green: the computer's, red: failed). `idf.py -C examples/usb_drive build`.
 - [`.github/actions/community-publish`](.github/actions/community-publish/action.yml): the standard release of every firmware, a GitHub Action that publishes a version to the 203 community with `203cli` and trusted publishing (dev for a push to main, beta and stable for `vX.Y.Z-beta.N` and `vX.Y.Z` tags; [Releasing](#releasing)).
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml): the old Launcher hub, only for the transition: 203 Systems' official firmware mirror their releases there while 203 Launchers 0.2.0, which read only the hub's catalog, are still in use. New firmware do not use it.

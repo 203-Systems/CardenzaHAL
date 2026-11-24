@@ -84,5 +84,7 @@ namespace CardenzaHAL::USB::detail {
     std::size_t NetworkDescriptor(uint8_t* out, std::size_t capacity, uint8_t itf, uint8_t stringIndex, uint8_t macStringIndex,
                                   uint8_t epNotify, uint8_t epOut, uint8_t epIn);
     const char* NetworkMacString();
+    // The USB task, every pass of its loop: the network's link and the frames waiting to go to the computer.
+    void NetworkPump();
 
 }  // namespace CardenzaHAL::USB::detail
