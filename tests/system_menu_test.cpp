@@ -768,7 +768,7 @@ void TestOwnPages()
         assert(Frame(view) != page);
         view.about = &about;
         view.state.page = CardenzaHAL::SystemMenu::detail::Page::Value;
-        for (int i = 0; i < Settings::kCount - 1; ++i)
+        for (int i = 0; i < Index(Id::Language); ++i)  // the settings with a value page
         {
             const Id id = static_cast<Id>(i);
             const auto& info = Settings::detail::kInfo[i];

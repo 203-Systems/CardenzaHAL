@@ -12,6 +12,8 @@ through [`system/settings.h`](../system/settings.h).
 | Screen brightness (`screen_brightness`) | 10–100 % | 100 | the backlight on the 203 Launcher's duty curve and at its 256 Hz PWM: the same light in the Launcher, the menu and every firmware |
 | Key lights (`key_brightness`) | 0–15 | 15 | the key lights' master level (`Keyboard::setLEDGlobalBrightness`) |
 | Language (`language`) | the Launcher's codes: 0 English, 1 简体中文, 3 日本語, 4 Bahasa Indonesia, 5 Tiếng Việt | 0 | the system menu's words, and the Launcher's own language; a firmware may follow it |
+| WebUSB page (`webusb_landing`) | 0 the first time only, 1 always, 2 never | 0 | whether the USB device names the 203 community's page to web browsers (the WebUSB landing page: every Chromium browser running shows a notice for it at each plug-in); from the next time a computer finds the device |
+| Seen (`webusb_seen`) | 0, 1 | 0 | 1 once a 203 tool or the community's website has seen the board (system command 0x46, [usb-dev.md](usb-dev.md)): with `webusb_landing` 0 the page is named no more; not in the menu |
 
 Reset (in the menu, `Settings::Reset`, `203cli board settings reset`) puts every one back to its default but the
 language, as the Launcher's own reset keeps it.
@@ -48,6 +50,8 @@ The NVS partition the 203 Launcher shares with every firmware (label `nvs`):
 | Volume | `hal_system` | `volume` | u8, 0–100 |
 | Volume limit | `hal_system` | `volume_max` | u8, 10–100 |
 | Key lights | `hal_system` | `key_light` | u8, 0–15 |
+| WebUSB page | `hal_system` | `usb_landing` | u8, 0–2 |
+| Seen | `hal_system` | `usb_seen` | u8, 0–1 |
 
 A missing key is its default; a value out of its range is the default too. Key names keep their meaning: a new
 meaning takes a new key.

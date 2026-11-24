@@ -23,6 +23,7 @@
 
 #include "system/internal/hooks.h"
 #include "system/launcher.h"
+#include "system/settings.h"
 #include "usb/dev_logic.h"
 #include "usb/internal/camera.h"
 #include "usb/internal/dev.h"
@@ -105,6 +106,7 @@ struct Descriptors {
     uint8_t bos[kBosLength];
     uint8_t msOs20[kMsOs20Length];
     bool webusb;
+    bool landing;  // the BOS names the WebUSB landing page
     bool audioPlayback;
     uint8_t itfAudio;
     uint8_t itfWebUsb;
@@ -470,6 +472,18 @@ void Answer(Way way, const uint8_t* data, std::size_t length)
     }
 }
 
+// A 203 tool or the community's website has seen the board: the WebUSB landing page (first time only) is not
+// named again (the setting is written a second later, as every setting; the descriptors change at the next
+// enumeration).
+void MarkSeen()
+{
+    if (Settings::Get(Settings::Id::WebUsbSeen) == 0)
+    {
+        Settings::Set(Settings::Id::WebUsbSeen, 1);
+        ESP_LOGI(kTag, "seen by a 203 tool: no WebUSB landing page from the next connection (webusb_landing first time)");
+    }
+}
+
 void HandleApp(const uint8_t* data, std::size_t length, Way way)
 {
     g_appWay.store(way, std::memory_order_relaxed);
@@ -502,6 +516,13 @@ void HandleCommand(const uint8_t* data, std::size_t length, Way way)
         case kCommandDev:
             detail::DevRequest(data + 1, length - 1, way);
             return;
+        case kCommandSeen:
+        {
+            const uint8_t answer[1] = {static_cast<uint8_t>(command | 0x80)};
+            Answer(way, answer, sizeof(answer));
+            MarkSeen();
+            return;
+        }
         case kCommandConsole:
         {
             const bool on = length > 1 && data[1] != 0;
@@ -621,6 +642,7 @@ void SerialHelp()
         "  download                 restart into the ROM download mode (esptool)",
         "  reboot                   restart the firmware",
         "  log on | log off         the console on this port",
+        "  seen                     a 203 tool has seen this board (no WebUSB landing page from now on)",
         "  sys <hex> | app <hex>    a report 0xCB / 0xFF (docs/usb-dev.md)",
         "OK",
     };
@@ -655,6 +677,12 @@ void HandleLine(const char* line)
             return;
         }
     if (Logic::SameWords(line, "help")) return SerialHelp();
+    if (Logic::SameWords(line, "seen"))
+    {
+        MarkSeen();
+        SerialLine("OK seen");
+        return;
+    }
     if (Logic::SameWords(line, "log on") || Logic::SameWords(line, "log off"))
     {
         const bool on = Logic::SameWords(line, "log on");
@@ -903,7 +931,11 @@ void BuildDescriptors(const Logic::Classes& classes, const Logic::Endpoints& ep,
         }
         interfaces += 1;
         out.webusb = true;
-        const uint8_t bos[] = {TUD_BOS_DESCRIPTOR(kBosLength, 2), TUD_BOS_WEBUSB_DESCRIPTOR(kVendorWebUsb, 1),
+        // The landing page only while it is wanted (Settings: webusb_landing, webusb_seen): every Chromium
+        // browser running shows a notice for it at each plug-in.
+        const bool landing = Logic::LandingPage(Settings::Get(Settings::Id::WebUsbLanding), Settings::Get(Settings::Id::WebUsbSeen) != 0);
+        out.landing = landing;
+        const uint8_t bos[] = {TUD_BOS_DESCRIPTOR(kBosLength, 2), TUD_BOS_WEBUSB_DESCRIPTOR(kVendorWebUsb, static_cast<uint8_t>(landing ? 1 : 0)),
                                TUD_BOS_MS_OS_20_DESCRIPTOR(kMsOs20Length, kVendorMicrosoft)};
         static_assert(sizeof(bos) == kBosLength, "BOS length");
         std::memcpy(out.bos, bos, sizeof(bos));
@@ -955,7 +987,7 @@ bool SameDescriptors(const Descriptors& a, const Descriptors& b)
 {
     return std::memcmp(&a.device, &b.device, sizeof(a.device)) == 0 && a.configurationLength == b.configurationLength &&
            std::memcmp(a.configuration, b.configuration, a.configurationLength) == 0 && a.hidReportLength == b.hidReportLength &&
-           std::memcmp(a.hidReport, b.hidReport, a.hidReportLength) == 0 && a.webusb == b.webusb;
+           std::memcmp(a.hidReport, b.hidReport, a.hidReportLength) == 0 && a.webusb == b.webusb && a.landing == b.landing;
 }
 
 void ClassList(const Logic::Classes& classes, char* out, std::size_t capacity)

@@ -214,6 +214,14 @@ inline constexpr Endpoints Allocate(const Classes& classes)
     return endpoints;
 }
 
+// ---- The WebUSB landing page ------------------------------------------------------------------------------
+//
+// Whether the BOS names the landing page (Settings::WebUsbLanding: 0 the first time only, 1 always, 2 never;
+// WebUsbSeen: a 203 tool or the community's website has seen the board). Every Chromium browser running shows a
+// notice for it when the board is plugged in, so after the first time it is left out (iLandingPage 0): WebUSB
+// works the same without it.
+inline constexpr bool LandingPage(int mode, bool seen) { return mode == 1 || (mode == 0 && !seen); }
+
 // ---- Identity --------------------------------------------------------------------------------------------
 
 // The serial number: the chip's MAC as USB-Serial-JTAG gives it (and so the ROM's download mode and the 203

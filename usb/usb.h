@@ -183,6 +183,9 @@ namespace CardenzaHAL::USB {
         kCommandIdentify = 0x44,    // answers protocol version, then the product name
         kCommandDev = 0x45,         // the development channel: a computer's questions about the firmware
                                     // (info, partitions, memory, card files, screen, keys; docs/usb-dev.md)
+        kCommandSeen = 0x46,        // a 203 tool or the community's website has seen this board: answers
+                                    // 0xC6; with the setting webusb_landing at "first time", the WebUSB
+                                    // landing page is no longer named from the next enumeration on
         kCommandApp = 0x7F,         // SysEx only: F0 23 7F <bytes> F7 is an app report of <bytes> (below)
     };
     using ReportHandler = void (*)(const uint8_t* report, std::size_t length);

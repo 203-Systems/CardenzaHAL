@@ -60,6 +60,12 @@ appended to that id's argument buffer (512 bytes), and the next other request wi
 in front of its own args. `CANCEL` (`0x7F`, any id) stops the answer being sent (it ends with the error
 `cancelled`), drops what is queued and releases keys pressed from the computer.
 
+The system command `0x46` (`USB::kCommandSeen`, answered `0xC6`), over any way: a 203 tool or the community's
+website has seen this board. With the board's setting `webusb_landing` at "first time" (the default,
+[SETTINGS.md](SETTINGS.md)) the BOS no longer names the WebUSB landing page from the next enumeration on (every
+Chromium browser running shows a notice for it at each plug-in); WebUSB itself works the same without it. Send it
+whenever a tool or a page connects to a board.
+
 The protocol version in `IDENTIFY`'s answer (`0x44`) is 2 from this channel on, 3 from the settings on, 4 from
 the serial port and WebUSB on (INFO is then answered also with `CONFIG_CARDENZA_HAL_USB_DEV` off, and says how
 the board shows up on USB).
@@ -80,6 +86,7 @@ never cut by it.
 | `download` | `OK download`, then the ROM's download mode: the board shows up as USB-Serial-JTAG (303A:1001), a new port |
 | `reboot` | `OK reboot`, then the firmware restarts |
 | `log on`, `log off` | `OK log on` / `OK log off`: the console on this port |
+| `seen` | `OK seen`: as the system command 0x46 (below) |
 | `sys <hex>`, `app <hex>` | reports `0xCB` / `0xFF` (above) |
 | `help` | the commands, then `OK` |
 | anything else | `ERR unknown command, type 'help' for command list` |

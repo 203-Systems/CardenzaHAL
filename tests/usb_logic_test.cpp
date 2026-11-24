@@ -138,6 +138,14 @@ void FitTests()
     assert(!fitted.dropped.feedback && !fitted.dropped.hid && fitted.classes == Make(true, true, true, true, true, false));
 }
 
+void LandingTests()
+{
+    assert(LandingPage(0, false));   // the first time
+    assert(!LandingPage(0, true));   // seen: not again
+    assert(LandingPage(1, true) && LandingPage(1, false));    // always
+    assert(!LandingPage(2, false) && !LandingPage(2, true));  // never
+}
+
 void SerialNumberTests()
 {
     const uint8_t mac[6] = {0x70, 0xAF, 0x09, 0xBC, 0xEB, 0x30};
@@ -312,6 +320,7 @@ int main()
     CommandChannelTests();
     FitTests();
     SerialNumberTests();
+    LandingTests();
     LineTests();
     ResetTests();
     RateMatchTests();
