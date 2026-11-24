@@ -2,14 +2,14 @@
 
 #include <cstdint>
 
-// The system menu: in every firmware on CardenzaHAL, a press of the side key (HOME, GPIO0) opens the 203
-// Launcher's list (drawn by the Launcher's own code, system/menu/launcher/; black, white and grey only, at
+// The system menu: in every firmware on CardenzaHAL, a short press of the side key (HOME, GPIO0), once it is
+// let go, opens the 203 Launcher's list (drawn by the Launcher's own code, system/menu/launcher/; black, white and grey only, at
 // the Launcher's own backlight setting), over whatever the firmware shows. The firmware's picture goes dark
 // and grey through a dither, and the menu comes through it (system/menu/logic.h). Its items:
 //
 //   Continue           back to the firmware (also ESC or del)
 //   Settings           the board's settings (system/settings.h): volume, volume limit, screen brightness,
-//                      key lights, microphone gain, language, reset to defaults; live, written to the flash
+//                      key lights, language, upload screenshots, reset to defaults; live, written to the flash
 //                      once when the menu closes
 //   Back to Launcher   the Launcher's home screen, whatever its settings (the restart ticket,
 //                      system/launcher.h)
@@ -30,10 +30,14 @@
 // the panel handles itself (Display::GetPanel, Present() without a framebuffer) should stop while IsOpen().
 //
 // CardenzaHAL::Init starts it (CONFIG_CARDENZA_HAL_SYSTEM_MENU, on by default): a task of 5 KB that reads
-// the side key every 10 ms; a press that has lasted 30 ms opens the menu (a HOME already down when the
-// firmware starts, or still down when the menu closes, opens nothing until it has been let go). So with the
-// menu on, HOME is the menu's: a firmware that needs HOME for itself turns the menu off with Enable(false)
-// (or the Kconfig option).
+// the side key and space every 10 ms (shared with the screenshots, screenshot/screenshot.h). The user,
+// 2026-11-24: "把当前进入Home键，按下去进入改成松开进入Home键界面，而且是在短按没有截屏的情况下，才会进入": a press of
+// 30 ms to 1 s that took no screenshot opens the menu once HOME is let go, 200 ms after the release (a space in
+// that moment makes it a screenshot: HOME + space in any order is one, screenshot/logic.h HomeGesture); a longer
+// press opens nothing; a HOME already down when the firmware starts, or still down when the menu closes, opens
+// nothing until it has been let go. So with the menu on, HOME is the system's (System::GetHomeButton reads it
+// released): a firmware that needs HOME for itself turns the menu off with Enable(false) (or the Kconfig
+// option), and HOME + space is still the screenshot there.
 namespace CardenzaHAL::SystemMenu {
 
     enum class Action : uint8_t { Launcher, Restart, PowerOff, Download };

@@ -3,7 +3,7 @@
 [English](SD-CARD.md)
 
 鸣片上的每个固件都和 203 Launcher、和别的固件共用一张 SD 卡（用户 2026-11-23 的决定）。卡的根目录下不放
-任何文件：Launcher 一个文件夹，每个固件各一个文件夹。
+任何文件：Launcher 一个文件夹，每个固件各一个文件夹，用户的截图一个文件夹（用户 2026-11-24）。
 
 ```
 /sdcard/                      卡（FAT，由 CardenzaHAL::Init 挂载：storage/storage.h）
@@ -14,6 +14,10 @@
       Logs/                   它的日志
       ...                     其余由固件自己安排（工程、音色、采样、存档、缓存）
     CardenzaSynth/            比如 Cardenza Synth 的
+  screenshot/                 用户的截图，来自所有固件和 Launcher（HOME + 空格）
+    2026-11-24_153012_CardenzaSynth.png
+    shot-0001_Launcher.png    （截图时板子的时钟还没设好）
+    .upload-queue             还要传到社区账号的（一个日志）
 ```
 
 ## 固件要遵守的
@@ -72,6 +76,13 @@ CardenzaHAL::Storage::MigrateAppDir("/sdcard/MyFirmware");  // 然后再从 AppD
 一张新卡那样启动（默认设置，看不到用户的文件），并为它要保存的东西重新建起旧文件夹。它不会碰 `/sdcard/Apps/` 里的
 任何东西。用户再装回新版本时，合并会把旧版本存在那里、而新文件夹里没有的东西搬过去；两边都有的（比如它的设置文件，
 或者它改写过的某个工作文件）留在旧文件夹：想要那一份就手动拷过去。搬家的那个版本，在发布说明里写清楚这一点。
+
+## 截图的文件夹
+
+`/sdcard/screenshot/` 放所有固件和 Launcher 的截图（[SCREENSHOTS.zh-CN.md](SCREENSHOTS.zh-CN.md)）：
+`<日期>_<时间>_<固件>.png`（UTC）或 `shot-NNNN_<固件>.png`，每张先写成临时的 `.<名字>.tmp` 再改名；还有 `.upload-queue`，
+记录还要上传的截图（`Q`、`U`、`S` 行）。只有 HAL 和 Launcher 往这里写，固件自己的代码不写（要截图就调用 `Screenshot::Take()`）。
+这个文件夹属于用户：可以在电脑上随便删；还没上传就被删掉的截图会被跳过。
 
 ## Launcher 的文件夹
 

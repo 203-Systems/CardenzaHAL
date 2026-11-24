@@ -14,6 +14,7 @@ through [`system/settings.h`](../system/settings.h).
 | Language (`language`) | the Launcher's codes: 0 English, 1 简体中文, 3 日本語, 4 Bahasa Indonesia, 5 Tiếng Việt | 0 | the system menu's words, and the Launcher's own language; a firmware may follow it |
 | WebUSB page (`webusb_landing`) | 0 the first time only, 1 always, 2 never | 0 | whether the USB device names the 203 community's page to web browsers (the WebUSB landing page: every Chromium browser running shows a notice for it at each plug-in); a new board shows the notice once, at its first connection; from the next time a computer finds the device. In the system menu: Settings > Browser notice (网页提示) |
 | Seen (`webusb_seen`) | 0, 1 | 0 | 1 once the board has been seen: its first connection with the page offered, or a 203 tool or the community's website (system command 0x46, [usb-dev.md](usb-dev.md)); with `webusb_landing` 0 the page is named no more; not in the menu |
+| Upload screenshots (`screenshot_upload`) | 0 off, 1 on | 1 | screenshots (HOME + space, [SCREENSHOTS.md](SCREENSHOTS.md)) are queued and uploaded, private, to the community account the board is bound to while it is online; off, they stay on the card. In the menu a switch (ENTER turns it over) |
 
 Reset (in the menu, `Settings::Reset`, `203cli board settings reset`) puts every one back to its default but the
 language, as the Launcher's own reset keeps it.
@@ -52,6 +53,7 @@ The NVS partition the 203 Launcher shares with every firmware (label `nvs`):
 | Key lights | `hal_system` | `key_light` | u8, 0–15 |
 | WebUSB page | `hal_system` | `usb_landing` | u8, 0–2 |
 | Seen | `hal_system` | `usb_seen` | u8, 0–1 |
+| Upload screenshots | `hal_system` | `shot_upload` | u8, 0 or 1 (the 203 Launcher reads it too) |
 
 A missing key is its default; a value out of its range is the default too. Key names keep their meaning: a new
 meaning takes a new key.

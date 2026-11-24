@@ -5,6 +5,7 @@
 #include "ir/ir.h"
 #include "keyboard/keyboard.h"
 #include "mic/mic.h"
+#include "screenshot/screenshot.h"
 #include "storage/storage.h"
 #include "system/settings.h"
 #include "system/system.h"

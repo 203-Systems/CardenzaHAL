@@ -67,9 +67,10 @@ namespace CardenzaHAL::Presence::Logic {
         std::size_t count = 0;
         std::size_t dropped = 0;  // beyond kMaxCommands, or without an id that can be answered
         uint32_t pollSeconds = kDefaultPollSeconds;
+        int64_t now = 0;  // the community's clock (unix seconds; 0: the answer had none)
     };
-    // The answer of GET /launcher/inbox?from=firmware: {"commands":[...],"poll":15}. Unknown keys are
-    // skipped, whatever their value. False when it is not that (not JSON, or no "commands" array).
+    // The answer of GET /launcher/inbox?from=firmware: {"commands":[...],"poll":15,"now":1795534212}. Unknown
+    // keys are skipped, whatever their value. False when it is not that (not JSON, or no "commands" array).
     bool ParseInbox(const char* json, std::size_t length, Inbox& inbox);
 
     // The "code" of an error answer ({"error":"...","code":"signin_required"}); empty when there is none.
@@ -77,6 +78,12 @@ namespace CardenzaHAL::Presence::Logic {
 
     // The poll interval to keep: the answer's, within 5..300 s.
     uint32_t PollSeconds(uint32_t answered);
+
+    // The device's clock from the community's ("now"): set it when nothing has (before 2025: kClockSetAfter) or
+    // it is more than kClockSlackSeconds off. A firmware's own clock (SNTP, its own) that is right stays.
+    inline constexpr int64_t kClockSetAfter = 1735689600;  // 2025-01-01T00:00:00Z
+    inline constexpr int64_t kClockSlackSeconds = 30;
+    bool ShouldSetClock(int64_t deviceSeconds, int64_t communitySeconds);
 
     // --- What an answer means -------------------------------------------------------------------------
 

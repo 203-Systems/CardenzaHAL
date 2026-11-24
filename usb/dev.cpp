@@ -72,6 +72,9 @@
 #if CONFIG_CARDENZA_HAL_PRESENCE
 #include "net/presence.h"
 #endif
+#if CONFIG_CARDENZA_HAL_SCREENSHOT
+#include "screenshot/internal.h"
+#endif
 
 // Set by CMakeLists.txt when the build is configured.
 #ifndef CARDENZA_HAL_COMMIT
@@ -801,6 +804,27 @@ void Screen(Stream& stream)
     if (sent) stream.Finish();
 }
 
+// SCREENSHOT: one as HOME + space takes it (screenshot/screenshot.h), saved and/or sent back (docs/usb-dev.md).
+void ScreenshotAnswer(Stream& stream, const uint8_t* args, std::size_t length, Way way)
+{
+#if CONFIG_CARDENZA_HAL_SCREENSHOT
+    // The serial port's word `screenshot` takes no arguments and answers one line: saved, its name as JSON.
+    const uint8_t flags = way == Way::Text ? uint8_t(Screenshot::Logic::Usb::kSave | Screenshot::Logic::Usb::kJson)
+                          : length != 0    ? args[0]
+                                           : Screenshot::Logic::Usb::kDefaultFlags;
+    const Screenshot::detail::UsbOut out{
+        [](void* context, const void* data, std::size_t size) { return static_cast<Stream*>(context)->Write(data, size); },
+        &stream};
+    if (const char* error = Screenshot::detail::TakeForUsb(flags, out)) stream.Fail(error);
+    else if (stream.Ok()) stream.Finish();
+#else
+    (void)args;
+    (void)length;
+    (void)way;
+    stream.Fail("off");
+#endif
+}
+
 void Keys(Stream& stream, const uint8_t* args, std::size_t length)
 {
     if (length % 3 != 0)
@@ -1333,8 +1357,14 @@ void Hello(Stream& stream)
     constexpr bool kDevChannel = false;
 #endif
     const Identity identity = CurrentIdentity();
+#if CONFIG_CARDENZA_HAL_SCREENSHOT
+    constexpr bool kScreenshots = true;
+#else
+    constexpr bool kScreenshots = false;
+#endif
     json.Key("dev").Bool(kDevChannel).Key("settings").Bool(true).Key("info").Bool(true);
-    json.Key("serial").Bool(identity.classes.serial).Key("webusb").Bool(identity.classes.webusb).End();
+    json.Key("serial").Bool(identity.classes.serial).Key("webusb").Bool(identity.classes.webusb);
+    json.Key("screenshot").Bool(kScreenshots && kDevChannel).End();
     if (json.Ok()) stream.Finish();
 }
 
@@ -1356,6 +1386,7 @@ void Handle(const Request& request, const uint8_t* args, std::size_t length)
         case kStatus: Status(stream); break;
         case kI2c: I2c(stream); break;
         case kScreen: Screen(stream); break;
+        case kScreenshot: ScreenshotAnswer(stream, args, length, request.way); break;
         case kKeys: Keys(stream, args, length); break;
         case kCoredumpInfo: CoredumpInfo(stream); break;
         case kCoredumpRead: CoredumpRead(stream); break;
@@ -1384,6 +1415,7 @@ void Handle(const Request& request, const uint8_t* args, std::size_t length)
         case kStatus:
         case kI2c:
         case kScreen:
+        case kScreenshot:
         case kKeys:
         case kCoredumpInfo:
         case kCoredumpRead:

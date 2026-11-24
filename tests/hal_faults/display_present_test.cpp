@@ -4,6 +4,7 @@
 #include "display/internal/stream.h"
 
 #include <vector>
+#include "display/internal/snapshot.h"
 
 #include <array>
 #include <cstdint>
@@ -461,6 +462,30 @@ void Invalid()
 }
 }
 
+// A firmware that draws through the panel's handles itself: what it draws is kept for a screenshot
+// (Display::detail::PanelDrawsCopy), the HAL's own sends are not.
+void PanelDraws()
+{
+    Require(Display::Init(), "initialization failed");
+    Require(Display::detail::PanelDrawsCopy() == nullptr, "a copy before any draw");
+    const auto frame = MakeFrame();
+    Require(Display::Present(frame.data()), "a framebuffer's frame failed");
+    Require(Display::detail::PanelDrawsCopy() == nullptr, "the HAL's own send was copied as a panel draw");
+    std::array<std::uint16_t, 10 * 4> block{};
+    for (std::size_t i = 0; i < block.size(); ++i) block[i] = static_cast<std::uint16_t>(0xA000 + i);
+    Require(esp_lcd_panel_draw_bitmap(Display::GetPanel(), 20, 30, 30, 34, block.data()) == ESP_OK, "a panel draw failed");
+    const std::uint16_t* copy = Display::detail::PanelDrawsCopy();
+    Require(copy != nullptr, "the panel draw was not kept");
+    for (int y = 30; y < 34; ++y)
+        for (int x = 20; x < 30; ++x)
+            Require(copy[y * Display::WIDTH + x] == block[(y - 30) * 10 + (x - 20)], "the kept pixels differ");
+    Require(copy[29 * Display::WIDTH + 20] == 0 && copy[30 * Display::WIDTH + 30] == 0, "pixels outside the draw changed");
+    Require(Fake::displayPixels[30 * 240 + 20] == block[0], "the draw did not reach the panel");
+    // At the screen's edge.
+    Require(esp_lcd_panel_draw_bitmap(Display::GetPanel(), 230, 131, 240, 135, block.data()) == ESP_OK, "an edge draw failed");
+    Require(copy[134 * Display::WIDTH + 239] == block[39], "the edge draw was not kept");
+}
+
 int main(int argc, char** argv)
 {
     try {
@@ -481,6 +506,7 @@ int main(int argc, char** argv)
         else if (scenario == "pacer") Pacer();
         else if (scenario == "buffers") Buffers();
         else if (scenario == "hook") Hook();
+        else if (scenario == "panel_draws") PanelDraws();
         else FailAndRetry(scenario);
         std::cout << "Display " << scenario << " passed\n";
     } catch (const std::exception& error) {

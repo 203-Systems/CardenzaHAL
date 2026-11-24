@@ -107,7 +107,10 @@ TEXT_IDS = ["title", "continue", "settings", "settings.detail", "launcher", "lau
             "volume_limit.rail", "screen", "screen.rail", "shared.detail", "keys", "keys.detail", "language",
             "webusb", "webusb.detail", "webusb.first", "webusb.always", "webusb.never", "reset", "reset.detail", "reset.question", "reset.explain",
             "reset.button", "cancel", "select_saves", "version", "about.launcher", "about.flash", "about.card",
-            "about.free", "none", "english", "chinese", "japanese", "indonesian", "vietnamese"]
+            "about.free", "none", "english", "chinese", "japanese", "indonesian", "vietnamese",
+            # Screenshots (screenshot/screenshot.h): the Settings row and the card the effect shows.
+            "shot.upload", "shot.upload.detail", "value.on", "value.off", "shot.saved", "shot.taken", "shot.nocard",
+            "shot.failed", "shot.nomemory", "shot.unavailable", "shot.notsaved"]
 # A glyph the Launcher's tables do not have yet (a word only the system menu uses; the user's own words,
 # 2026-11-23: 恢复默认) is rendered as the Launcher's tools/i18n.py renders its glyphs (its own
 # rasterize, imported from the checkout: HarmonyOS_Sans_SC.ttf at 12 px, weight 400) from the font file it
@@ -132,10 +135,10 @@ SLIDE_PRESSES = 8
 
 # The still frames --compare draws in every language, in this order: the main list with each row selected,
 # the Settings page with each row selected (SAMPLE_VALUES; the language's own; the browser notice at its default,
-# the first time only), the Language page with each selected, the Reset question with each button focused, and
-# the browser notice's three choices with each selected. (page, rows): page 0 main, 1 settings, 2 language,
-# 3 reset, 4 the browser notice.
-STILLS = [(0, 7), (1, 7), (2, 5), (3, 2), (4, 3)]
+# the first time only; Upload screenshots on), the Language page with each selected, the Reset question with each
+# button focused, and the browser notice's three choices with each selected. (page, rows): page 0 main, 1 settings,
+# 2 language, 3 reset, 4 the browser notice.
+STILLS = [(0, 7), (1, 8), (2, 5), (3, 2), (4, 3)]
 STILL_PAGE_NAMES = ["main", "settings", "language", "reset", "browser notice"]
 # Volume, volume limit, screen brightness, key lights on the Settings page's stills.
 SAMPLE_VALUES = [64, 90, 80, 12]
@@ -571,8 +574,9 @@ def launcher_reference(launcher, strings, work):
                  f"      {{{w('keys')}, nullptr, NO_COLOR, {w('keys.detail')}, \"{SAMPLE_TEXTS[3]}\"}},",
                  f"      {{{w('language')}, nullptr, NO_COLOR, {w('shared.detail')}, {names[li]}}},",
                  f"      {{{w('webusb')}, nullptr, NO_COLOR, {w('webusb.detail')}, {w('webusb.first')}}},",
+                 f"      {{{w('shot.upload')}, nullptr, NO_COLOR, {w('shot.upload.detail')}, {w('value.on')}}},",
                  f"      {{{w('reset')}, nullptr, NO_COLOR, {w('reset.detail')}}}}};",
-                 "    for (int selected = 0; selected < 7; ++selected) {",
+                 "    for (int selected = 0; selected < 8; ++selected) {",
                  still("menuFrame(settings, selected, selected < 4 ? 0 : selected - 3); status()"),
                  "    }",
                  f"    pageTitle = {w('language')};",

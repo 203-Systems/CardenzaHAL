@@ -39,6 +39,11 @@
 // when there is some), given back after it. With the option on, Net is linked into the firmware. With it
 // off, nothing of it is linked and these functions do nothing.
 //
+// While online it also does what the rest of the HAL asks of the network (net/internal/presence_side.h): after an
+// inbox answer, the screenshots' uploads (screenshot/screenshot.h: POST <api>/device/screenshots, a few at a
+// time, the same rules as its own requests); and it sets the device's clock from the community's ("now" in the
+// answer) when nothing set it, or it is more than 30 s off (the screenshots' names; a firmware's right clock stays).
+//
 // The web target has no network: there the service is absent (GetState() is Off).
 namespace CardenzaHAL::Presence {
 

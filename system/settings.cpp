@@ -144,6 +144,7 @@ void ApplyOne(Id id, int value)
         case Id::Language: break;  // the menu's words; the firmware's own, through Get
         case Id::WebUsbLanding:
         case Id::WebUsbSeen: break;  // the USB device's descriptors, the next time a computer reads them
+        case Id::ScreenshotUpload: break;  // read by the screenshots' uploads (screenshot/screenshot.cpp)
     }
 }
 

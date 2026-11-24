@@ -17,7 +17,8 @@ namespace {
 
 void TestDescribe()
 {
-    const char* const keys[] = {"volume", "volume_limit", "screen_brightness", "key_brightness", "language", "webusb_landing", "webusb_seen"};
+    const char* const keys[] = {"volume", "volume_limit", "screen_brightness", "key_brightness", "language", "webusb_landing", "webusb_seen",
+                                "screenshot_upload"};
     static_assert(sizeof(keys) / sizeof(keys[0]) == kCount, "a key for every setting");
     for (int i = 0; i < kCount; ++i)
     {
@@ -73,8 +74,12 @@ void TestClampAndLimit()
     // Reset: every one to its default but the language.
     const uint32_t reset = ApplyReset(v);
     assert(!(reset & (1u << Index(Id::Language))) && v[Index(Id::Language)] == 1);
-    for (int i = 0; i < kCount; ++i)
-        if (i != Index(Id::Language)) assert(v[i] == kInfo[i].defaultValue);
+    for (int i = 0; i < kCount; ++i) assert(i == Index(Id::Language) || v[i] == kInfo[i].defaultValue);
+    // Screenshots go up by default (screenshot/screenshot.h); off is 0, and nothing else.
+    assert(v[Index(Id::ScreenshotUpload)] == 1);
+    assert(Apply(v, Id::ScreenshotUpload, 0) != 0 && v[Index(Id::ScreenshotUpload)] == 0);
+    assert(Apply(v, Id::ScreenshotUpload, 7) != 0 && v[Index(Id::ScreenshotUpload)] == 1);
+    assert(ApplyReset(v) == 0);
     assert(ApplyReset(v) == 0);
 }
 
@@ -117,7 +122,7 @@ void TestStored()
            kStored[Index(Id::ScreenBrightness)].type == kTypeI32);
     assert(std::strcmp(kStored[Index(Id::Language)].nameSpace, "launcher") == 0 &&
            std::strcmp(kStored[Index(Id::Language)].key, "lang") == 0 && kStored[Index(Id::Language)].type == kTypeU8);
-    for (Id id : {Id::Volume, Id::VolumeLimit, Id::KeyBrightness})
+    for (Id id : {Id::Volume, Id::VolumeLimit, Id::KeyBrightness, Id::ScreenshotUpload})
     {
         assert(std::strcmp(kStored[Index(id)].nameSpace, "hal_system") == 0);
         assert(std::strlen(kStored[Index(id)].key) <= 15);

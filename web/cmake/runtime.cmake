@@ -55,6 +55,7 @@ function(cardenza_web_hal_sources out_var)
         ${CARDENZA_WEB_DIR}/hal/network.cpp
         ${CARDENZA_WEB_DIR}/hal/keyboard.cpp
         ${CARDENZA_WEB_DIR}/hal/presence.cpp
+        ${CARDENZA_WEB_DIR}/hal/screenshot.cpp
         ${CARDENZA_WEB_DIR}/hal/settings.cpp
         ${CARDENZA_WEB_DIR}/hal/system_menu.cpp
         ${CARDENZA_WEB_DIR}/hal/usb.cpp

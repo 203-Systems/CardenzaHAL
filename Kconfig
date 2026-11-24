@@ -27,15 +27,32 @@ menu "CardenzaHAL"
         bool "System menu: press HOME (back to the Launcher, restart, turn off)"
         default y
         help
-            CardenzaHAL::Init starts the system menu (system/menu.h): a press of the side key (HOME,
-            GPIO0) opens a menu drawn like the 203 Launcher's over the firmware, with Continue, Settings
+            CardenzaHAL::Init starts the system menu (system/menu.h): a short press of the side key (HOME,
+            GPIO0), once it is let go, opens a menu drawn like the 203 Launcher's over the firmware, with Continue, Settings
             (the board's settings, system/settings.h), Back to Launcher, Restart, Turn off, About this
             device and Download mode. While it is open the firmware keeps running,
             but its frames are not sent, it sees no key and the key lights show the menu's keys.
 
             Costs: a task with a 3 KB stack that reads GPIO0 every 10 ms, about 10 KB of flash (words and
             glyphs); nothing else until the menu opens. At run time CardenzaHAL::SystemMenu::Enable(false)
-            switches it off, for a firmware that needs HOME itself.
+            switches it off, for a firmware that needs HOME itself (HOME + space stays the screenshot).
+
+    config CARDENZA_HAL_SCREENSHOT
+        bool "Screenshots: HOME + space (a PNG on the SD card, uploaded to the board's community account)"
+        default y
+        help
+            CardenzaHAL::Init starts the screenshots (screenshot/screenshot.h, docs/SCREENSHOTS.md): HOME and
+            space (the bottom-right key) together, in either order or one just after the other, save the
+            screen as /sdcard/screenshot/<date>_<time>_<firmware>.png with a short flash and a card the same in
+            every firmware; with the board setting screenshot_upload on (the default) the presence service
+            uploads it to the community account the 203 Launcher bound the board to, private. Also over USB
+            (203cli board screenshot) and from the firmware (Screenshot::Take). Kept on in every firmware: the
+            user's screenshots work the same everywhere (2026-11-24).
+
+            Costs: nothing at rest but a look at space in each updateKeyList and HOME's task (shared with the
+            system menu); about 18 KB of flash. A shot takes a 65 KB copy of the frame and 32 KB for the
+            encoder (PSRAM when there is some) for the moment it is written, on a task of priority 1 with a
+            6 KB stack, deleted 10 s after the last shot.
 
     menu "USB"
 

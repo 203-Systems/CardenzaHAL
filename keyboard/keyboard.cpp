@@ -1,4 +1,5 @@
 #include "keyboard.h"
+#include "internal/space_filter.h"
 
 #include "internal/keyboard_driver.h"
 #include "internal/flash_guard.h"
@@ -104,6 +105,15 @@ void EndOverlay()
 std::size_t OverlayKeys(Point2D_t* keys, std::size_t capacity)
 {
     return keyboard.overlayKeys(keys, capacity);
+}
+
+bool KeyDown(int number)
+{
+    Point2D_t keys[16];
+    const std::size_t count = keyboard.overlayKeys(keys, 16);
+    for (std::size_t i = 0; i < count; ++i)
+        if (keyboard.getKeyNum(keys[i]) == number) return true;
+    return false;
 }
 
 void LightsOffForSleep()

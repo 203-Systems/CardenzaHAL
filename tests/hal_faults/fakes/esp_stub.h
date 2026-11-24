@@ -79,6 +79,11 @@ inline void* heap_caps_aligned_alloc(std::size_t alignment, std::size_t size, st
   return std::aligned_alloc(alignment, (size + alignment - 1) / alignment * alignment);
 }
 inline void heap_caps_free(void* block) { std::free(block); }
+inline void* heap_caps_calloc(std::size_t count, std::size_t size, std::uint32_t caps) {
+  void* block = heap_caps_malloc(count * size, caps);
+  if (block) std::memset(block, 0, count * size);
+  return block;
+}
 constexpr int ESP_RST_POWERON = 1, ESP_RST_SW = 3;
 inline int esp_reset_reason() { return Fake::resetReason; }
 
@@ -132,6 +137,7 @@ inline int xTaskCreate(void (*fn)(void*), const char* name, unsigned stack, void
   return xTaskCreatePinnedToCore(fn, name, stack, arg, priority, h, 0);
 }
 inline void vTaskDelete(TaskHandle_t h) { if (h) { --Fake::tasks; delete h; } }
+inline TaskHandle_t xTaskGetCurrentTaskHandle() { static int self = 0; return &self; }
 inline void vTaskDelay(unsigned ticks) { Fake::now += ticks * 1000; }
 // The tick count follows Fake::now (a tick a millisecond). xTaskDelayUntil sleeps by moving the clock, unless
 // Fake::lateBy says the tick ran this many microseconds over (then, as FreeRTOS, it does not sleep).
@@ -280,8 +286,15 @@ using spi_host_device_t = int;
 constexpr int SPI3_HOST = 3, SPI_DMA_CH_AUTO = 0;
 struct spi_bus_config_t { int mosi_io_num = 0, miso_io_num = 0, sclk_io_num = 0, quadwp_io_num = 0, quadhd_io_num = 0, max_transfer_sz = 0; };
 inline int spi_bus_initialize(int, const spi_bus_config_t*, int) { return Fake::Result("spi_bus"); }
-using esp_lcd_panel_handle_t = void*;
+// The panel as esp_lcd_panel_interface.h has it (draw_bitmap: what esp_lcd_panel_draw_bitmap calls).
+struct esp_lcd_panel_t;
+using esp_lcd_panel_handle_t = esp_lcd_panel_t*;
 using esp_lcd_panel_io_handle_t = void*;
+int FakePanelDraw(esp_lcd_panel_t*, int x0, int y0, int x1, int y1, const void* pixels);
+struct esp_lcd_panel_t {
+  int (*draw_bitmap)(esp_lcd_panel_t*, int, int, int, int, const void*) = FakePanelDraw;
+};
+namespace Fake { inline esp_lcd_panel_t panel; }
 using esp_lcd_spi_bus_handle_t = int;
 struct esp_lcd_panel_io_spi_config_t { int cs_gpio_num = 0, dc_gpio_num = 0, spi_mode = 0, pclk_hz = 0, trans_queue_depth = 0, lcd_cmd_bits = 0, lcd_param_bits = 0; };
 struct esp_lcd_panel_dev_config_t { int reset_gpio_num = 0, rgb_ele_order = 0, data_endian = 0, bits_per_pixel = 0; };
@@ -299,9 +312,10 @@ inline void CompleteDisplayTransfer() {
 }
 constexpr int LCD_RGB_ELEMENT_ORDER_RGB = 0, LCD_RGB_DATA_ENDIAN_LITTLE = 0, LCD_CMD_NOP = 0;
 inline int esp_lcd_new_panel_io_spi(int, const esp_lcd_panel_io_spi_config_t*, void** io) { *io = reinterpret_cast<void*>(1); return ESP_OK; }
-inline int esp_lcd_new_panel_st7789(void*, const esp_lcd_panel_dev_config_t* config, void** panel) {
+inline int esp_lcd_new_panel_st7789(void*, const esp_lcd_panel_dev_config_t* config, esp_lcd_panel_t** panel) {
   ++Fake::panelCreates; Fake::panelResetPin = config->reset_gpio_num;
-  *panel = reinterpret_cast<void*>(2); return ESP_OK;
+  Fake::panel = esp_lcd_panel_t{};
+  *panel = &Fake::panel; return ESP_OK;
 }
 inline int esp_lcd_panel_reset(void*) { ++Fake::panelResets; return Fake::Result("panel_reset"); }
 inline int esp_lcd_panel_init(void*) { ++Fake::panelInits; return Fake::Result("panel_init"); }
@@ -321,7 +335,10 @@ namespace Fake {
 inline std::vector<std::array<int, 4>> drawLog;  // every window drawn, in order
 inline std::vector<const void*> blockLog;        // the buffer each one was sent from
 }
-inline int esp_lcd_panel_draw_bitmap(void*, int x0, int y0, int x1, int y1, const void* pixels) {
+inline int esp_lcd_panel_draw_bitmap(esp_lcd_panel_t* panel, int x0, int y0, int x1, int y1, const void* pixels) {
+  return panel->draw_bitmap(panel, x0, y0, x1, y1, pixels);
+}
+inline int FakePanelDraw(esp_lcd_panel_t*, int x0, int y0, int x1, int y1, const void* pixels) {
   ++Fake::draws;
   if (Fake::Bad("draw")) return ESP_FAIL;
   Fake::lastPixels = pixels; Fake::lastDraw = {x0, y0, x1, y1};

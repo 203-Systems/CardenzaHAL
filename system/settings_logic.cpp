@@ -18,6 +18,7 @@ const Info kInfo[kCount] = {
     {"language", 0, 5, 1, 0, ""},
     {"webusb_landing", 0, 2, 1, 0, ""},
     {"webusb_seen", 0, 1, 1, 0, ""},
+    {"screenshot_upload", 0, 1, 1, 1, ""},
 };
 
 // The screen's brightness and the language are the Launcher's own keys (its src/settings.cpp: bright with
@@ -31,6 +32,7 @@ const Stored kStored[kCount] = {
     {kLauncherNamespace, "lang", kTypeU8},
     {kNamespace, "usb_landing", kTypeU8},
     {kNamespace, "usb_seen", kTypeU8},
+    {kNamespace, "shot_upload", kTypeU8},
 };
 
 Values Defaults()

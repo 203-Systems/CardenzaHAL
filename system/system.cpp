@@ -1,6 +1,7 @@
 #include "system.h"
 #include "../audio/codec/es8156.h"
 #include "internal/hooks.h"
+#include "internal/key_task.h"
 #include "internal/nvs_access.h"
 #include "../board/pins.h"
 
@@ -72,12 +73,16 @@ namespace {
 std::atomic<uint8_t> funcHold{0};
 std::atomic<void (*)()> usbStop{nullptr};
 std::atomic<bool> homeInjected{false};  // HOME held from a computer (detail::InjectHome)
+std::atomic<bool> homeForSystem{false};  // the system menu has HOME (detail::SetHomeForSystem)
 
 }  // namespace
 
 bool GetFuncButton()
 {
     const bool down = detail::HomeButtonRaw();
+    // With the system menu on, HOME is the system's (a short press opens the menu when it is let go, HOME + space
+    // takes a screenshot): the firmware never sees it.
+    if (homeForSystem.load()) return false;
     const uint8_t hold = funcHold.load();
     if (hold == 1) return false;
     if (hold == 2)
@@ -109,6 +114,11 @@ void RestoreHomeButton()
 void HoldHomeButton(bool held)
 {
     funcHold.store(held ? 1 : 2);
+}
+
+void SetHomeForSystem(bool system)
+{
+    homeForSystem.store(system);
 }
 
 void SetUsbStop(void (*stop)())

@@ -21,6 +21,8 @@ enum Op : uint8_t {
     kArg = 0x0E,
     kScreen = 0x10,
     kKeys = 0x11,
+    // A screenshot as HOME + space takes one (screenshot/screenshot.h): saved on the card and/or sent back.
+    kScreenshot = 0x12,
     kCoredumpInfo = 0x20,
     kCoredumpRead = 0x21,
     kCoredumpErase = 0x22,

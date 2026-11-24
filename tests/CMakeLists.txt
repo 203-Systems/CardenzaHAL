@@ -14,6 +14,9 @@
 #   reference reader tools/web/screen-stream.js on the streams it records.
 # - network_test: the USB network's address plan, MACs and mDNS answers (usb/network_logic.h).
 # - app_dir_test: a firmware's folder on the card and moving its old one there (storage/app_dir_logic.h).
+# - screenshot_test: screenshots' decisions (screenshot/logic.h: HOME + space in every order, the menu on release,
+#   space for the firmware, names, the upload queue, answers, the effect) and the effect's card (screenshot/card.h);
+#   screenshot_png_check.py: the PNG encoder (screenshot/png.h) against Python's zlib.
 # - hal_faults: the HAL's driver sources against fake ESP-IDF drivers (fakes/esp_stub.h) that fail on
 #   purpose, so every error path is taken and leaves the hardware in a known state.
 cmake_minimum_required(VERSION 3.20)
@@ -132,6 +135,21 @@ add_executable(CardenzaSystemMenuTests system_menu_test.cpp ${hal_root}/system/m
   ${hal_root}/system/menu/launcher/lcd.cpp ${hal_root}/system/settings_logic.cpp ${cardenza_test_guard})
 target_include_directories(CardenzaSystemMenuTests PRIVATE ${hal_root})
 add_test(NAME CardenzaSystemMenuTests COMMAND CardenzaSystemMenuTests)
+
+# screenshot/logic.h and card.h: HOME + space, names, the upload queue, the effect. screenshot/png.h: the PNG
+# encoder, checked by an independent decoder (Python's zlib and the PNG specification's unfiltering).
+add_executable(CardenzaScreenshotTests screenshot_test.cpp ${hal_root}/screenshot/logic.cpp ${hal_root}/screenshot/card.cpp
+  ${hal_root}/screenshot/png.cpp ${hal_root}/system/menu/logic.cpp ${hal_root}/system/menu/launcher/glyphs.cpp
+  ${hal_root}/system/menu/launcher/lcd.cpp ${hal_root}/system/settings_logic.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaScreenshotTests PRIVATE ${hal_root})
+add_test(NAME CardenzaScreenshotTests COMMAND CardenzaScreenshotTests)
+add_executable(CardenzaScreenshotPngTool screenshot_png_tool.cpp ${hal_root}/screenshot/png.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaScreenshotPngTool PRIVATE ${hal_root})
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME CardenzaScreenshotPng
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/screenshot_png_check.py $<TARGET_FILE:CardenzaScreenshotPngTool>)
+endif()
 
 # system/settings_logic.h: the board's settings (ranges, the volume limit, the volume's curve, the codec's
 # level, the values in the flash and when they are written).
