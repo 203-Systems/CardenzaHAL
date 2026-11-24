@@ -1074,6 +1074,14 @@ void PumpAll()
     detail::NetworkPump();
 }
 
+// Pulls D+ up: the computer finds the device from here (a log line per connection, so the log shows how many
+// times a computer enumerated it).
+void Connect(const char* why)
+{
+    tud_connect();
+    ESP_LOGI(kTag, "connected as %04x:%04x (%s)", g_config.vendorId, g_config.productId, why);
+}
+
 void UsbTask(void*)
 {
     const TickType_t started = xTaskGetTickCount();
@@ -1090,7 +1098,7 @@ void UsbTask(void*)
         const int64_t connectAt = g_connectAtUs.load(std::memory_order_relaxed);
         if (connectAt != 0 && esp_timer_get_time() >= connectAt && xSemaphoreTake(g_configLock, 0) == pdTRUE)
         {
-            if (g_connectAtUs.exchange(0) != 0) tud_connect();
+            if (g_connectAtUs.exchange(0) != 0) Connect("the HAL's own start: no USB::Init from the firmware in its second");
             xSemaphoreGive(g_configLock);
         }
         tud_task_ext(1, false);  // at most a millisecond, so the reports keep moving
@@ -1148,7 +1156,7 @@ bool Apply(const Config& config, const Logic::Classes& asked, const Logic::Class
         g_rateMatch.Reset();
         detail::HidInputReset();
     }
-    if (connected && !same) tud_connect();
+    if (connected && !same) Connect("the classes changed");
     if (log)
     {
         char list[96];
@@ -1198,8 +1206,12 @@ bool Start(const Config& config, int64_t connectAfterUs)
     }
     if (connectAfterUs != 0)
     {
+        // TinyUSB's init pulled D+ up; this lets it go a few microseconds later, far under the 100 ms a host's
+        // attach debounce needs: the computer sees nothing until Connect.
         tud_disconnect();
         g_connectAtUs.store(esp_timer_get_time() + connectAfterUs);
+        ESP_LOGI(kTag, "prepared, not connected: the firmware's USB::Init has %d ms to choose its classes",
+                 static_cast<int>(connectAfterUs / 1000));
     }
     if (xTaskCreatePinnedToCore(UsbTask, "usb", 4096, nullptr, 8, nullptr, 0) != pdPASS)
     {
@@ -1214,6 +1226,7 @@ bool Start(const Config& config, int64_t connectAfterUs)
     g_started.store(true);
     // The system menu (system/menu.h) restarts the board too: it leaves the host first, as Restart does.
     System::detail::SetUsbStop([] { LeaveHost(); });
+    if (connectAfterUs == 0) ESP_LOGI(kTag, "connected as %04x:%04x (USB::Init)", config.vendorId, config.productId);
     return true;
 }
 
@@ -1266,7 +1279,7 @@ bool Init(const Config& config)
         // the computer has not seen the device yet; later it sees it again with these classes.
         started = Apply(config, Asked(config), Logic::Classes{}, true);
         if (config.console) RedirectConsole();
-        if (g_connectAtUs.exchange(0) != 0) tud_connect();
+        if (g_connectAtUs.exchange(0) != 0) Connect("the firmware's USB::Init");
     }
     xSemaphoreGive(g_configLock);
     return started;
@@ -1782,6 +1795,7 @@ void tud_hid_report_complete_cb(uint8_t, uint8_t const*, uint16_t) { PumpReports
 
 void tud_umount_cb(void)
 {
+    ESP_LOGI("usb", "the computer let go");
     g_playing.store(false);
     g_recording.store(false);
     // The next host asks for the console itself, and its app reports pick their own way back.
@@ -1805,6 +1819,7 @@ void tud_umount_cb(void)
 // a new board shows the browsers' notice once, whether or not a 203 tool ever connects (the user, 2026-11-24).
 void tud_mount_cb(void)
 {
+    ESP_LOGI("usb", "configured by the computer");
     g_playing.store(false);
     g_recording.store(false);
     if (g_desc.landing && CardenzaHAL::Settings::Get(CardenzaHAL::Settings::Id::WebUsbLanding) == CardenzaHAL::Settings::kLandingFirstTime)
