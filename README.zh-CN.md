@@ -46,7 +46,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方�
 | HOME | 侧边键（GPIO0；按一下打开[系统菜单](#系统菜单任何固件里按-home)；插 USB 或复位时按住进 ROM 下载模式） | [`system/system.h`](system/system.h)：`GetFuncButton`；[Func、I2C 与红外](#funci2c-与红外) |
 | I2C | 共用总线（GPIO1/2），解码器在上面 | [`system/system.h`](system/system.h)：`GetI2CBus` |
 | 红外 | 发射管（GPIO44，NEC 38 kHz） | [`ir/ir.h`](ir/ir.h)：`Send` |
-| USB | 芯片自带的 USB PHY：USB-Serial-JTAG（日志、esptool），或 HAL 的 USB 设备：MIDI、双向音频、HID、系统通道（日志、重启进 Launcher） | [`usb/usb.h`](usb/usb.h)；[USB 设备用法](#usb-设备用法)；电脑端：`203cli log`、[`tools/cardenza_usb.py`](tools/cardenza_usb.py) |
+| USB | 芯片自带的 USB PHY：HAL 的 USB 设备，由 `CardenzaHAL::Init` 启动（MIDI、双向音频、HID、WebUSB，需要时还有串口、把 SD 卡当 U 盘、把屏幕当无损画面流；每个能传指令的类都带系统通道：日志、信息、重启进 Launcher 或 ROM 下载模式），或 USB-Serial-JTAG（Launcher、ROM、esptool） | [`usb/usb.h`](usb/usb.h)；[USB 设备用法](#usb-设备用法)；电脑端：`203cli log`、`203cli board`、[`tools/cardenza_usb.py`](tools/cardenza_usb.py) |
 | Wi-Fi、蓝牙 | 芯片自带（2.4 GHz Wi-Fi、蓝牙 5 LE） | 用 ESP-IDF 自己的驱动，不在 HAL 里（浏览器模拟器里没有：[网页模拟器](#网页模拟器)） |
 
 ## 发布
@@ -69,7 +69,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build    # 首选的编译方�
 
 ## 快速上手
 
-下面的完整示例会点亮屏幕，并让按键灯跟随按下状态变化。只有显式初始化 USB 设备模块后，USB 才会从 USB-Serial-JTAG 切换到复合设备。
+下面的完整示例会点亮屏幕，并让按键灯跟随按下状态变化。`CardenzaHAL::Init()` 还会用默认的类启动 USB 设备（电脑上看到的是 "Cardenza"，203 社区和 `203cli` 都能识别并烧录它）；要自己选类，紧接着调用 `CardenzaHAL::USB::Init(config)`。
 
 ### 1. 加入组件
 
@@ -187,7 +187,7 @@ python3 components/CardenzaHAL/tools/cardenza.py build   # 或者在激活了 ES
 | Storage | 否 | 尝试挂载 `/sdcard` |
 | IR | 否 | 准备红外发射器 |
 
-`LastInitReport()` 提供上述六个模块的结果和 `overall`。整体初始化成功后会缓存结果，再调用一次不会重新挂载缺失的 SD 卡；需要单独调用 `Storage::Init()` 重试。麦克风、USB 和网络（[Net](#网络wi-fi-与-https)）**不在整体初始化范围内**；`cardenzaHAL.h` 也不包含 `usb/usb.h` 和 `net/net.h`。打开 `CONFIG_CARDENZA_HAL_PRESENCE`（默认打开）时，`Init()` 还会启动一次[社区在线服务](#社区在线服务任何固件运行时都能收到)，不论各模块的结果如何。
+`LastInitReport()` 提供上述六个模块的结果和 `overall`。整体初始化成功后会缓存结果，再调用一次不会重新挂载缺失的 SD 卡；需要单独调用 `Storage::Init()` 重试。麦克风和网络（[Net](#网络wi-fi-与-https)）**不在整体初始化范围内**；`cardenzaHAL.h` 也不包含 `usb/usb.h` 和 `net/net.h`。在各模块之前，`Init()` 先用默认的类启动 [USB 设备](#usb-设备用法)（`CONFIG_CARDENZA_HAL_USB_AUTOSTART`，默认打开；一秒后才连接，除非你的 `USB::Init(config)` 先到），不管别的模块是否失败，板子都能被找到、被烧录；一个固件如果连续三次在启动后 15 秒内崩溃，第四次就不再运行它：`Init()` 直接重启进 203 Launcher 的首页（`CONFIG_CARDENZA_HAL_CRASH_LOOP_LAUNCHER`，默认打开；运行得更久或断电都会清零），坏掉的固件永远不需要按 BOOT 键。打开 `CONFIG_CARDENZA_HAL_PRESENCE`（默认打开）时，`Init()` 还会启动一次[社区在线服务](#社区在线服务任何固件运行时都能收到)，不论各模块的结果如何。
 
 只需要部分功能时，可以分别初始化各模块。使用共享 I2C 或 HOME 键前，先调用 `System::Init()`，并检查各模块的返回值。音频编解码器初始化失败后可以再次调用 `Audio::Init()`，重试频率限制约为每秒一次。
 
@@ -394,7 +394,7 @@ void ReadSettings()
 | 本机信息 | 固件和它的版本、Launcher 的版本、HAL 的提交、MAC、Flash、PSRAM、SD 卡 |
 | 下载模式 | 进入 ROM 下载模式，用 USB 刷机（esptool） |
 
-设置页的样子是 Launcher 的“显示”页：每个设置一行，值在右边。在一个值上按 ENTER，打开 Launcher“背光”页那样的一页（大字的值，下面一条刻度；`;`、`,` 减小，`.`、`/` 增大，实时生效：音量马上听得到，亮度马上看得到；ENTER 保留，ESC 恢复原来的值）；语言是 Launcher 的语言列表，每种语言用它自己的文字写；恢复默认先用 Launcher 的确认框问一句（默认选中“取消”），语言不变。改过的设置在菜单关闭时写进 Flash，只写一次。
+设置页的样子是 Launcher 的“显示”页：每个设置一行，值在右边。在一个值上按 ENTER，打开 Launcher“背光”页那样的一页（大字的值，下面一条刻度；`;`、`,` 减小，`.`、`/` 增大，实时生效：音量马上听得到，亮度马上看得到；ENTER 保留，ESC 恢复原来的值）；语言是 Launcher 的语言列表，每种语言用它自己的文字写；网页提示（插上电脑时 Chromium 内核的浏览器弹出的 WebUSB 落地页提示：仅第一次、总是、从不；默认“仅第一次”，新板子只在第一次接电脑时提示一次；即 [docs/SETTINGS.md](docs/SETTINGS.md) 的 `webusb_landing`）也是同样的三项列表，从电脑下一次找到板子起生效；恢复默认先用 Launcher 的确认框问一句（默认选中“取消”），语言不变。改过的设置在菜单关闭时写进 Flash，只写一次。
 
 不用菜单时：开机或复位时按住 fn（键盘左边一列的第三个键，键号 29）进入 Launcher；不是 HOME：复位时按住 HOME 会进入 ROM 下载模式。
 
@@ -411,7 +411,7 @@ void ReadSettings()
 - 屏幕初始化成功后由 `CardenzaHAL::Init` 启动（`CONFIG_CARDENZA_HAL_SYSTEM_MENU`，默认开）：一个 5 KB 栈的任务，每 10 ms 读一次 GPIO0；约占 30 KB flash。菜单打开期间临时借用 2 KB 内存，固件有 PSRAM 时再在 PSRAM 里借 64 KB 存一份固件最新的画面（背景是用它做的；没有 PSRAM，或者按下后 60 ms 内固件没有提交过一帧时，背景是一片暗的 dither 灰），和 32 KB 的菜单画面（每帧画一次；没有 PSRAM 时逐条画）；菜单打开期间再借一张 4 KB 的表，记着已经发出去的画面（有 PSRAM 时放在 PSRAM 里）。
 - 菜单打开期间固件照常运行（任务和声音都不停），但 HAL 会挡住会干扰菜单的东西：`Display::Present*` 不发送并返回 `true`（菜单关闭后的下一帧整屏发送，固件画面自己回来）；`Keyboard::updateKeyList` 不报任何按键（关闭时还按着的键，松开之前都不报）；按键灯显示菜单的键（固件 `setLED*` 设的亮度会保留，关闭后恢复）。直接用面板句柄画屏的固件，应在 `SystemMenu::IsOpen()` 时暂停绘制。
 - `SystemMenu::SetListener` 在菜单打开和关闭时通知；`SystemMenu::SetLeaveHook` 在重启、关机或进入下载模式之前调用（保存需要留下的东西）。菜单开着时 HOME 归菜单：自己要用 HOME 的固件，调用 `SystemMenu::Enable(false)`（或者编译时关掉 `CONFIG_CARDENZA_HAL_SYSTEM_MENU`）。
-- Launcher 的代码在 [system/menu/launcher/](system/menu/launcher/)，由 `tools/launcher_ui.py --launcher <203-launcher 检出目录>` 原样复制（MIT，[licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)）：文字和字形、画布绘制、缓动和选中条的滑动；[system/menu/frame.cpp](system/menu/frame.cpp) 是它在 Cardenza 上的 `menuFrame` 和侧栏，逐行移植。`--check` 检查复制是否最新，`--compare` 再用 Launcher 真正的 `menuFrame` 和 `drawDialog` 画每一帧：静止的画面（主列表、设置页、语言列表、恢复默认的确认框），加上逐帧的滑动（移一行、连按、中途折返、往下和往上翻过一屏，每 4 ms 一帧直到停稳：五种语言共 1990 帧），有任何一个像素不同就失败（主机测试里存着这些帧的哈希）。数值页和本机信息页是 Launcher“背光”页和“关于”页那几行的移植（Launcher 是在别的函数里直接画的）。文字在 `system/menu/strings.json`。
+- Launcher 的代码在 [system/menu/launcher/](system/menu/launcher/)，由 `tools/launcher_ui.py --launcher <203-launcher 检出目录>` 原样复制（MIT，[licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)）：文字和字形、画布绘制、缓动和选中条的滑动；[system/menu/frame.cpp](system/menu/frame.cpp) 是它在 Cardenza 上的 `menuFrame` 和侧栏，逐行移植。`--check` 检查复制是否最新，`--compare` 再用 Launcher 真正的 `menuFrame` 和 `drawDialog` 画每一帧：静止的画面（主列表、设置页、语言列表、恢复默认的确认框、网页提示的三项），加上逐帧的滑动（移一行、连按、中途折返、往下和往上翻过一屏，每 4 ms 一帧直到停稳：五种语言共 2005 帧），有任何一个像素不同就失败（主机测试里存着这些帧的哈希）。数值页和本机信息页是 Launcher“背光”页和“关于”页那几行的移植（Launcher 是在别的函数里直接画的）。文字在 `system/menu/strings.json`。
 - 中文、日文和越南文用的是 203 Launcher 里由 **HarmonyOS Sans**（12 像素，恢复默认的确认框用 16 像素粗体）生成的点阵，由同一个工具只为菜单的文字从 Launcher 的字形表里取出（Launcher 的字形表里还没有的字，比如“默”，由 Launcher 自己的 `tools/i18n.py` 用它指定的字体生成：`--fonts`）；点阵是用该字体制作的作品，授权允许分发（[licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)），仓库里不含字体文件。5x7 字体来自 NullPerator（BSD-3-Clause，声明见 [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)）。
 
 ## 板子的设置（所有固件通用）
@@ -420,13 +420,13 @@ void ReadSettings()
 
 ## USB 设备用法
 
-单独包含 `usb/usb.h`，在系统初始化之后启动 USB。默认配置包含 MIDI、音频、HID 键盘、媒体键和系统通道。只需要 MIDI 应用接口时，可以这样配置：
+`CardenzaHAL::Init()` 会启动 USB 设备（Kconfig `CONFIG_CARDENZA_HAL_USB_AUTOSTART`，默认打开），默认的类是 MIDI、双向音频、HID（键盘、媒体键）和 WebUSB，每个都带系统通道，所以任何固件都能被 203 社区网站和 `203cli` 识别、送去烧录，不需要人按任何键。它一秒后才连接：包含 `usb/usb.h`，在 `CardenzaHAL::Init()` 之后紧接着调用 `USB::Init(config)` 选你自己的类，电脑就只会看到你的。之后再 `Init`，或者 `USB::Reconfigure(config)`，电脑会重新找到带新类的设备。只需要 MIDI 应用接口时：
 
 ```cpp
 #include "usb/usb.h"
 
 CardenzaHAL::USB::Config config;
-config.product = "My Cardenza App";
+config.product = "My Cardenza App";   // 固件自己的名字，在 IDENTIFY 和 INFO 里（USB 名字仍是 "Cardenza"）
 config.audio = false;
 config.keyboard = false;
 config.consumer = false;
@@ -434,7 +434,20 @@ config.consumer = false;
 bool started = CardenzaHAL::USB::Init(config);
 ```
 
-系统 HID 通道仍然保留。USB 已启动、开发恢复机制跳过本次启动，或启动失败时，`Init()` 都可能返回 `false`。可分别检查 `Started()` 和 `Mounted()`；后者表示已被主机配置且未挂起。
+设备永远留着一条能被识别、被烧录的路：不管关掉什么，HAL 都会保留 WebUSB（不占端点），或者加上串口。固件已经调用过、开发恢复机制跳过本次启动，或启动失败时，`Init()` 返回 `false`。可分别检查 `Started()` 和 `Mounted()`；后者表示已被主机配置且未挂起。`Classes()` 说明设备实际提供了哪些类。
+
+| 类（`Config`，Kconfig `CONFIG_CARDENZA_HAL_USB_*`） | IN 端点 | 带系统通道 | 默认 |
+| --- | --- | --- | --- |
+| MIDI（`midi`） | 1 | 是，用 SysEx | 开 |
+| 音频（`audio`）：电脑录设备的声音，也向设备播放（`audioPlayback`） | 1，播放的反馈端点再加 1（`audioFeedback`） | 否 | 开，带反馈 |
+| HID（`hid`）：键盘、媒体键、手柄、原始报告 | 1 | 是，报告 0xCB | 开 |
+| WebUSB（`webusb`）：给网页和电脑程序用的厂商接口 | 0 | 是，控制请求 | 开 |
+| 串口（`serial`，Kconfig `CONFIG_CARDENZA_HAL_USB_SERIAL`）：CDC | 2 | 是，按行，外加 esptool 的复位 | 关（没有别的类带系统通道时自动加上） |
+| U 盘（`USB::Drive`）：SD 卡 | 1 | 否 | 运行时再要 |
+| 摄像头（`USB::Camera`）：屏幕的无损画面流，在 WebUSB 接口上 | 1 | 否 | 运行时再要 |
+| 网络（`USB::Network`，Kconfig `CONFIG_CARDENZA_HAL_USB_NETWORK`）：CDC-NCM | 2 | 否 | 运行时再要 |
+
+ESP32-S3 除 EP0 外有四个 IN 端点（IN 端点的 TX FIFO 就是它编号的那个，所以编号只能是 1 到 4），默认的类正好占满。默认打开的类放不下时，编译直接停下并说明该关哪个（`usb/config/tusb_config.h`）。固件借出 SD 卡或打开摄像头时，端点从下面这些里按顺序让出来：播放的反馈端点（播放改为自适应：HAL 偶尔丢一帧或重复一帧，不超过万分之一）、HID、串口、音频、MIDI，每一项都只在还有别的类带着系统通道时才让。日志会写出让了什么。
 
 | 接口 | 数据与应用责任 |
 | --- | --- |
@@ -444,26 +457,107 @@ bool started = CardenzaHAL::USB::Init(config);
 | `KeyboardReport(modifiers, keys)` | 六个 HID 键码与修饰键位；发送全零报告以释放按键 |
 | `ConsumerReport(usage)` | 一个媒体功能 usage，`0` 表示释放 |
 | `SetAppReportHandler(handler)` / `SendAppReport(data, length)` | 最多 `kReportSize`（63）字节的应用报告；回调在 USB 任务中执行，应保持简短 |
+| `Reconfigure(config)`、`CurrentConfig()`、`Classes()` | 运行中换类；固件要的配置；设备实际提供的类 |
 
 USB 音频长度单位是**帧**，每帧两个采样，共四字节。每个音频块都应服务收发并处理短传输。主机没有录音时，`AudioWrite()` 会丢弃数据但仍返回请求帧数；需要区分时检查 `AudioInputActive()`。`AudioOutputActive()` 表示主机是否正在播放。
 
 USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包括声道转换及共用引脚管理。需要响应主机音量时，由应用读取并应用 `HostMuted()`、`HostVolume()`；后者单位是 1/256 dB，`0` 表示满电平。`AudioStats()` 提供端点计数和以字节为单位的 FIFO 占用量。
 
+### USB 名字：每种模式都是同一台设备
+
+| 板子的状态 | VID:PID | 厂商 / 产品 | 序列号 |
+| --- | --- | --- | --- |
+| 跑 HAL 固件（协议 4） | 0203:10C0（或固件的 `productId`） | 203 Systems / Cardenza | MAC，`70:AF:09:BC:EB:30` |
+| 203 Launcher，以及 ROM 下载模式（USB-Serial-JTAG） | 303A:1001 | Espressif / USB JTAG/serial debug unit | 同一个 MAC，同样的写法 |
+| 203 Launcher 的 U 盘模式（它的 `feat/usb-everywhere` 起） | 0203:10CF | 203 Systems / Cardenza | 同上 |
+
+电脑靠序列号在不同模式之间认出同一颗芯片（Web Serial、WebHID、Web MIDI 看不到序列号：协议的回答里有 `chip.mac`）。各接口的名字说明它是什么："Cardenza MIDI"、"Cardenza Audio"、"Cardenza HID"、"Cardenza WebUSB"、"Cardenza Serial"、"Cardenza Storage"。固件自己的名字和版本在 IDENTIFY 和 INFO 里，不在 USB 名字里（协议 4 之前，产品名是固件的 `Config::product`，序列号不带冒号）。
+
+### HID 输入：键盘、媒体键、手柄
+
+[`usb/hid.h`](usb/hid.h) 让 Cardenza 当电脑的键盘、媒体键和游戏手柄。它们是 USB 设备唯一一个 HID 接口里的报告 ID（键盘 1、媒体键 3、手柄 4，与 Matrix OS 相同），和系统通道（0xCB）、固件自己的原始报告（0xFF）在一起，不占自己的端点。设备带哪几样由 `USB::Config` 决定：`keyboard` 和 `consumer`（默认开），`gamepad`（默认关；在 `CardenzaHAL::Init` 之后紧接着用自己的 `USB::Init` 配置打开）。[`examples/usb_hid`](examples/usb_hid) 用 Cardenza 的按键演示这三样。
+
+| `CardenzaHAL::USB::Hid::` | 作用 |
+| --- | --- |
+| `Press(usage)` / `Release(usage)` / `ReleaseAll()` / `Tap(usage)` | 按住和松开按键：0x07 页的 usage（`kKeyA`、`kKeyEnter`、`kKeyLeft` 等），修饰键 0xE0-0xE7（`kKeyLeftShift`，`kKeyLeftGui` 在 Mac 上是 Command）。同时最多六个键加修饰键，第七个不收。 |
+| `Type(text, timeoutMs)` | 按美式键盘打出可打印 ASCII（`\n` 回车，`\t` Tab），每秒约 500 个字符；打字时按住的键先抬起，打完再按回去。 |
+| `KeyboardLeds()` | 电脑设定的键盘灯（`kLedCapsLock`、`kLedNumLock`、`kLedScrollLock`）。 |
+| `Media(usage)` / `MediaPress(usage)` / `MediaRelease()` | 一个媒体键（`kMediaPlayPause`、`kMediaNext`、`kMediaVolumeUp`、`kMediaMute` 等）。 |
+| `SetGamepad(state)` / `GamepadState()` / `HatFrom(up, down, left, right)` | 六个轴（-127..127）、一个方向帽和 32 个按钮。 |
+| `Ready()` | 电脑已连上设备和它的 HID 接口。 |
+
+HAL 记着按住了什么，电脑最终看到的总是这个状态：报告一时没地方或没有电脑（拔掉、睡眠）时，能发时立刻补发；电脑回来（唤醒、重新插上）时先收到当前状态。电脑离开、或设备的类改变时，一切都会松开，不会有键一直按着。各函数返回这次的报告是否已经在路上。在 macOS 上，HID 键盘会让电脑问一次这是哪种键盘，之后主机工具只有在“输入监控”权限下才能打开 HID 接口（系统通道也一样；SysEx、WebUSB 和串口都不需要权限）：固件不打字时把 `keyboard` 关掉。上面的 `KeyboardReport`、`ConsumerReport` 仍然直接发原始报告；二者选一，不要混用。网页模拟器里没有电脑：这些函数返回 false。
+
 ### USB 协议与平台说明
 
-`CardenzaHAL::USB::Init()`（`usb/usb.h`）把 USB 口变成一个复合设备：USB MIDI 1.0、USB 音频 2.0（立体声 16 位 44.1 kHz，双向，异步带反馈：电脑跟随设备的时钟）和 HID（键盘、媒体键、系统通道和固件自己的原始报告）。VID 0x0203（203 Systems）。报告号和指令沿用 Matrix OS：报告 0xCB 是系统指令（0x40 Launcher / 更新模式，0x41 重启，0x42 ROM 下载模式，0x43 控制台，0x44 识别，0x45 [开发通道](#开发通道203cli-board)；应答为指令 | 0x80），同样的指令也可以用 SysEx `F0 23 <指令> F7` 发。固件自己的报告（0xFF）在电脑没法用 HID 时（比如用 Web MIDI 的网页）也能用 SysEx `F0 23 7F <字节> F7` 发，`SendAppReport` 按上一条来的方式回复（`F0 24 7F <字节> F7`，7 位）。固件的 MIDI 包和 HAL 的 SysEx 一次只有一方在写，SysEx 到电脑时是完整的。
+报告号和指令沿用 Matrix OS：报告 0xCB 是系统指令（0x40 Launcher / 更新模式，0x41 重启，0x42 ROM 下载模式，0x43 控制台，0x44 识别，0x45 [开发通道](#开发通道203cli-board)；应答为指令 | 0x80），同样的指令也可以用 SysEx `F0 23 <指令> F7`、WebUSB 控制请求和串口的 `sys <hex>` 行发（[`docs/usb-dev.md`](docs/usb-dev.md) 的 "Transport"）。固件自己的报告（0xFF）在电脑没法用 HID 时（比如用 Web MIDI 的网页）也能用 SysEx `F0 23 7F <字节> F7` 发，`SendAppReport` 按上一条来的方式回复。固件的 MIDI 包和 HAL 的 SysEx 一次只有一方在写，SysEx 到电脑时是完整的。VID 0x0203（203 Systems）。
 
-- 它占用芯片唯一的 USB PHY：控制台转到系统通道，esptool 的串口没有了，直到重启进 Launcher 或 ROM 下载模式。
-- ESP32-S3 除 EP0 外只有四个 IN 端点，这个设备全部用上（MIDI、音频输入、音频反馈、HID），放不下 CDC。
+- 它占用芯片唯一的 USB PHY：控制台转到系统通道（有串口时也到串口），esptool 的串口没有了，直到重启进 Launcher 或 ROM 下载模式。要在 USB-Serial-JTAG 上用 JTAG 调试或 `idf.py monitor`，关掉 `CONFIG_CARDENZA_HAL_USB_AUTOSTART`，也不要调用 `USB::Init`。
+- 有串口时，它回答 203 Launcher 控制台同样的词（`version`、`info`、`partitions`、`status`、`launcher`、`download` 等：[`docs/usb-dev.md`](docs/usb-dev.md) 的 "The serial port's words"），并在收到 esptool 的 DTR/RTS 复位或 Arduino 的 1200 波特率触碰时重启进 ROM 下载模式；板子随后作为 USB-Serial-JTAG 出现，是一个新的串口。
+- WebUSB：BOS 里写了落地页（`CONFIG_CARDENZA_HAL_USB_WEBUSB_URL`，stage.203.io），也给 Windows 提供 Microsoft OS 2.0 描述符，WinUSB 直接接管这个接口，不用装驱动。Linux 上 Chrome 要对这个 USB 设备有写权限（一条 udev 规则）；其他类不需要。
 - TinyUSB 只由 `usb/config/tusb_config.h` 配置。同一个固件里不要再加 `esp_tinyusb` 或其他配置 TinyUSB 的东西。
-- 内存：静态约 8.5 KB（音频 FIFO 每个方向 2 KB），启动后再加 4 KB 任务栈。
-- `keyboard = true` 时，macOS 会请用户识别一次键盘，电脑上的工具也只有在"输入监控"权限下才能打开 HID 接口（包括系统通道）。SysEx 不需要权限。
-- 已在 macOS 上实测（2026-11-02）：MIDI 双向、HID 和 SysEx 系统指令、控制台、44.1 kHz 双向音频。全速下反馈值按 10.14 发 3 字节（TinyUSB 默认的 16.16 会让 macOS 在 128 ms 后停播）；请求 Microsoft OS 字符串的主机收到 16.16（Windows，未测试）。Windows 只在第一次见到某个 VID/PID/版本时请求这个字符串，同一台电脑第二次连接收到的是 10.14：依赖 Windows 播放前先测这种情况。TinyUSB 的 DWC2 驱动不会重启错过帧的同步 OUT 传输；HAL 在 20 ms 收不到数据时重启播放端点。
+- 内存：默认的类静态约 8.5 KB（音频 FIFO 每个方向 2 KB），WebUSB 队列再加 1 KB，有串口加 2 KB，有 U 盘加 4 KB；启动后再加 4 KB 任务栈。
+- `keyboard = true` 时，macOS 会请用户识别一次键盘，电脑上的工具也只有在"输入监控"权限下才能打开 HID 接口（包括系统通道）。SysEx 和 WebUSB 不需要权限。
+- 已在 macOS 上实测（2026-11-02）：MIDI 双向、HID 和 SysEx 系统指令、控制台、44.1 kHz 双向音频。全速下反馈值按 10.14 发 3 字节（TinyUSB 默认的 16.16 会让 macOS 在 128 ms 后停播）；请求 Microsoft OS 描述符的主机（字符串 0xEE，或有 WebUSB 时的 MS OS 2.0 描述符集）收到 16.16（Windows，未测试）。TinyUSB 的 DWC2 驱动不会重启错过帧的同步 OUT 传输；HAL 在 20 ms 收不到数据时重启播放端点。
+- 乐鑫的 QEMU（社区的开机检查）里没有 USB 控制器：`Init` 干净地失败，控制台留在串口上。
 
+### U 盘：电脑上的 SD 卡
+
+[`usb/drive.h`](usb/drive.h) 把卡借给电脑，当作一个可移除磁盘（"Cardenza Storage"，SCSI 名 "203 Cardenza SD"），不用拔卡就能拷文件。需要打开：`CONFIG_CARDENZA_HAL_USB_DRIVE`（CardenzaHAL > USB；缓冲约 4 KB 内部 RAM，借出期间另有一个 6 KB 栈的任务）。只有借出期间 USB 设备里才有这个磁盘：电脑会重新认一次设备（MIDI 端口和音频流重新开始），磁盘用的 IN 端点从让路的类里来（先让放音的反馈端点：放音变成自适应，什么也不丢）。
+
+```cpp
+#include "usb/drive.h"
+
+// 每次状态变化都会告诉你（在 U 盘的任务里）：听到 Starting 时关掉你在卡上打开的文件。
+CardenzaHAL::USB::Drive::SetListener([](const CardenzaHAL::USB::Drive::Status& status) {
+    if (status.state == CardenzaHAL::USB::Drive::State::Starting) CloseMyFiles();
+});
+bool shared = CardenzaHAL::USB::Drive::Share();  // 最多等 3 秒，直到磁盘出现
+// ……之后
+CardenzaHAL::USB::Drive::Stop();                 // 卡回到固件手里
+```
+
+- 同一时间只有一方用卡。借出期间卡的文件系统是卸载的：`Storage::IsMounted()` 为假，`Storage::LentToComputer()` 为真，`Storage::Init()` 和 `/sdcard` 下的所有文件操作（包括 `AppDir` 那些函数）都会失败，固件还开着的文件会返回 `EBADF`。在监听函数收到 `State::Starting` 时关掉文件：它一返回，文件系统就放手。
+- 卡在这些时候回来（磁盘从电脑上消失，文件系统重新挂载，监听函数收到 `State::Off`；挂不上时是 `Failed`，原因 `CardError`）：调用 `Stop()`；电脑弹出磁盘；主机取消配置设备（拔线）；主机离开 10 秒（睡眠，或者自带电源的板子被拔线，ESP32-S3 只看到总线挂起）；`Share()` 之后 15 秒内没有电脑用这个磁盘。没有已配置的主机（`NoHost`）、USB 没启动（`NotStarted`）、没卡（`NoCard`）、USB 上腾不出端点（`NoRoom`）、固件没编进 U 盘（`NotBuilt`）时，`Share()` 立刻失败。
+- 电脑写的内容先写进卡，再告诉电脑写完了（设备上没有缓存）。电脑自己缓存里还没写下去的就不在卡上：像任何 U 盘一样，先弹出再拔；写到一半拔线，电脑正在写的文件会被截断，FAT 停在电脑写到的地方（电脑的磁盘检查能修好）。
+- USB 任务负责在端点和卡之间搬每一个 4 KB 的块（几毫秒；卡写得慢时可达几百毫秒）：这期间 MIDI、HID 和系统通道要等，USB 音频靠它的 FIFO 照常走。
+- `examples/usb_drive`：按一个键借出卡、再按一下收回，屏幕显示状态。
+
+### 画面流（摄像头）
+
+专为录制和直播教程而做：[`usb/camera.h`](usb/camera.h) 把屏幕作为无损画面流交给电脑，RGB565 像素完全准确、没有有损环节，只发送自电脑读完上一帧以来变化的部分（原样或简单的游程编码），走 "Cardenza WebUSB" 接口上的一个 bulk 端点。网页可以把它和设备的 USB 音频一起显示、录制；桌面程序可以把它做成 OBS 用的虚拟摄像头（Windows 用 WinUSB，无需驱动；macOS 和 Linux 用 libusb）。协议见 [`docs/screen-stream.zh-CN.md`](docs/screen-stream.zh-CN.md)；参考读取实现 [`tools/web/screen-stream.js`](tools/web/screen-stream.js)；测试固件 [`examples/screen_stream`](examples/screen_stream)，配合 [`tools/web/screen-stream-demo.html`](tools/web/screen-stream-demo.html)。
+
+```cpp
+// Kconfig CONFIG_CARDENZA_HAL_USB_CAMERA=y（需要 WebUSB）；然后从第一次枚举起就带摄像头：
+CardenzaHAL::USB::Config usb;
+usb.camera = true;
+CardenzaHAL::USB::Init(usb);
+// 或者之后再打开（电脑会重新识别设备）：CardenzaHAL::USB::Camera::Enable(true);
+```
+
+- 显示的是固件用 `Display::Present(framebuffer...)` 或 `PresentChanged` 提交的画面：直接通过面板句柄绘制的固件看不到，系统菜单也不在其中。
+- 电脑开始读取之前零开销。读取时：130 KB PSRAM、一个优先级 1 的任务（栈 3.5 KB），以及每次 `Present` 时把提交的行和屏幕副本比较。占一个 IN 端点，从让位的类中取得（首先是音频回放的反馈端点：回放改为自适应）。
+- 普通页面的关键帧 8-27 KB（原样 64.8 KB）；界面变化每秒几十 KB；电脑比固件慢时，变化合并成更少的帧，不会积压。
+
+### USB 网络：板子当网卡
+
+[`usb/network.h`](usb/network.h)（Kconfig `CONFIG_CARDENZA_HAL_USB_NETWORK`，按需打开）让板子成为电脑的一块有线网卡（CDC-NCM），跑在 lwIP 上，和 HAL 的 Wi-Fi 是同一个协议栈：ESP-IDF 的 `esp_http_server`、socket、`esp_http_client` 都和在 Wi-Fi 上一样用。`Network::Start(mode)` 加上这个类（电脑会重新找到设备；它要的两个 IN 端点从让出来的里面拿：先是播放的反馈端点，再是 HID），`Stop()` 去掉它。[`examples/usb_network`](examples/usb_network) 在 <http://cardenza.local> 提供一个显示板子信息的网页。
+
+| 模式 | 板子 | 电脑 | 上网 |
+| --- | --- | --- | --- |
+| `Mode::Device`（默认） | `192.168.203.1/24`，DHCP 服务器，`<hostname>.local`（`cardenza.local`）的 mDNS | 从 `192.168.203.2` 起租地址：租约里没有路由器，也没有 DNS 服务器 | 电脑的网络照旧（什么都不经过板子） |
+| `Mode::Uplink` | 链路上的 DHCP 客户端 | 要在电脑上为这个链路打开网络共享（macOS 的互联网共享、Windows 的 ICS、Linux 的 NAT） | 板子通过电脑上网 |
+
+- **和 Wi-Fi 并存**（[Net](#网络wi-fi-与-https)）：Wi-Fi 连着时它是默认路由；Wi-Fi 不在时由 USB 上行接替（`Options::preferOverWifi`：上行优先）。DNS 服务器永远是默认接口的：这个选项会打开 ESP-IDF 的 `CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF`，USB 链路上的租约不会顶掉 Wi-Fi 的 DNS，任何一边断了 Net 都照常工作。设备模式永远不当默认路由（没有网关，优先级最低）。
+- **mDNS**：HAL 自己在 lwIP 的 UDP 上写的应答器（约 1 KB Flash，不用加组件，不碰其他接口）：只在 USB 链路上回答 `<hostname>.local` 的 A 查询（组播；一次性查询回到它的端口，TTL 10 秒），链路连上时宣告三次。不回答 AAAA，也没有服务记录：`http://cardenza.local` 和 `ping cardenza.local` 都能用。一台电脑接两块板子：给它们不同的 `Options::hostname`。
+- **链路**：跟着线缆、电脑睡眠和设备的类变化走（`GetState().link`：`Waiting`、`Up`、`Ready`；`SetListener`）。每次变化、电脑租到的地址、上行拿到的租约都写在日志里（`usb-net:` 开头）。换一种模式重新启动时，会告诉电脑线拔掉又插上，让它重新要地址。
+- **电脑**：macOS、Linux 和 Windows 11 自带 NCM 驱动；Windows 10 没有（看得到接口，没有驱动）。Chrome OS 和 Android 用 Linux 的驱动。
+- **开销**：编进这个类时静态内部 RAM 约 6.6 KB（NCM 的收发块，每个方向 3.2 KB；2026-11-24 在模板上量的），lwIP 之外约 3 KB Flash（在线服务本来就链接了 lwIP；关掉它的固件还要算上 lwIP 和 esp_netif）。启动后：一个任务（3 KB 栈）、四个发送槽（6 KB，有 PSRAM 就放 PSRAM）和每个包 lwIP 的 pbuf。电脑来的帧在 USB 任务里拷进 pbuf 交给 lwIP，从不等待；发给电脑的帧最多等 10 毫秒空出的槽。
+- 速率：全速 USB，最多约 1 MB/s，和其他类共用。
 
 ### 开发通道（`203cli board`）
 
-启动了 USB 的固件，不用写一行代码，就能回答电脑查询它自己的情况：系统通道上的指令 0x45（协议见 [`docs/usb-dev.md`](docs/usb-dev.md)），电脑上用 [203-CLI](https://github.com/203-Systems/203-CLI) 的 `203cli board` 读：
+HAL 上的每个固件，不用写一行代码，就能回答电脑查询它自己的情况：系统通道上的指令 0x45（协议见 [`docs/usb-dev.md`](docs/usb-dev.md)），电脑上用 [203-CLI](https://github.com/203-Systems/203-CLI) 的 `203cli board` 读：
 
 | `203cli board` | 显示或做什么 |
 | --- | --- |
@@ -481,7 +575,7 @@ USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包�
 - 从不发设备令牌，碰不到 SD 卡以外的文件。只做被要求的写：文件（`files put`、`rm`、`mkdir`、`mv`）、擦掉崩溃转储，以及改一项设置（和设置的每次改动一样写入：[docs/SETTINGS.md](docs/SETTINGS.md)）。
 - 任务列表和 CPU 占用要 `CONFIG_FREERTOS_USE_TRACE_FACILITY` 和 `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS`，崩溃转储要 `CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH`：板子的调试配置（[`board/sdkconfig.debug`](board/sdkconfig.debug)）都打开了；正式版不开，省下约 5 KB 内部 RAM，其余功能照常可用。
 - 截屏要固件用帧缓冲显示（`Present`、`PresentChanged`）；直接用屏幕句柄画的固件没有帧缓冲。
-- 要先启动 USB：模板没有启动（它的日志留在串口上，社区的开机检查读的就是串口）。要用它，在 `CardenzaHAL::Init()` 之后加一行 `CardenzaHAL::USB::Init();`。
+- 每个固件都有：`CardenzaHAL::Init` 会启动 USB。它在每个带系统通道的类上都回答（HID、SysEx、WebUSB、串口）；关掉 `CONFIG_CARDENZA_HAL_USB_DEV` 时 INFO 也照样回答。
 
 ## 网络（Wi-Fi 与 HTTPS）
 
@@ -715,6 +809,8 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`examples/launcher_net`](examples/launcher_net)：读出 Launcher 的设置，连上它的 Wi-Fi，发一个 HTTPS 请求再把一切关掉，每一步都打印耗时和内存；它的 `sdkconfig.defaults` 是使用 Net 的固件的参考配置。`idf.py -C examples/launcher_net build`。
 - [`examples/community_presence`](examples/community_presence)：带在线服务的 `CardenzaHAL::Init()`、交接钩子、在日志里打印服务的状态。`idf.py -C examples/community_presence build`。
 - [`examples/hal_check`](examples/hal_check)：通过 HAL 逐个检查板子：每个键的格子和按键灯、音频任务为每个按住的键发一个音、HOME。同一份源码既能编译到板子上，也能编译成网页版。
+- [`examples/usb_network`](examples/usb_network)：板子当 USB 网卡（`usb/network.h`）：<http://cardenza.local> 上有一个实时显示板子信息和链路状态的网页；按任意键切到上行模式（用电脑共享的网络）并通过它取一个网页，再按切回。屏幕颜色就是状态（灰：关，琥珀：等电脑，绿：设备模式就绪，蓝：上行就绪，白条：取网页成功）。`idf.py -C examples/usb_network build`。
+- [`examples/usb_drive`](examples/usb_drive)：SD 卡当 U 盘（`usb/drive.h`）：按任意键把卡借给电脑、再按收回，屏幕颜色就是状态（灰：固件在用，琥珀：交接中，绿：电脑在用，红：失败）。`idf.py -C examples/usb_drive build`。
 - [`.github/actions/community-publish`](.github/actions/community-publish/action.yml)：每个固件的标准发布，用 `203cli` 和受信任发布把版本发到 203 社区的 GitHub Action（推送到 main 是 dev，`vX.Y.Z-beta.N` 和 `vX.Y.Z` 标签是 beta 和 stable；见[发布](#发布)）。
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：旧的 Launcher hub，只用于过渡期：还有人在用只读 hub 目录的 203 Launcher 0.2.0，所以 203 Systems 的官方固件把正式版同时镜像到那里。新固件不要用它。
 - **AI 代理与 203 社区**：要发布固件版本、读取用户需求、查看检查报告或把固件发到设备，先装一次 203cli 和它的 Agent Skill：`npm install -g 203cli && 203cli skill install`（Skill 装到 `~/.claude/skills/203-community`；说明见 https://community.203.io/agents）。203cli 原名 `203c`：脚本或旧说明里写 `203c` 的，改用 `203cli`。

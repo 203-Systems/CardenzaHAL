@@ -4,6 +4,7 @@
 #include "backlight_brightness.h"
 #include "internal/overlay.h"
 #include "internal/snapshot.h"
+#include "internal/stream.h"
 #include "internal/system_brightness.h"
 #include "../board/pins.h"
 
@@ -104,6 +105,8 @@ uint16_t* snapshotFrame = nullptr;
 bool snapshotTaken = false;
 uint16_t* captureFrame = nullptr;
 bool captureValid = false;
+// The screen stream (internal/stream.h): null unless a computer reads it.
+detail::PresentHook presentHook = nullptr;
 int overlayDuty = -1;
 bool overlayLauncherPwm = false;
 bool launcherPwmApplied = false;
@@ -488,6 +491,7 @@ bool PresentLocked(const uint16_t* framebuffer, const Region* regions, std::size
     if (framebuffer == nullptr || (count != 0 && regions == nullptr)) return false;
     stats.regions = static_cast<uint16_t>(std::min<std::size_t>(count, UINT16_MAX));
     Capture(framebuffer);
+    if (presentHook != nullptr) presentHook(framebuffer, regions, count);
     // The system menu is on the screen: this frame is not sent, and the first one after it goes whole.
     if (overlayActive)
     {
@@ -618,6 +622,11 @@ bool PresentChanged(const uint16_t* framebuffer)
         if (overlayActive)
         {
             Capture(framebuffer);
+            if (presentHook != nullptr)
+            {
+                const Region fullFrame{0, 0, WIDTH, HEIGHT};
+                presentHook(framebuffer, &fullFrame, 1);
+            }
             fullRefreshRequired = true;
             stats.held = true;
         }
@@ -904,6 +913,12 @@ bool CaptureValid()
 {
     DisplayLock lock;
     return captureFrame != nullptr && captureValid;
+}
+
+void SetPresentHook(PresentHook hook)
+{
+    DisplayLock lock;
+    presentHook = hook;
 }
 
 void RequestSnapshot(uint16_t* frame)

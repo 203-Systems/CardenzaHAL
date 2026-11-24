@@ -6,6 +6,13 @@
 # - net_test: the pure parts of net/ (the Launcher's settings format, request checks, connect order).
 # - presence_test: the presence service's decisions (net/presence_logic.h) and the Launcher's restart ticket.
 # - system_menu_test: the system menu's pure parts (system/menu/logic.h).
+# - usb_logic_test: the USB device's classes and endpoints, its serial port's lines and esptool's reset, and
+#   the crash loop's count (usb/usb_logic.h, system/crash_loop_logic.h).
+# - hid_keys_test: HID inputs (usb/hid_keys.h): characters as keys, the keys held, the gamepad's hat.
+# - drive_test: the USB drive's states and the bounds of its reads and writes (usb/drive_logic.h).
+# - camera_test (+ screen_stream_test.mjs with Node): the screen stream's encoder (usb/camera_logic.h) and the
+#   reference reader tools/web/screen-stream.js on the streams it records.
+# - network_test: the USB network's address plan, MACs and mDNS answers (usb/network_logic.h).
 # - app_dir_test: a firmware's folder on the card and moving its old one there (storage/app_dir_logic.h).
 # - hal_faults: the HAL's driver sources against fake ESP-IDF drivers (fakes/esp_stub.h) that fail on
 #   purpose, so every error path is taken and leaves the hardware in a known state.
@@ -46,6 +53,39 @@ add_test(NAME CardenzaKeyLegendTests COMMAND CardenzaKeyLegendTests)
 add_executable(CardenzaUsbDevTests usb_dev_test.cpp ${cardenza_test_guard})
 target_include_directories(CardenzaUsbDevTests PRIVATE ${hal_root})
 add_test(NAME CardenzaUsbDevTests COMMAND CardenzaUsbDevTests)
+
+# usb/usb_logic.h: the USB classes within the four IN endpoints, what gives way, endpoint numbers, the serial
+# number, the serial port's lines and esptool's reset, adaptive playback; system/crash_loop_logic.h.
+add_executable(CardenzaUsbLogicTests usb_logic_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaUsbLogicTests PRIVATE ${hal_root})
+add_test(NAME CardenzaUsbLogicTests COMMAND CardenzaUsbLogicTests)
+
+# usb/hid_keys.h: HID inputs' characters as keys (US layout), the keys held, the gamepad's hat.
+add_executable(CardenzaHidKeysTests hid_keys_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaHidKeysTests PRIVATE ${hal_root})
+add_test(NAME CardenzaHidKeysTests COMMAND CardenzaHidKeysTests)
+
+# usb/drive_logic.h: the USB drive's states (lend, give back, eject, unplug, host away, refusals) and block bounds.
+add_executable(CardenzaDriveTests drive_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaDriveTests PRIVATE ${hal_root})
+add_test(NAME CardenzaDriveTests COMMAND CardenzaDriveTests)
+
+# usb/camera_logic.h: the screen stream's capture, rectangles, run code and frames, read back byte for byte. It
+# writes a recorded stream that tools/web/screen-stream.js is then tested on (with Node, when there is one).
+add_executable(CardenzaCameraTests camera_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaCameraTests PRIVATE ${hal_root})
+add_test(NAME CardenzaCameraTests COMMAND CardenzaCameraTests ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(CardenzaCameraTests PROPERTIES FIXTURES_SETUP screen_stream)
+find_program(CARDENZA_NODE node)
+if(CARDENZA_NODE)
+  add_test(NAME CardenzaScreenStreamReaderTests COMMAND ${CARDENZA_NODE} ${CMAKE_CURRENT_SOURCE_DIR}/screen_stream_test.mjs ${CMAKE_CURRENT_BINARY_DIR})
+  set_tests_properties(CardenzaScreenStreamReaderTests PROPERTIES FIXTURES_REQUIRED screen_stream)
+endif()
+
+# usb/network_logic.h: the USB network's addresses, MACs, host name and the mDNS responder's queries and answers.
+add_executable(CardenzaNetworkTests network_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaNetworkTests PRIVATE ${hal_root})
+add_test(NAME CardenzaNetworkTests COMMAND CardenzaNetworkTests)
 
 # display/changed_regions.h: what PresentChanged sends.
 add_executable(CardenzaChangedRegionsTests changed_regions_test.cpp ${cardenza_test_guard})

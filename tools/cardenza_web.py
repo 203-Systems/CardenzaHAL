@@ -110,6 +110,12 @@ IDF_DEFAULTS = {
     "CONFIG_CARDENZA_HAL_APP_NAME": '""',
     # The display's SPI clock: the web model times every transfer by it (web/src/drivers/lcd.cpp).
     "CONFIG_CARDENZA_HAL_DISPLAY_SPI_MHZ": "80",
+    # USB starts with CardenzaHAL::Init on the board; the web HAL's start does nothing (web/hal/usb.cpp).
+    "CONFIG_CARDENZA_HAL_USB_AUTOSTART": "y",
+    # Crashes in a row at start go back to the Launcher on the board; on the web, nothing (web/hal/system_menu.cpp).
+    "CONFIG_CARDENZA_HAL_CRASH_LOOP_LAUNCHER": "y",
+    "CONFIG_CARDENZA_HAL_CRASH_LOOP_CRASHES": "3",
+    "CONFIG_CARDENZA_HAL_CRASH_LOOP_SECONDS": "15",
 }
 
 # Kconfig choices: one member is y, the others are not set; some give a value of their own.

@@ -87,14 +87,18 @@ namespace CardenzaHAL::SystemMenu::detail {
     //             ; , less, . / more (as the Launcher's: up and previous less), live; ENTER keeps, ESC puts
     //             back what it was
     //   Language  the Launcher's languages, each in its own script (its Language card); ENTER takes one
+    //   Landing   the browser notice (Settings::Id::WebUsbLanding): first time only, always, never; a list like
+    //             the languages', ENTER takes one (from the next time a computer finds the board)
     //   Reset     the Launcher's question with two buttons, Cancel focused (its uiConfirm)
     //   About     what the board runs and has (the rows of the Launcher's About)
     // ESC (or del) goes back a page; on the main page it is Continue.
-    enum class Page : uint8_t { Main, Settings, Value, Language, Reset, About };
+    enum class Page : uint8_t { Main, Settings, Value, Language, Reset, About, Landing };
 
     // The Settings page's rows.
-    enum class Row : uint8_t { Volume, VolumeLimit, ScreenBrightness, KeyBrightness, Language, Reset };
-    inline constexpr int kRowCount = 6;
+    enum class Row : uint8_t { Volume, VolumeLimit, ScreenBrightness, KeyBrightness, Language, WebUsbLanding, Reset };
+    inline constexpr int kRowCount = 7;
+    // The browser notice's choices, in Settings::Id::WebUsbLanding's values: first time only, always, never.
+    inline constexpr int kLandingChoices = 3;
     // The setting of a row (Reset: none, Volume's).
     Settings::Id RowSetting(Row row);
 
@@ -104,7 +108,7 @@ namespace CardenzaHAL::SystemMenu::detail {
     };
     struct State {
         Page page = Page::Main;
-        ListState main, settings, language;
+        ListState main, settings, language, landing;
         int button = 1;                            // Reset's focused button: 0 Reset, 1 Cancel
         Settings::Id editing = Settings::Id::Volume;  // the Value page's setting
         int original = 0;                          // its value when the page opened

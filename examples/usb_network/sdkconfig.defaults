@@ -1,0 +1,5 @@
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../board/partitions.csv"
+# The USB network (CardenzaHAL > USB): its two IN endpoints come from what gives way when it starts (the playback's
+# feedback endpoint, then HID: usb/usb.h).
+CONFIG_CARDENZA_HAL_USB_NETWORK=y

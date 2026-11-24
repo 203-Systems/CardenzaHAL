@@ -17,7 +17,8 @@ namespace {
 
 void TestDescribe()
 {
-    const char* const keys[] = {"volume", "volume_limit", "screen_brightness", "key_brightness", "language"};
+    const char* const keys[] = {"volume", "volume_limit", "screen_brightness", "key_brightness", "language", "webusb_landing", "webusb_seen"};
+    static_assert(sizeof(keys) / sizeof(keys[0]) == kCount, "a key for every setting");
     for (int i = 0; i < kCount; ++i)
     {
         assert(std::strcmp(kInfo[i].key, keys[i]) == 0);
@@ -31,6 +32,8 @@ void TestDescribe()
     assert(defaults[Index(Id::Volume)] == 70 && defaults[Index(Id::VolumeLimit)] == 100);
     assert(defaults[Index(Id::ScreenBrightness)] == 100 && defaults[Index(Id::KeyBrightness)] == 15);
     assert(defaults[Index(Id::Language)] == 0);
+    // The WebUSB landing page: the first time only, not seen yet.
+    assert(defaults[Index(Id::WebUsbLanding)] == kLandingFirstTime && defaults[Index(Id::WebUsbSeen)] == 0);
     // The microphone's gain is the firmware's (mic/gain.h), not a setting (2026-11-23).
     assert(!Find("mic_gain", 8, id));
     // The Launcher's brightness is never under 10 (its savedBrightness).
@@ -70,7 +73,8 @@ void TestClampAndLimit()
     // Reset: every one to its default but the language.
     const uint32_t reset = ApplyReset(v);
     assert(!(reset & (1u << Index(Id::Language))) && v[Index(Id::Language)] == 1);
-    for (int i = 0; i < kCount - 1; ++i) assert(v[i] == kInfo[i].defaultValue);
+    for (int i = 0; i < kCount; ++i)
+        if (i != Index(Id::Language)) assert(v[i] == kInfo[i].defaultValue);
     assert(ApplyReset(v) == 0);
 }
 

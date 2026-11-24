@@ -17,6 +17,7 @@ add_library(CardenzaHalFaultSources STATIC
   ${hal_root}/audio/audio.cpp ${hal_root}/audio/codec/es8156.cpp
   ${hal_root}/display/display.cpp ${hal_root}/storage/storage.cpp
   ${hal_root}/ir/ir.cpp ${hal_root}/mic/mic.cpp ${hal_root}/system/settings_logic.cpp
+  ${hal_root}/system/crash_loop.cpp
   ${hal_root}/keyboard/keyboard.cpp
   ${hal_root}/keyboard/internal/keyboard_key_scan.cpp
   ${hal_root}/keyboard/internal/keyboard_led_scan.cpp
@@ -35,7 +36,7 @@ foreach(fault panel_reset panel_init spi_bus display_pwm)
   add_test(NAME HalDisplay_${fault} COMMAND CardenzaHalFaultTests display ${fault})
 endforeach()
 foreach(scenario cold warm dirty timeout warm_timeout draw brightness display_duty_update display_callback display_semaphore native invalid changed changed_no_memory
-    overlay overlay_no_memory overlay_backlight scan scan_one_block stats options pacer buffers)
+    overlay overlay_no_memory overlay_backlight scan scan_one_block stats options pacer buffers hook)
   add_test(NAME HalDisplayPresent_${scenario} COMMAND CardenzaDisplayPresentTests ${scenario})
 endforeach()
 foreach(fault i2c state)
@@ -43,6 +44,7 @@ foreach(fault i2c state)
 endforeach()
 foreach(fault normal unmount)
   add_test(NAME HalStorage_${fault} COMMAND CardenzaHalFaultTests storage ${fault})
+  add_test(NAME HalStorageLend_${fault} COMMAND CardenzaHalFaultTests storage_lend ${fault})
 endforeach()
 add_test(NAME HalInfraredNec COMMAND CardenzaHalFaultTests ir normal)
 add_test(NAME HalCodecInitOwnership COMMAND CardenzaHalFaultTests codec ownership)

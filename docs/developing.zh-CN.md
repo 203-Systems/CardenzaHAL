@@ -41,7 +41,7 @@
 
 ## USB
 
-启动了 USB 的固件（`USB::Init`）会从 USB-Serial-JTAG 接过 PHY：它就没有串口了。用 [`tools/cardenza_usb.py`](../tools/cardenza_usb.py) 的 `console` 读它的控制台，用 `command download`（ROM 下载模式）或 `command launcher` 之后再刷。
+`CardenzaHAL::Init` 会启动 USB（`CONFIG_CARDENZA_HAL_USB_AUTOSTART`），从 USB-Serial-JTAG 接过 PHY：固件就没有 USB-Serial-JTAG 串口了，只有它选的类（默认 MIDI、音频、HID、WebUSB；打开后还有 CDC 串口，它也认 esptool 的复位）。用 `203cli log`（或 [`tools/cardenza_usb.py`](../tools/cardenza_usb.py) 的 `console`）读它的控制台，用 `203cli flash` 刷，或者先 `command download`（ROM 下载模式）、`command launcher` 再刷。ESP32-S3 除 EP0 外有四个 IN 端点，默认的类全占了：你要的类放不下时，编译会停下并说明该关哪个（[README](../README.zh-CN.md#usb-设备用法)）。要在 USB-Serial-JTAG 上用 JTAG 调试，关掉 `CONFIG_CARDENZA_HAL_USB_AUTOSTART`，也不要调用 `USB::Init`。
 
 ## 卡死或崩溃时
 

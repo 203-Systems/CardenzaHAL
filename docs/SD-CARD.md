@@ -97,3 +97,14 @@ own files there from the card's root itself (203-launcher).
 A card in a computer's reader shows the same folders.
 
 The web build (`tools/cardenza_web.py`) has a card at `/sdcard` too, kept in the browser: the same paths work.
+
+### Lent to the computer as a USB drive
+
+A firmware built with `CONFIG_CARDENZA_HAL_USB_DRIVE` can lend the card to the computer (`USB::Drive::Share`,
+[`usb/drive.h`](https://github.com/203-Systems/CardenzaHAL/blob/main/usb/drive.h)): the computer then sees the whole
+card, every firmware's folder and the Launcher's included, and the firmware sees none of it until the card comes
+back. While it is lent `Storage::LentToComputer()` is true and every file operation under `/sdcard` fails: keep
+nothing open on the card when you share (the listener's `State::Starting` is the moment to close it), and read your
+settings again when the card is back (`State::Off`), since the person may have changed them. Treat what you find
+then like a card that was in a computer's reader: files may be new, changed or gone, and a cable pulled mid-copy
+can leave a file cut. Write your files the crash-safe way the template does and they survive it.

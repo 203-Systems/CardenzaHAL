@@ -142,6 +142,8 @@ void ApplyOne(Id id, int value)
         case Id::ScreenBrightness: Display::detail::SetSystemBrightness(value); break;
         case Id::KeyBrightness: Keyboard::setLEDGlobalBrightness(static_cast<uint8_t>(value)); break;
         case Id::Language: break;  // the menu's words; the firmware's own, through Get
+        case Id::WebUsbLanding:
+        case Id::WebUsbSeen: break;  // the USB device's descriptors, the next time a computer reads them
     }
 }
 

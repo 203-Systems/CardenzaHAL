@@ -327,12 +327,15 @@ std::vector<launcher::Option> SettingsRows(const View& view, const char* const* 
         return launcher::String(text);
     };
     const int language = std::max(0, Settings::detail::LanguageIndex(values[Index(Id::Language)]));
+    static constexpr TextId kLanding[kLandingChoices] = {kWebusbFirst, kWebusbAlways, kWebusbNever};
+    const int landing = std::clamp(values[Index(Id::WebUsbLanding)], 0, kLandingChoices - 1);
     return {
         {texts[kVolume], texts[kVolumeDetail], value(Id::Volume)},
         {texts[kVolumeLimit], texts[kVolumeLimitDetail], value(Id::VolumeLimit)},
         {texts[kScreen], texts[kSharedDetail], value(Id::ScreenBrightness)},
         {texts[kKeys], texts[kKeysDetail], value(Id::KeyBrightness)},
         {texts[kLanguage], texts[kSharedDetail], kLanguageNames[language]},
+        {texts[kWebusb], texts[kWebusbDetail], texts[kLanding[landing]]},
         {texts[kReset], texts[kResetDetail], ""},
     };
 }
@@ -349,6 +352,12 @@ std::vector<launcher::Option> LanguageRows(const char* const* texts)
         rows.push_back({name, launcher::i18nPlain(translated) == launcher::i18nPlain(name) ? launcher::String() : translated, ""});
     }
     return rows;
+}
+
+// The browser notice's choices (Settings::Id::WebUsbLanding's values in order): a list like the languages'.
+std::vector<launcher::Option> LandingRows(const char* const* texts)
+{
+    return {{texts[kWebusbFirst], "", ""}, {texts[kWebusbAlways], "", ""}, {texts[kWebusbNever], "", ""}};
 }
 
 void PaintValue(const View& view, const char* const* texts)
@@ -432,6 +441,13 @@ void PaintGrey(const View& view, launcher::ListSlide* slide, uint32_t now, int y
             const int selected = std::clamp(state.language.selected, 0, kLanguageCount - 1);
             menuFrame(LanguageRows(texts), float(selected), float(state.language.scroll), slide, selected, now);
             title = texts[kLanguage];
+            break;
+        }
+        case Page::Landing:
+        {
+            const int selected = std::clamp(state.landing.selected, 0, kLandingChoices - 1);
+            menuFrame(LandingRows(texts), float(selected), float(state.landing.scroll), slide, selected, now);
+            title = texts[kWebusb];
             break;
         }
         case Page::Value:

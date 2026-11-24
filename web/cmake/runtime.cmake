@@ -51,11 +51,14 @@ function(cardenza_web_hal_sources out_var)
         ${CARDENZA_WEB_HAL_DIR}/storage/storage.cpp
         ${CARDENZA_WEB_HAL_DIR}/system/settings_logic.cpp
         ${CARDENZA_WEB_HAL_DIR}/system/system.cpp
+        ${CARDENZA_WEB_DIR}/hal/camera.cpp
+        ${CARDENZA_WEB_DIR}/hal/network.cpp
         ${CARDENZA_WEB_DIR}/hal/keyboard.cpp
         ${CARDENZA_WEB_DIR}/hal/presence.cpp
         ${CARDENZA_WEB_DIR}/hal/settings.cpp
         ${CARDENZA_WEB_DIR}/hal/system_menu.cpp
         ${CARDENZA_WEB_DIR}/hal/usb.cpp
+        ${CARDENZA_WEB_DIR}/hal/drive.cpp
         PARENT_SCOPE)
 endfunction()
 

@@ -15,6 +15,14 @@
 //   KeyBrightness     the key lights' master level, 0 to 15 (default 15; Keyboard::setLEDGlobalBrightness)
 //   Language         the 203 Launcher's language (its NVS value launcher/lang): 0 English, 1 简体中文,
 //                     3 日本語, 4 Bahasa Indonesia, 5 Tiếng Việt (2 reads as 1)
+//   WebUsbLanding     whether the USB device names the 203 community's page to web browsers (the WebUSB
+//                     landing page: every Chromium browser running shows a notice when the board is plugged
+//                     in): 0 the first time only (the default: a new board shows the notice at its first
+//                     connection, then never again), 1 always, 2 never. It takes effect at the next time the
+//                     computer finds the device (plugging in, a restart); WebUSB itself works either way
+//   WebUsbSeen        1 once the board has been seen: its first connection to a computer with the page
+//                     offered, or a 203 tool or the community's website (the USB system command 0x46,
+//                     usb/usb.h); Reset clears it, so the page is named again the next time
 //
 // CardenzaHAL::Init reads them (without writing anything) and applies them before the firmware's first
 // frame: the codec's volume, the backlight, the key lights' master level. A firmware reads them with Get and
@@ -39,12 +47,18 @@ namespace CardenzaHAL::Settings {
         ScreenBrightness,
         KeyBrightness,
         Language,
+        WebUsbLanding,
+        WebUsbSeen,
     };
-    inline constexpr int kCount = 5;
+    inline constexpr int kCount = 7;
+    // WebUsbLanding's values.
+    inline constexpr int kLandingFirstTime = 0;
+    inline constexpr int kLandingAlways = 1;
+    inline constexpr int kLandingNever = 2;
 
     struct Info {
         const char* key;   // its name over USB and in logs: volume, volume_limit, screen_brightness,
-                           // key_brightness, language
+                           // key_brightness, language, webusb_landing, webusb_seen
         int min, max;
         int step;          // the system menu's step
         int defaultValue;

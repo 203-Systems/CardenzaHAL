@@ -4,7 +4,9 @@
 #include <sdkconfig.h>
 
 #include "net/presence.h"
+#include "system/internal/hooks.h"
 #include "system/internal/settings_hooks.h"
+#include "usb/internal/start.h"
 #include "system/menu.h"
 
 namespace {
@@ -45,17 +47,29 @@ bool Init()
 
     g_initReport = {};
 
+    // A firmware that keeps crashing right after its start goes back to the Launcher (Kconfig
+    // CONFIG_CARDENZA_HAL_CRASH_LOOP_LAUNCHER), before anything of it runs again.
+    System::detail::CheckCrashLoop();
+
     g_initReport.system = System::Init();
     LogModuleResult("system", g_initReport.system, false);
+
+    // The board's settings (system/settings.h) from the flash, before the drivers: the codec starts at the
+    // volume, the backlight at the brightness, USB with its landing page or without.
+    Settings::detail::Load();
+
+#if CONFIG_CARDENZA_HAL_USB_AUTOSTART
+    // USB before the drivers (Kconfig CONFIG_CARDENZA_HAL_USB_AUTOSTART): whatever else fails to start, the board
+    // stays reachable, and recognised and flashed over USB with no key pressed. It connects a second later,
+    // unless the firmware's own USB::Init takes it over first.
+    USB::detail::AutoStart();
+#endif
+
     if (!g_initReport.system)
     {
         g_initReport.overall = false;
         return g_initReport.overall;
     }
-
-    // The board's settings (system/settings.h) from the flash, before the drivers: the codec starts at the
-    // volume, the backlight at the brightness.
-    Settings::detail::Load();
 
     g_initReport.keyboard = Keyboard::init();
     LogModuleResult("keyboard", g_initReport.keyboard, false);

@@ -60,7 +60,7 @@ What the Cardenza has, and where it is in the HAL. Pins: [`board/pins.h`](board/
 | HOME | the side key (GPIO0; a press opens the [system menu](#system-menu-press-home-in-any-firmware); held while plugging in USB or at a reset: the ROM's download mode) | [`system/system.h`](system/system.h): `GetFuncButton`; [Func button, I2C, and IR](#func-button-i2c-and-ir) |
 | I2C | the shared bus (GPIO1/2), the codec on it | [`system/system.h`](system/system.h): `GetI2CBus` |
 | IR | a transmitter (GPIO44, NEC at 38 kHz) | [`ir/ir.h`](ir/ir.h): `Send` |
-| USB | the chip's USB PHY: USB-Serial-JTAG (the log, esptool), or the HAL's device: MIDI, audio both ways, HID, the system channel (log, restart into the Launcher) | [`usb/usb.h`](usb/usb.h); [USB device usage](#usb-device-usage); on the computer: `203cli log`, [`tools/cardenza_usb.py`](tools/cardenza_usb.py) |
+| USB | the chip's USB PHY: the HAL's device, started by `CardenzaHAL::Init` (MIDI, audio both ways, HID, WebUSB, and on request a serial port, the SD card as a drive, the screen as a lossless stream; every command class carries the system channel: log, info, restart into the Launcher or the ROM's download mode), or USB-Serial-JTAG (the Launcher, the ROM, esptool) | [`usb/usb.h`](usb/usb.h); [USB device usage](#usb-device-usage); on the computer: `203cli log`, `203cli board`, [`tools/cardenza_usb.py`](tools/cardenza_usb.py) |
 | Wi-Fi, Bluetooth | the chip's radios (2.4 GHz Wi-Fi, Bluetooth 5 LE) | ESP-IDF's own drivers, not the HAL (the browser simulator has none: [Web simulator](#web-simulator)) |
 
 ## Releasing
@@ -84,7 +84,7 @@ The drivers require ESP-IDF. The alternate CMake target `CardenzaHAL` also needs
 
 ## Quick start
 
-This example lights the display and illuminates each key while it is held. USB stays on USB-Serial-JTAG until you explicitly initialize the USB device module.
+This example lights the display and illuminates each key while it is held. `CardenzaHAL::Init()` also starts the USB device with its default classes (the computer finds the board as "Cardenza", and the 203 community and `203cli` can recognise and flash it); call `CardenzaHAL::USB::Init(config)` right after it to choose your own classes.
 
 ### 1. Add the component
 
@@ -200,7 +200,7 @@ These are commands for your consuming firmware. Launcher-distributed application
 | Storage | No | Attempts to mount `/sdcard` |
 | IR | No | Prepares the transmitter |
 
-`LastInitReport()` exposes these six results and `overall`. A successful aggregate initialization is cached; calling it again does not remount a missing card. Retry `Storage::Init()` separately. Microphone, USB and the network ([Net](#network-wi-fi-and-https)) are **not** included, and `cardenzaHAL.h` includes neither `usb/usb.h` nor `net/net.h`. With `CONFIG_CARDENZA_HAL_PRESENCE` on (the default), `Init()` also starts the [community presence service](#community-presence-reachable-while-any-firmware-runs) once, whatever the modules' results.
+`LastInitReport()` exposes these six results and `overall`. A successful aggregate initialization is cached; calling it again does not remount a missing card. Retry `Storage::Init()` separately. The microphone and the network ([Net](#network-wi-fi-and-https)) are **not** included, and `cardenzaHAL.h` includes neither `usb/usb.h` nor `net/net.h`. Before the modules, `Init()` starts the [USB device](#usb-device-usage) with its default classes (`CONFIG_CARDENZA_HAL_USB_AUTOSTART`, on by default; it connects a second later unless your `USB::Init(config)` comes first), so the board stays reachable and flashable whatever else fails; and a firmware that crashed within 15 s of its start three times in a row is not run a fourth time: `Init()` restarts into the 203 Launcher's home screen instead (`CONFIG_CARDENZA_HAL_CRASH_LOOP_LAUNCHER`, on by default; a longer run or a power cycle clears the count), so a broken firmware never needs the BOOT key. With `CONFIG_CARDENZA_HAL_PRESENCE` on (the default), `Init()` also starts the [community presence service](#community-presence-reachable-while-any-firmware-runs) once, whatever the modules' results.
 
 You can initialize individual modules for a smaller application. Call `System::Init()` before using the shared I2C bus or HOME button. Check each module's result. Codec failures can be retried through `Audio::Init()`; retry attempts are rate limited to about once per second.
 
@@ -410,8 +410,11 @@ A press of HOME (the side key, GPIO0) opens the [system menu](system/menu.h) in 
 Settings is the Launcher's Display page in look: a row per setting with its value on the right. ENTER on a value
 opens it as the Launcher's Backlight page (the value large over a track; `;` and `,` less, `.` and `/` more, live:
 the volume is heard and the brightness seen at once; ENTER keeps it, ESC puts back what it was); Language is the
-Launcher's list of languages, each in its own script; Reset to defaults asks first with the Launcher's question
-(Cancel focused) and keeps the language. What changed is written to the flash once, when the menu closes.
+Launcher's list of languages, each in its own script; Browser notice (the WebUSB landing page that Chromium browsers
+announce when the board is plugged in: first time only (the default: a new board shows it once, at its first connection), always or never; `webusb_landing` in
+[docs/SETTINGS.md](docs/SETTINGS.md)) is a list of its three choices in the same way, from the next time a computer
+finds the board; Reset to defaults asks first with the Launcher's question (Cancel focused) and keeps the language.
+What changed is written to the flash once, when the menu closes.
 
 Without the menu, the Launcher opens when fn (the left column's third key, key 29) is held while the board starts (power-on or a reset); not HOME: held at a reset, HOME starts the ROM's download mode.
 
@@ -428,7 +431,7 @@ How it comes and moves (the panel has no tearing-effect line, so any frame may b
 - `CardenzaHAL::Init` starts it when the display is up (`CONFIG_CARDENZA_HAL_SYSTEM_MENU`, on by default): a 5 KB task that reads GPIO0 every 10 ms; about 30 KB of flash. While the menu is open it borrows 2 KB of RAM and, when the firmware has PSRAM, a 64 KB copy of your latest frame there (the backdrop is made from it; without PSRAM, or when your firmware presents no frame within 60 ms of the press, the backdrop is a dark dithered field) and a 32 KB picture of the menu (drawn once per frame; without PSRAM it is drawn band by band); while it is open, a 4 KB table of what it sent (PSRAM when there is some).
 - While the menu is open your firmware keeps running (its tasks and sound), but the HAL holds back what would disturb it: `Display::Present*` send nothing and return `true` (the next frame after it closes goes whole, so your screen comes back by itself), `Keyboard::updateKeyList` reports no key (keys still down when it closes stay hidden until released), and the key lights show the menu's keys (your `setLED*` levels are kept and come back). A firmware that draws through the panel handles itself should pause while `SystemMenu::IsOpen()`.
 - `SystemMenu::SetListener` tells you when it opens and closes; `SystemMenu::SetLeaveHook` runs just before the board restarts, sleeps or enters the download mode (save what must survive). With the menu on, HOME is the menu's: a firmware that needs HOME for itself calls `SystemMenu::Enable(false)` (or builds without `CONFIG_CARDENZA_HAL_SYSTEM_MENU`).
-- The Launcher's code is in [system/menu/launcher/](system/menu/launcher/), copied unchanged by `tools/launcher_ui.py --launcher <203-launcher checkout>` (MIT, [licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)): its text and glyph code, canvas drawing, easing and the selection bar's slide; [system/menu/frame.cpp](system/menu/frame.cpp) is its `menuFrame` and status rail on the Cardenza, ported line by line. `--check` tells whether the copy is current, `--compare` draws every frame with the Launcher's real `menuFrame` and `drawDialog` too, the still ones (the main list, the Settings page, the languages and the Reset question) and the slides frame by frame (a move, key repeat, a reversal, a scroll each way, every 4 ms until the bar settles: 1,990 frames in five languages), and fails on any pixel that differs (the host tests keep those frames' hashes). The value page and About are the Launcher's Backlight page and About rows ported, which it draws inline. The words are `system/menu/strings.json`.
+- The Launcher's code is in [system/menu/launcher/](system/menu/launcher/), copied unchanged by `tools/launcher_ui.py --launcher <203-launcher checkout>` (MIT, [licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)): its text and glyph code, canvas drawing, easing and the selection bar's slide; [system/menu/frame.cpp](system/menu/frame.cpp) is its `menuFrame` and status rail on the Cardenza, ported line by line. `--check` tells whether the copy is current, `--compare` draws every frame with the Launcher's real `menuFrame` and `drawDialog` too, the still ones (the main list, the Settings page, the languages, the Reset question and the browser notice's choices) and the slides frame by frame (a move, key repeat, a reversal, a scroll each way, every 4 ms until the bar settles: 2,005 frames in five languages), and fails on any pixel that differs (the host tests keep those frames' hashes). The value page and About are the Launcher's Backlight page and About rows ported, which it draws inline. The words are `system/menu/strings.json`.
 - Its Chinese, Japanese and Vietnamese text uses the 203 Launcher's bitmaps of **HarmonyOS Sans** (12 px, and 16 px bold for the Reset question), read out of the Launcher's tables by the same tool for the menu's words only (a character the Launcher's tables lack yet, as 默, is rendered by the Launcher's own `tools/i18n.py` from the font it names: `--fonts`); the bitmaps are a work made with the font, which its license lets us distribute ([licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)); no font file is included. The 5x7 font is NullPerator's (BSD-3-Clause, notice in [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)).
 
 ## The board's settings (the same in every firmware)
@@ -443,13 +446,13 @@ faded out and the key lights dark around it: [docs/SETTINGS.md](docs/SETTINGS.md
 
 ## USB device usage
 
-Include `usb/usb.h` separately and start USB after system initialization. The default configuration exposes MIDI, audio, HID keyboard, consumer keys, and the system channel. For a MIDI-only application interface:
+`CardenzaHAL::Init()` starts the USB device (Kconfig `CONFIG_CARDENZA_HAL_USB_AUTOSTART`, on by default) with the default classes: MIDI, audio both ways, HID (keyboard, consumer keys) and WebUSB, each carrying the system channel, so every firmware can be recognised and sent into flashing by the 203 community's website and `203cli`, with nobody pressing a key. It connects a second later: include `usb/usb.h` and call `USB::Init(config)` right after `CardenzaHAL::Init()` to choose your own classes; the computer then only ever sees yours. A later `Init`, or `USB::Reconfigure(config)`, makes the computer find the device again with the new classes. For a MIDI-only application interface:
 
 ```cpp
 #include "usb/usb.h"
 
 CardenzaHAL::USB::Config config;
-config.product = "My Cardenza App";
+config.product = "My Cardenza App";   // the firmware's name in IDENTIFY and INFO (the USB name stays "Cardenza")
 config.audio = false;
 config.keyboard = false;
 config.consumer = false;
@@ -457,7 +460,20 @@ config.consumer = false;
 bool started = CardenzaHAL::USB::Init(config);
 ```
 
-The system HID channel remains enabled. `Init()` returns `false` if USB is already running, a development fallback skips this boot, or startup fails. Check `Started()` and `Mounted()` separately; mounted means configured by a host and not suspended.
+A device always keeps a way to be recognised and flashed: whatever you turn off, the HAL keeps WebUSB (it costs no endpoint), or adds the serial port. `Init()` returns `false` if your firmware already called it, a development fallback skips this boot, or startup fails. Check `Started()` and `Mounted()` separately; mounted means configured by a host and not suspended. `Classes()` says what the device presents.
+
+| Class (`Config`, Kconfig `CONFIG_CARDENZA_HAL_USB_*`) | IN endpoints | Carries the system channel | Default |
+| --- | --- | --- | --- |
+| MIDI (`midi`) | 1 | yes, as SysEx | on |
+| Audio (`audio`): the computer records the device, and plays to it (`audioPlayback`) | 1, +1 for the playback's feedback endpoint (`audioFeedback`) | no | on, with feedback |
+| HID (`hid`): keyboard, media keys, gamepad, raw reports | 1 | yes, report 0xCB | on |
+| WebUSB (`webusb`): a vendor interface for web pages and native tools | 0 | yes, control requests | on |
+| Serial port (`serial`, Kconfig `CONFIG_CARDENZA_HAL_USB_SERIAL`): CDC | 2 | yes, as lines, plus esptool's reset | off (added when nothing else carries the channel) |
+| USB drive (`USB::Drive`): the SD card | 1 | no | asked for at run time |
+| Camera (`USB::Camera`): the screen as a lossless stream, on the WebUSB interface | 1 | no | asked for at run time |
+| Network (`USB::Network`, Kconfig `CONFIG_CARDENZA_HAL_USB_NETWORK`): CDC-NCM | 2 | no | asked for at run time |
+
+The ESP32-S3 has four IN endpoints besides EP0 (an IN endpoint's TX FIFO is the one of its number, so they are numbered 1 to 4), and the default classes take all four. The build stops with what to turn off when the classes on by default need more (`usb/config/tusb_config.h`). When the firmware lends the card or shows the camera, the endpoint comes from what gives way, in this order: the playback's feedback endpoint (the playback becomes adaptive: the HAL drops or repeats a frame now and then, a frame in 10,000 or fewer), HID, the serial port, audio, MIDI, each only while another class still carries the system channel. The log says what gave way.
 
 | API | Data and application responsibility |
 | --- | --- |
@@ -467,25 +483,149 @@ The system HID channel remains enabled. `Init()` returns `false` if USB is alrea
 | `KeyboardReport(modifiers, keys)` | Six HID key codes plus modifier bits; send a zero report to release keys |
 | `ConsumerReport(usage)` | One consumer usage; `0` releases it |
 | `SetAppReportHandler(handler)` / `SendAppReport(data, length)` | Application reports, up to `kReportSize` (63) bytes; keep handlers short because they run in the USB task |
+| `Reconfigure(config)`, `CurrentConfig()`, `Classes()` | Change the classes while running; what was asked for; what the device presents |
 
 USB audio counts are **frames**, each containing two samples (four bytes). Service both directions every audio block and handle short transfers. If the host is not recording, `AudioWrite()` returns the requested count and discards the data; check `AudioInputActive()` when you need to distinguish that case. `AudioOutputActive()` reports host playback.
 
 USB audio does not automatically route to the speaker or microphone. Bridge it in your application, including mono/stereo conversion and shared-pin management. Apply `HostMuted()` and `HostVolume()` yourself if needed; volume is in 1/256 dB, with `0` meaning full level. `AudioStats()` exposes endpoint counters and FIFO fill in bytes.
 
+### USB names: one device in every mode
+
+| State of the board | VID:PID | Manufacturer / product | Serial number |
+| --- | --- | --- | --- |
+| A firmware on the HAL (protocol 4) | 0203:10C0 (or the firmware's `productId`) | 203 Systems / Cardenza | the MAC, `70:AF:09:BC:EB:30` |
+| The 203 Launcher, and the ROM's download mode (USB-Serial-JTAG) | 303A:1001 | Espressif / USB JTAG/serial debug unit | the same MAC, same form |
+| The 203 Launcher's USB drive mode (from its `feat/usb-everywhere`) | 0203:10CF | 203 Systems / Cardenza | the same |
+
+The serial number is how a computer finds the same chip across the modes (Web Serial, WebHID and Web MIDI do not show it: the protocols' answers carry it as `chip.mac`). Interfaces say what they are: "Cardenza MIDI", "Cardenza Audio", "Cardenza HID", "Cardenza WebUSB", "Cardenza Serial", "Cardenza Storage". The firmware's own name and version are in IDENTIFY and INFO, not in the USB names (before protocol 4 the product string was the firmware's `Config::product` and the serial number had no colons).
+
+### HID inputs: keyboard, media keys, gamepad
+
+[`usb/hid.h`](usb/hid.h) makes the Cardenza the computer's keyboard, media keys and gamepad. They are report IDs of
+the USB device's one HID interface (keyboard 1, media keys 3, gamepad 4, as in Matrix OS), beside the system
+channel (0xCB) and the firmware's raw reports (0xFF): no endpoint of their own. `USB::Config` chooses which the
+device has: `keyboard` and `consumer` (on by default), `gamepad` (off; set it in your `USB::Init` config right
+after `CardenzaHAL::Init`). [`examples/usb_hid`](examples/usb_hid) uses all three from the Cardenza's keys.
+
+| `CardenzaHAL::USB::Hid::` | What it does |
+| --- | --- |
+| `Press(usage)` / `Release(usage)` / `ReleaseAll()` / `Tap(usage)` | Holds and lets go of keys: usages of page 0x07 (`kKeyA`, `kKeyEnter`, `kKeyLeft`, ...), the modifiers 0xE0-0xE7 (`kKeyLeftShift`, `kKeyLeftGui`: Command on a Mac). Six keys and the modifiers at a time; a seventh is not taken. |
+| `Type(text, timeoutMs)` | Types printable ASCII as a US keyboard does (`\n` Enter, `\t` Tab), about 500 characters a second; the keys held go up meanwhile and come back. |
+| `KeyboardLeds()` | The lights the computer set (`kLedCapsLock`, `kLedNumLock`, `kLedScrollLock`). |
+| `Media(usage)` / `MediaPress(usage)` / `MediaRelease()` | One media key (`kMediaPlayPause`, `kMediaNext`, `kMediaVolumeUp`, `kMediaMute`, ...). |
+| `SetGamepad(state)` / `GamepadState()` / `HatFrom(up, down, left, right)` | Six axes (-127..127), a hat and 32 buttons. |
+| `Ready()` | A computer has the device and the HID interface. |
+
+The HAL keeps what is held and the computer always ends up seeing it: a report that finds no room or no computer
+(unplugged, asleep) goes as soon as it can, and a computer that comes back first gets the state as it is. When the
+computer goes away, or the device's classes change, everything is let go: nothing stays pressed. The calls return
+whether the report is on its way now. On macOS a HID keyboard makes the computer ask once which kind of keyboard
+it is, and host tools may then open the HID interface (the system channel too) only with the Input Monitoring
+permission (SysEx, WebUSB and the serial port need none): leave `keyboard` off when the firmware types nothing.
+`KeyboardReport` and `ConsumerReport` above still send raw reports; use them or `usb/hid.h`, not both. On the web
+target there is no computer: the calls return false.
+
 ### USB protocol and platform notes
 
-`CardenzaHAL::USB::Init()` (`usb/usb.h`) turns the USB port into one composite device: USB MIDI 1.0, USB Audio 2.0 (stereo 16-bit, 44.1 kHz, both ways, asynchronous with feedback: the host follows the device's clock) and HID (keyboard, consumer keys, a system channel and the firmware's own raw reports). VID 0x0203 (203 Systems). Report IDs and command bytes follow Matrix OS: report 0xCB carries system commands (0x40 Launcher / update mode, 0x41 reboot, 0x42 ROM download mode, 0x43 console, 0x44 identify, 0x45 the [development channel](#development-channel-203cli-board); answers come back as command | 0x80), and the same commands work as SysEx `F0 23 <command> F7`. The firmware's own reports (0xFF) also come as SysEx `F0 23 7F <bytes> F7` from a host without HID access (a web page with Web MIDI), and `SendAppReport` answers the way the last one came (`F0 24 7F <bytes> F7`, 7-bit). MIDI packets from the firmware and the HAL's SysEx are written one sender at a time, so a SysEx reaches the host whole.
+Report IDs and command bytes follow Matrix OS: report 0xCB carries system commands (0x40 Launcher / update mode, 0x41 reboot, 0x42 ROM download mode, 0x43 console, 0x44 identify, 0x45 the [development channel](#development-channel-203cli-board); answers come back as command | 0x80), and the same commands work as SysEx `F0 23 <command> F7`, as WebUSB control requests and as the serial port's `sys <hex>` lines ([`docs/usb-dev.md`](docs/usb-dev.md), "Transport"). The firmware's own reports (0xFF) also come as SysEx `F0 23 7F <bytes> F7` from a host without HID access (a web page with Web MIDI), and `SendAppReport` answers the way the last one came. MIDI packets from the firmware and the HAL's SysEx are written one sender at a time, so a SysEx reaches the host whole. VID 0x0203 (203 Systems).
 
-- It takes the chip's only USB PHY from USB-Serial-JTAG: the console moves to the system channel and esptool's port is gone until a restart into the Launcher or the ROM download mode.
-- The ESP32-S3 has four IN endpoints besides EP0, and the device uses all of them (MIDI, audio in, audio feedback, HID). There is no room for CDC.
+- It takes the chip's only USB PHY from USB-Serial-JTAG: the console moves to the system channel (and to the serial port when there is one) and esptool's port is gone until a restart into the Launcher or the ROM download mode. For JTAG debugging or `idf.py monitor` on USB-Serial-JTAG, turn `CONFIG_CARDENZA_HAL_USB_AUTOSTART` off and do not call `USB::Init`.
+- The serial port, when there is one, answers the 203 Launcher console's words (`version`, `info`, `partitions`, `status`, `launcher`, `download`, ...: [`docs/usb-dev.md`](docs/usb-dev.md), "The serial port's words") and restarts the board into the ROM's download mode on esptool's DTR/RTS reset and Arduino's 1200 baud touch; the board then shows up as USB-Serial-JTAG, a new port.
+- WebUSB: the BOS names a landing page (`CONFIG_CARDENZA_HAL_USB_WEBUSB_URL`, stage.203.io) and gives Windows the Microsoft OS 2.0 descriptors, so WinUSB serves the interface with no driver to install. On Linux, Chrome needs write access to the USB device (a udev rule); the other classes do not.
 - TinyUSB is configured by `usb/config/tusb_config.h` alone. Do not add `esp_tinyusb` (or anything else that configures TinyUSB) to the same firmware.
-- RAM: about 8.5 KB static (the audio FIFOs are 2 KB each way), plus a 4 KB task stack once started.
-- With `keyboard = true`, macOS asks the user to identify the keyboard once, and a host tool may open the HID interface (system channel included) only with the Input Monitoring permission. SysEx needs no permission.
-- Tested on macOS (2026-11-02): MIDI both ways, system commands over HID and SysEx, the console, audio both ways at 44.1 kHz. On full speed the feedback goes out as 10.14 in 3 bytes (macOS stops playing after 128 ms on TinyUSB's 16.16); a host that asks for the Microsoft OS string gets 16.16 (Windows, not tested). Windows asks for that string only the first time it sees a VID/PID/version, so a second connection to the same PC gets 10.14: test that before relying on Windows playback. TinyUSB's DWC2 driver does not restart an isochronous OUT transfer that missed its frame; the HAL restarts the playback endpoint after 20 ms without data.
+- RAM: about 8.5 KB static with the default classes (the audio FIFOs are 2 KB each way), plus 1 KB for the WebUSB queue, 2 KB with the serial port, 4 KB with the drive; a 4 KB task stack once started.
+- With `keyboard = true`, macOS asks the user to identify the keyboard once, and a host tool may open the HID interface (system channel included) only with the Input Monitoring permission. SysEx and WebUSB need no permission.
+- Tested on macOS (2026-11-02): MIDI both ways, system commands over HID and SysEx, the console, audio both ways at 44.1 kHz. On full speed the feedback goes out as 10.14 in 3 bytes (macOS stops playing after 128 ms on TinyUSB's 16.16); a host that asks for a Microsoft OS descriptor (string 0xEE, or with WebUSB the MS OS 2.0 set) gets 16.16 (Windows, not tested). TinyUSB's DWC2 driver does not restart an isochronous OUT transfer that missed its frame; the HAL restarts the playback endpoint after 20 ms without data.
+- In Espressif's QEMU (the community's boot check) there is no USB controller: `Init` fails cleanly and the console stays on the serial port.
+
+### USB drive: the SD card on the computer
+
+[`usb/drive.h`](usb/drive.h) lends the card to the computer as a removable disk ("Cardenza Storage", SCSI "203 Cardenza SD"), for copying files without taking the card out. Opt-in: `CONFIG_CARDENZA_HAL_USB_DRIVE` (CardenzaHAL > USB; about 4 KB of internal RAM for its buffer, a 6 KB task stack only while the card is lent). The drive is in the USB device only while the card is lent: the computer finds the device again then (its MIDI ports and audio streams start again), and the drive's IN endpoint comes from what gives way (the playback's feedback endpoint first: the playback becomes adaptive, nothing is lost).
+
+```cpp
+#include "usb/drive.h"
+
+// Told every change, from the drive's task: close your files on the card when it says Starting.
+CardenzaHAL::USB::Drive::SetListener([](const CardenzaHAL::USB::Drive::Status& status) {
+    if (status.state == CardenzaHAL::USB::Drive::State::Starting) CloseMyFiles();
+});
+bool shared = CardenzaHAL::USB::Drive::Share();  // waits up to 3 s for the disk to be there
+// ... later
+CardenzaHAL::USB::Drive::Stop();                 // the card is the firmware's again
+```
+
+- One owner at a time. While the card is lent its file system is unmounted: `Storage::IsMounted()` is false, `Storage::LentToComputer()` true, `Storage::Init()` and every file operation under `/sdcard` (the `AppDir` helpers included) fail, and a file the firmware left open fails with `EBADF`. Close your files when the listener hears `State::Starting`: the file system lets go right after it returns.
+- The card comes back (the disk goes from the computer, the file system mounts the card again, the listener hears `State::Off`, or `Failed` with `CardError` when it cannot be mounted) on `Stop()`, the computer's eject, the host unconfiguring the device (the cable), the host away for 10 s (asleep, or a cable pulled on a board on its own power, which the ESP32-S3 sees as a suspended bus), or no computer using the disk within 15 s of `Share()`. `Share()` fails at once without a configured host (`NoHost`), without USB (`NotStarted`), without a card (`NoCard`), without room on USB (`NoRoom`), or in a firmware built without the drive (`NotBuilt`).
+- What the computer writes reaches the card before the computer hears it is written (no cache on the device). What the computer still holds in its own cache is not on the card: eject the disk before unplugging, as with any USB stick; a cable pulled mid-write leaves the files the computer was writing cut, and the FAT as far as the computer had written it (the computer's disk check repairs it).
+- The USB task carries each 4 KB block between the endpoint and the card (a few milliseconds; a card's slow write up to a few hundred): MIDI, HID and the system channel wait meanwhile; USB audio runs from its FIFOs and does not.
+- `examples/usb_drive`: a key lends the card and takes it back, the screen shows the state.
+
+### Screen stream (camera)
+
+Made for recording and streaming tutorials: [`usb/camera.h`](usb/camera.h) shows the screen to a computer as a
+lossless stream, exact RGB565 pixels with no lossy step, only what changed since the last frame the computer read (raw
+or in a small run code), on a bulk endpoint of the "Cardenza WebUSB" interface. A web page shows and records it
+together with the device's USB audio; a desktop program can make it a virtual camera for OBS (WinUSB on Windows with no
+driver, libusb on macOS and Linux). Protocol: [`docs/screen-stream.md`](docs/screen-stream.md); reference reader:
+[`tools/web/screen-stream.js`](tools/web/screen-stream.js); test firmware [`examples/screen_stream`](examples/screen_stream)
+with [`tools/web/screen-stream-demo.html`](tools/web/screen-stream-demo.html).
+
+```cpp
+// Kconfig CONFIG_CARDENZA_HAL_USB_CAMERA=y (it needs WebUSB); then, from the first enumeration:
+CardenzaHAL::USB::Config usb;
+usb.camera = true;
+CardenzaHAL::USB::Init(usb);
+// or later (the computer finds the device again): CardenzaHAL::USB::Camera::Enable(true);
+```
+
+- It shows what the firmware presents with `Display::Present(framebuffer...)` or `PresentChanged`: not a firmware that
+  draws through the panel's handles, not the system menu.
+- Costs nothing until a computer starts it. While it reads: 130 KB of PSRAM, a task of priority 1 (3.5 KB stack), and
+  in each `Present` the rows presented compared with a copy of the screen. One IN endpoint, taken from what gives way
+  (the audio playback's feedback endpoint first: the playback becomes adaptive).
+- A keyframe of a typical page is 8-27 KB (64.8 KB raw); UI changes cost tens of KB a second; a computer slower than the
+  firmware gets the changes merged into fewer frames, never a backlog.
+
+### USB network: the board as a network adapter
+
+[`usb/network.h`](usb/network.h) (Kconfig `CONFIG_CARDENZA_HAL_USB_NETWORK`, opt-in) makes the board a wired
+network adapter for the computer (CDC-NCM) on lwIP, the same stack as the HAL's Wi-Fi: ESP-IDF's
+`esp_http_server`, sockets and `esp_http_client` work on it as on Wi-Fi. `Network::Start(mode)` presents the
+class (the computer finds the device again; its two IN endpoints come from what gives way: the playback's
+feedback endpoint, then HID), `Stop()` removes it. [`examples/usb_network`](examples/usb_network) serves a page
+with the board's information at <http://cardenza.local>.
+
+| Mode | The board | The computer | Internet |
+| --- | --- | --- | --- |
+| `Mode::Device` (default) | `192.168.203.1/24`, a DHCP server, mDNS for `<hostname>.local` (`cardenza.local`) | leases `192.168.203.2` onwards: no router and no DNS server in the lease | the computer's stays as it is (nothing goes through the board) |
+| `Mode::Uplink` | a DHCP client on the link | its internet sharing for the link must be on (macOS Internet Sharing, Windows ICS, a Linux NAT) | the board's, through the computer |
+
+- **Beside Wi-Fi** ([Net](#network-wi-fi-and-https)): Wi-Fi stays the default route while it is up; the uplink takes
+  over when it is not (`Options::preferOverWifi`: the uplink first). The DNS servers are always the default
+  interface's: the option selects ESP-IDF's `CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF`, so a lease on the USB link
+  never replaces Wi-Fi's DNS and Net keeps working when either goes. The device mode is never a default route (no
+  gateway, the lowest priority).
+- **mDNS**: a responder of the HAL's own on lwIP's UDP (about 1 KB of flash, no component to add, nothing on other
+  interfaces): it answers A questions for `<hostname>.local` on the USB link (multicast, and one-shot queries back
+  to their port with a 10 s TTL) and announces it three times when the link comes up. No AAAA and no service
+  records: `http://cardenza.local` and `ping cardenza.local` work. Two boards on one computer: give them
+  different `Options::hostname`s.
+- **Link**: it follows the cable, the computer's sleep and the device's classes changing (`GetState().link`:
+  `Waiting`, `Up`, `Ready`; `SetListener`). The log says every change, the address the computer leased and the
+  uplink's lease (`usb-net:` lines). Starting it again in another mode tells the computer the cable went and came
+  back, so it asks for an address again.
+- **Computers**: macOS, Linux and Windows 11 have NCM drivers built in; Windows 10 has none (it shows the
+  interface without a driver). Chrome OS and Android: Linux's driver.
+- **Costs**: about 6.6 KB of static internal RAM while the class is built (the NCM transfer blocks, 3.2 KB each way;
+  measured on the template, 2026-11-24) and about 3 KB of flash beside lwIP (which the presence service links
+  anyway; a firmware with it off pays for lwIP and esp_netif too). While started: a task (3 KB stack), four
+  transmit slots (6 KB, PSRAM when there is some) and lwIP's pbufs per packet. Frames from the computer are copied
+  into pbufs on the USB task and posted to lwIP, which never waits; frames to it wait at most 10 ms for a slot.
+- Data rate: full-speed USB, about 1 MB/s at best, shared with the other classes.
 
 ### Development channel (`203cli board`)
 
-With USB started, every firmware on the HAL answers a computer's questions about itself, with no code of its own: command 0x45 on the system channel ([`docs/usb-dev.md`](docs/usb-dev.md), the protocol), read with `203cli board` from [203-CLI](https://github.com/203-Systems/203-CLI):
+Every firmware on the HAL answers a computer's questions about itself, with no code of its own: command 0x45 on the system channel ([`docs/usb-dev.md`](docs/usb-dev.md), the protocol), read with `203cli board` from [203-CLI](https://github.com/203-Systems/203-CLI):
 
 | `203cli board` | What it shows or does |
 | --- | --- |
@@ -503,7 +643,7 @@ With USB started, every firmware on the HAL answers a computer's questions about
 - It never sends the device token and reaches no file outside the SD card. Its only writes are the ones asked for: files (`files put`, `rm`, `mkdir`, `mv`), erasing the core dump, and a setting (written as every change of the settings is: [docs/SETTINGS.md](docs/SETTINGS.md)).
 - Tasks and CPU shares need `CONFIG_FREERTOS_USE_TRACE_FACILITY` and `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS`, a core dump `CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH`: the board's debug defaults ([`board/sdkconfig.debug`](board/sdkconfig.debug)) set them; a release build without them keeps about 5 KB of internal RAM, and the rest of the channel works there too.
 - A screenshot needs a firmware that presents a framebuffer (`Present`, `PresentChanged`); one that draws through the panel's handles has none.
-- It needs USB started: the template does not start it (its console stays on the serial port, which the community's boot check reads). Add `CardenzaHAL::USB::Init();` after `CardenzaHAL::Init()` to use it.
+- Every firmware has it: `CardenzaHAL::Init` starts USB. It answers over every class that carries the system channel (HID, SysEx, WebUSB, the serial port); INFO is answered also with `CONFIG_CARDENZA_HAL_USB_DEV` off.
 
 ## Network (Wi-Fi and HTTPS)
 
@@ -739,6 +879,8 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`examples/launcher_net`](examples/launcher_net): reads the Launcher's settings, joins its Wi-Fi, makes one HTTPS request and takes everything down, logging time and RAM at each step; its `sdkconfig.defaults` is the reference set of options for a firmware using Net. `idf.py -C examples/launcher_net build`.
 - [`examples/community_presence`](examples/community_presence): `CardenzaHAL::Init()` with the presence service, a handover hook, the service's state in the log. `idf.py -C examples/community_presence build`.
 - [`examples/hal_check`](examples/hal_check): the board through the HAL, key by key: every key's cell and LED, a tone per held key from an audio task, HOME. It builds for the board and for the browser alike.
+- [`examples/usb_network`](examples/usb_network): the board as a USB network adapter (`usb/network.h`): a page at <http://cardenza.local> with the board's information and the link, live; any key switches to the uplink mode (the computer's shared internet) and fetches a page through it, and back. The screen's colour is the state (grey: off, amber: waiting for the computer, green: device mode ready, blue: uplink ready, a white bar: the fetch worked). `idf.py -C examples/usb_network build`.
+- [`examples/usb_drive`](examples/usb_drive): the SD card as a USB drive (`usb/drive.h`): any key lends the card to the computer and takes it back, the screen's colour is the state (grey: the firmware's, amber: moving, green: the computer's, red: failed). `idf.py -C examples/usb_drive build`.
 - [`.github/actions/community-publish`](.github/actions/community-publish/action.yml): the standard release of every firmware, a GitHub Action that publishes a version to the 203 community with `203cli` and trusted publishing (dev for a push to main, beta and stable for `vX.Y.Z-beta.N` and `vX.Y.Z` tags; [Releasing](#releasing)).
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml): the old Launcher hub, only for the transition: 203 Systems' official firmware mirror their releases there while 203 Launchers 0.2.0, which read only the hub's catalog, are still in use. New firmware do not use it.
 - **AI agents and the 203 community**: for publishing a firmware's versions, reading its feature requests, check reports or sending it to a device, install 203cli and its Agent Skill once: `npm install -g 203cli && 203cli skill install` (the skill goes into `~/.claude/skills/203-community`; details on https://community.203.io/agents). 203cli was called `203c`: where a script or an old note says `203c`, use `203cli`.
