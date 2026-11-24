@@ -576,6 +576,7 @@ HAL 上的每个固件，不用写一行代码，就能回答电脑查询它自�
 | `memory` | 内部 RAM、PSRAM、能做 DMA 的 RAM（剩余、最低剩余、最大连续块）；每个任务的优先级、核心、栈最少剩多少，以及它占的 CPU |
 | `storage`、`status`、`i2c` | SD 卡和剩余空间；屏幕、按住的键、系统菜单、USB、在线服务；I2C 总线（扩展口那条）上的设备 |
 | `screen` | 固件画面的截图（PNG） |
+| `screenshot` | 和 HOME + 空格一样截一张：存到 `/sdcard/screenshot/`（排队上传到板子绑定的账号），同时写到电脑上；`--no-save` 只取回不存（[docs/SCREENSHOTS.zh-CN.md](docs/SCREENSHOTS.zh-CN.md)） |
 | `press` | 从电脑按键（包括 HOME），固件当作真的按键 |
 | `coredump` | 上一次崩溃的转储：崩在哪个任务、调用栈、转储文件本身 |
 | `files` | SD 卡上的 `ls`、`get`、`put`、`rm`、`mkdir`、`mv` |

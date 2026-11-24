@@ -18,7 +18,7 @@ changes. `CONFIG_CARDENZA_HAL_USB_DEV` (Kconfig, on by default) leaves the devel
 they are then answered with the error `off`; `HELLO`, `INFO` and the settings are still answered.
 
 What it never does: send the device token, or reach files outside the SD card. The only writes are the ones asked
-for: files on the card (`PUT`, `RM`, `MKDIR`, `MV`), erasing the core dump (`COREDUMP_ERASE`), and a setting
+for: files on the card (`PUT`, `RM`, `MKDIR`, `MV`, and a screenshot `SCREENSHOT` saves), erasing the core dump (`COREDUMP_ERASE`), and a setting
 (`SETTING_SET`, `SETTINGS_RESET`), which the HAL writes to NVS as it writes every change of the settings: a second
 after the last one, on its own task (SETTINGS.md).
 
