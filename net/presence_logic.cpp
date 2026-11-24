@@ -557,6 +557,24 @@ bool ParseInbox(const char* json, std::size_t length, Inbox& inbox)
             } while (reader.Take(','));
             return reader.Take(']');
         }
+        if (std::strcmp(key, "now") == 0)
+        {
+            if (reader.Peek() >= '0' && reader.Peek() <= '9')
+            {
+                char digits[24];
+                if (!reader.Number(digits, sizeof(digits))) return false;
+                int64_t value = 0;
+                bool whole = std::strlen(digits) <= 12;
+                for (const char* c = digits; whole && *c != 0; ++c)
+                {
+                    if (*c < '0' || *c > '9') whole = false;
+                    else value = value * 10 + (*c - '0');
+                }
+                if (whole) inbox.now = value;
+                return true;
+            }
+            return reader.Skip();
+        }
         if (std::strcmp(key, "poll") == 0)
         {
             if (reader.Peek() == '-' || (reader.Peek() >= '0' && reader.Peek() <= '9'))
@@ -579,6 +597,14 @@ bool ParseInbox(const char* json, std::size_t length, Inbox& inbox)
         return false;
     }
     return true;
+}
+
+bool ShouldSetClock(int64_t deviceSeconds, int64_t communitySeconds)
+{
+    if (communitySeconds < kClockSetAfter) return false;
+    if (deviceSeconds < kClockSetAfter) return true;
+    const int64_t off = deviceSeconds > communitySeconds ? deviceSeconds - communitySeconds : communitySeconds - deviceSeconds;
+    return off > kClockSlackSeconds;
 }
 
 void ErrorCode(const char* json, std::size_t length, char* code, std::size_t capacity)

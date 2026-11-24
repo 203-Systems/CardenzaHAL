@@ -13,5 +13,9 @@ namespace CardenzaHAL::Display::detail {
     // The framebuffer the firmware last presented (null: it presents none, or draws through the panel's
     // handles itself). Its memory is the firmware's: read it as it is now.
     const uint16_t* LastFramebuffer();
+    // For a firmware that draws through the panel's handles itself (esp_lcd_panel_draw_bitmap): the screen as
+    // it drew it, copied by the HAL as it drew (PSRAM, from its first draw). Null: it drew nothing that way, or
+    // there was no PSRAM for the copy.
+    const uint16_t* PanelDrawsCopy();
 
 }  // namespace CardenzaHAL::Display::detail

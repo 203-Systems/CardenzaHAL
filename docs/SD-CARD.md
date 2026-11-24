@@ -3,8 +3,8 @@
 [中文](SD-CARD.zh-CN.md)
 
 Every firmware on a Cardenza shares one SD card with the 203 Launcher and with each other (the user's
-decision, 2026-11-23). Nothing is kept at the card's root: the Launcher has one folder, and every firmware
-one of its own.
+decision, 2026-11-23). Nothing is kept at the card's root: the Launcher has one folder, every firmware one of its
+own, and the user's screenshots one (the user, 2026-11-24).
 
 ```
 /sdcard/                      the card (FAT, mounted by CardenzaHAL::Init: storage/storage.h)
@@ -15,6 +15,10 @@ one of its own.
       Logs/                   its logs
       ...                     the rest is the firmware's own (projects, presets, samples, saves, caches)
     CardenzaSynth/            for example Cardenza Synth's
+  screenshot/                 the user's screenshots, from every firmware and the Launcher (HOME + space)
+    2026-11-24_153012_CardenzaSynth.png
+    shot-0001_Launcher.png    (taken while the board's clock was not set)
+    .upload-queue             what is still to go up to the community account (a journal)
 ```
 
 ## Rules for a firmware
@@ -83,6 +87,14 @@ touched by it. When the user installs the newer version again, the merge brings 
 saved there that the new folder lacks; what both have (its settings file, say, or a working file it rewrote)
 stays in the old folder: copy it over by hand to keep that version of it. Say this in your release notes when
 you move.
+
+## The screenshots' folder
+
+`/sdcard/screenshot/` holds the screenshots of every firmware and of the Launcher ([SCREENSHOTS.md](SCREENSHOTS.md)):
+`<date>_<time>_<firmware>.png` (UTC) or `shot-NNNN_<firmware>.png`, each written to a temporary `.<name>.tmp` and
+renamed, and `.upload-queue`, the journal of what is still to be uploaded (`Q`, `U`, `S` lines). The HAL and the
+Launcher write there; a firmware's own code does not (`Screenshot::Take()` to take one). It is the user's: delete
+what you like from a computer; a shot deleted before it went up is skipped.
 
 ## The Launcher's folder
 

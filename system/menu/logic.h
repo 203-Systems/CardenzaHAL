@@ -10,48 +10,8 @@
 // (tests/system_menu_test.cpp). system/menu.cpp runs them on the device.
 namespace CardenzaHAL::SystemMenu::detail {
 
-    // A press of the side key (HOME, GPIO0) opens the menu (the user, 2026-11-18: no hold, no animation while
-    // it is held: "直接点按"): when it has read as down this long, which a contact's bounce or a glitch on the
-    // pin does not.
-    inline constexpr uint32_t kPressMs = 30;
-
-    // When the side key has been down kPressMs: once per press. A press that was already down when watching
-    // began (the firmware started with it held: the ROM's download strap, the Launcher's entry key; or the
-    // menu closed while it was held) does not count until it has been released once.
-    class PressDetector {
-      public:
-        void Reset(bool down)
-        {
-            armed_ = !down;
-            fired_ = false;
-            downSince_ = 0;
-            wasDown_ = down;
-        }
-        // True once per press, kPressMs after it went down.
-        bool Update(bool down, uint32_t nowMs)
-        {
-            if (!down)
-            {
-                armed_ = true;
-                fired_ = false;
-                wasDown_ = false;
-                return false;
-            }
-            if (!wasDown_) downSince_ = nowMs;
-            wasDown_ = true;
-            if (!armed_ || fired_ || nowMs - downSince_ < kPressMs) return false;
-            fired_ = true;
-            return true;
-        }
-        // HOME is down on a press that is about to open the menu.
-        bool Pending() const { return armed_ && wasDown_ && !fired_; }
-
-      private:
-        bool armed_ = false;
-        bool fired_ = false;
-        bool wasDown_ = false;
-        uint32_t downSince_ = 0;
-    };
+    // When the menu opens: screenshot/logic.h (HomeGesture), with the screenshots' HOME + space (the user,
+    // 2026-11-24): a short press of HOME, once it is let go.
 
     // The main list (system/menu.h): Continue, Settings, Back to Launcher, Restart, Turn off, About this
     // device, Download mode.
@@ -95,8 +55,10 @@ namespace CardenzaHAL::SystemMenu::detail {
     enum class Page : uint8_t { Main, Settings, Value, Language, Reset, About, Landing };
 
     // The Settings page's rows.
-    enum class Row : uint8_t { Volume, VolumeLimit, ScreenBrightness, KeyBrightness, Language, WebUsbLanding, Reset };
-    inline constexpr int kRowCount = 7;
+    // ScreenshotUpload: on or off, ENTER switches it in place (screenshot/screenshot.h); its detail says how a
+    // screenshot is taken (HOME + space).
+    enum class Row : uint8_t { Volume, VolumeLimit, ScreenBrightness, KeyBrightness, Language, WebUsbLanding, ScreenshotUpload, Reset };
+    inline constexpr int kRowCount = 8;
     // The browser notice's choices, in Settings::Id::WebUsbLanding's values: first time only, always, never.
     inline constexpr int kLandingChoices = 3;
     // The setting of a row (Reset: none, Volume's).

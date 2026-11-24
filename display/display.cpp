@@ -9,6 +9,7 @@
 #include "../board/pins.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <new>
 #include <optional>
@@ -18,6 +19,7 @@
 #include <driver/spi_master.h>
 #include <esp_attr.h>
 #include <esp_heap_caps.h>
+#include <esp_lcd_panel_interface.h>
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_commands.h>
@@ -121,6 +123,9 @@ ChangedRegions* overlayRegions = nullptr;
 bool overlayHashValid = false;
 SemaphoreHandle_t displayLock = nullptr;
 portMUX_TYPE displayLockMux = portMUX_INITIALIZER_UNLOCKED;
+// The task holding displayLock: what it sends to the panel is the HAL's own (a framebuffer's windows, the menu,
+// a screenshot's effect), not a firmware drawing through the panel's handles.
+std::atomic<TaskHandle_t> lockHolder{nullptr};
 
 class DisplayLock {
   public:
@@ -139,10 +144,13 @@ class DisplayLock {
             if (made != nullptr) vSemaphoreDelete(made);
         }
         held_ = displayLock != nullptr && xSemaphoreTake(displayLock, portMAX_DELAY) == pdTRUE;
+        if (held_) lockHolder.store(xTaskGetCurrentTaskHandle());
     }
     ~DisplayLock()
     {
-        if (held_) xSemaphoreGive(displayLock);
+        if (!held_) return;
+        lockHolder.store(nullptr);
+        xSemaphoreGive(displayLock);
     }
     DisplayLock(const DisplayLock&) = delete;
     DisplayLock& operator=(const DisplayLock&) = delete;
@@ -305,6 +313,48 @@ bool WaitForTransfer(TickType_t timeout)
     return true;
 }
 
+// A firmware that draws through the panel's handles itself (esp_lcd_panel_draw_bitmap: LVGL, its own code) has no
+// framebuffer the HAL sees. So that a screenshot (screenshot/screenshot.h) can be taken of it too, every bitmap it
+// draws is copied into `shadow` (the screen's pixels as it drew them, PSRAM, made at its first draw; without PSRAM
+// none, and such a firmware cannot be captured). The HAL's own sends (under displayLock) are not copied: a
+// firmware that presents framebuffers costs nothing.
+esp_err_t (*panelDrawBitmap)(esp_lcd_panel_t*, int, int, int, int, const void*) = nullptr;
+uint16_t* shadow = nullptr;
+std::atomic<bool> shadowTried{false};
+std::atomic<bool> shadowValid{false};
+
+void CopyToShadow(int xStart, int yStart, int xEnd, int yEnd, const void* data)
+{
+    if (shadow == nullptr)
+    {
+        if (shadowTried.exchange(true)) return;
+        shadow = static_cast<uint16_t*>(
+            heap_caps_calloc(static_cast<std::size_t>(WIDTH) * HEIGHT, sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (shadow == nullptr) return;
+    }
+    const int x0 = std::max(xStart, 0), y0 = std::max(yStart, 0), x1 = std::min(xEnd, WIDTH), y1 = std::min(yEnd, HEIGHT);
+    if (data == nullptr || x0 >= x1 || y0 >= y1) return;
+    const int stride = xEnd - xStart;
+    const auto* pixels = static_cast<const uint16_t*>(data);
+    for (int y = y0; y < y1; ++y)
+        std::memcpy(shadow + y * WIDTH + x0, pixels + (y - yStart) * stride + (x0 - xStart),
+                    static_cast<std::size_t>(x1 - x0) * sizeof(uint16_t));
+    shadowValid.store(true);
+}
+
+esp_err_t ShadowedDrawBitmap(esp_lcd_panel_t* target, int xStart, int yStart, int xEnd, int yEnd, const void* data)
+{
+    if (lockHolder.load() != xTaskGetCurrentTaskHandle()) CopyToShadow(xStart, yStart, xEnd, yEnd, data);
+    return panelDrawBitmap(target, xStart, yStart, xEnd, yEnd, data);
+}
+
+void ShadowPanelDraws()
+{
+    if (panel == nullptr || panelDrawBitmap != nullptr || panel->draw_bitmap == nullptr) return;
+    panelDrawBitmap = panel->draw_bitmap;
+    panel->draw_bitmap = ShadowedDrawBitmap;
+}
+
 bool RevealFrame()
 {
     if (!firstFramePresented)
@@ -441,6 +491,7 @@ bool Init()
         {
             return false;
         }
+        ShadowPanelDraws();
     }
 
     // A handle alone does not mean reset/configuration succeeded. Retry every
@@ -940,6 +991,11 @@ const uint16_t* LastFramebuffer()
 {
     DisplayLock lock;
     return lastFramebuffer;
+}
+
+const uint16_t* PanelDrawsCopy()
+{
+    return shadowValid.load() ? shadow : nullptr;
 }
 
 bool BeginOverlay()

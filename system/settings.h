@@ -23,6 +23,8 @@
 //   WebUsbSeen        1 once the board has been seen: its first connection to a computer with the page
 //                     offered, or a 203 tool or the community's website (the USB system command 0x46,
 //                     usb/usb.h); Reset clears it, so the page is named again the next time
+//   ScreenshotUpload  1 (the default): screenshots (HOME + space, screenshot/screenshot.h) go up to the community
+//                     account the board is bound to, private, when the board is online; 0: they stay on the card
 //
 // CardenzaHAL::Init reads them (without writing anything) and applies them before the firmware's first
 // frame: the codec's volume, the backlight, the key lights' master level. A firmware reads them with Get and
@@ -49,8 +51,9 @@ namespace CardenzaHAL::Settings {
         Language,
         WebUsbLanding,
         WebUsbSeen,
+        ScreenshotUpload,
     };
-    inline constexpr int kCount = 7;
+    inline constexpr int kCount = 8;
     // WebUsbLanding's values.
     inline constexpr int kLandingFirstTime = 0;
     inline constexpr int kLandingAlways = 1;
@@ -58,7 +61,7 @@ namespace CardenzaHAL::Settings {
 
     struct Info {
         const char* key;   // its name over USB and in logs: volume, volume_limit, screen_brightness,
-                           // key_brightness, language, webusb_landing, webusb_seen
+                           // key_brightness, language, webusb_landing, webusb_seen, screenshot_upload
         int min, max;
         int step;          // the system menu's step
         int defaultValue;

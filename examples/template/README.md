@@ -4,7 +4,8 @@ A starting point for a Cardenza firmware on CardenzaHAL, laid out the way
 [`docs/FIRMWARE-PROJECT.md`](../../docs/FIRMWARE-PROJECT.md) (the rules every firmware on the HAL
 follows) asks: the HAL as a git submodule, the board's defaults, a partition table that keeps the
 203 Launcher, `version.txt`, `CHANGELOG.md` and `203.json` for publishing with `203cli`. The app shows
-the keys on the screen and lights a held key; HOME inverts the screen; on the SD card it keeps its files in
+the keys on the screen and lights a held key; ok (enter) inverts the screen; HOME is the system's (a short press opens
+the system menu, HOME + space takes a screenshot into `/sdcard/screenshot/`); on the SD card it keeps its files in
 its own folder, `/sdcard/Apps/<project name>/` (`Settings/app.cfg`, `Logs/log.txt`: [`docs/SD-CARD.md`](../../docs/SD-CARD.md)). The same source builds for the
 board and for the browser.
 

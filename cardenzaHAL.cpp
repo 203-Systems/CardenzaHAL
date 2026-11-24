@@ -5,6 +5,7 @@
 
 #include "net/presence.h"
 #include "system/internal/hooks.h"
+#include "screenshot/screenshot.h"
 #include "system/internal/settings_hooks.h"
 #include "usb/internal/start.h"
 #include "system/menu.h"
@@ -91,8 +92,12 @@ bool Init()
     g_initReport.overall = g_initReport.system && g_initReport.keyboard && g_initReport.audio && g_initReport.display;
     g_initialized = g_initReport.overall;
 #if CONFIG_CARDENZA_HAL_SYSTEM_MENU
-    // A press of HOME: the system menu (back to the Launcher, restart, turn off; system/menu.h).
+    // A short press of HOME: the system menu (back to the Launcher, restart, turn off; system/menu.h).
     if (g_initReport.display) SystemMenu::Start();
+#endif
+#if CONFIG_CARDENZA_HAL_SCREENSHOT
+    // HOME + space: a screenshot on the card, uploaded to the board's account (screenshot/screenshot.h).
+    if (g_initReport.display) Screenshot::Start();
 #endif
 #if CONFIG_CARDENZA_HAL_PRESENCE
     // Reachable from the community while this firmware runs (net/presence.h); it starts later, and only

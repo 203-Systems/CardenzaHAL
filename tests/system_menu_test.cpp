@@ -28,38 +28,6 @@ uint32_t CardenzaHAL::SystemMenu::launcher::launcherMillis() { return 0; }
 
 namespace {
 
-// A press of HOME opens the menu once it has lasted kPressMs: once a press, never a bounce, never a press
-// that was already down.
-void TestPress()
-{
-    PressDetector hold;
-    hold.Reset(false);
-    assert(!hold.Pending());
-    assert(!hold.Update(true, 0) && hold.Pending());
-    assert(!hold.Update(true, kPressMs - 1));
-    assert(hold.Update(true, kPressMs) && !hold.Pending());
-    assert(!hold.Update(true, kPressMs + 500));  // once per press
-    assert(!hold.Update(false, kPressMs + 600));
-    assert(!hold.Update(true, 5000));
-    assert(hold.Update(true, 5000 + kPressMs));
-    // A bounce or a glitch: down for less than kPressMs opens nothing, and the next press counts from its own start.
-    assert(!hold.Update(false, 6000) && !hold.Update(true, 6010) && !hold.Update(true, 6020) && !hold.Update(false, 6030));
-    assert(!hold.Pending() && !hold.Update(true, 6040) && !hold.Update(true, 6040 + kPressMs - 1) && hold.Update(true, 6040 + kPressMs));
-    assert(kPressMs >= 20 && kPressMs <= 50);  // past a contact's bounce, and at once to a finger
-
-    // Down when watching began (the firmware started with HOME held): no menu until it was let go.
-    hold.Reset(true);
-    assert(!hold.Update(true, 0) && !hold.Pending());
-    assert(!hold.Update(true, 1000 * kPressMs));
-    assert(!hold.Update(false, 10 * kPressMs + 1));
-    assert(!hold.Update(true, 20000));
-    assert(hold.Update(true, 20000 + kPressMs));
-
-    // Time wraps (a uint32_t of milliseconds, after 49 days).
-    hold.Reset(false);
-    assert(!hold.Update(true, 0xFFFFFF00u));
-    assert(hold.Update(true, 0xFFFFFF00u + kPressMs));
-}
 
 void TestKeys()
 {
@@ -208,6 +176,13 @@ void TestSettingsPages()
     Apply(state, Key::Up);
     o = Apply(state, Key::Back);
     assert(!o.set && state.page == Page::Settings && state.values[Index(Id::WebUsbLanding)] == Settings::kLandingNever);
+    // Upload screenshots: a switch, ENTER turns it over in place.
+    state.settings.selected = static_cast<int>(Row::ScreenshotUpload);
+    assert(state.values[Index(Id::ScreenshotUpload)] == 1);
+    o = Apply(state, Key::Select);
+    assert(o.set && o.id == Id::ScreenshotUpload && o.value == 0 && !o.page && state.page == Page::Settings);
+    o = Apply(state, Key::Select);
+    assert(o.set && o.value == 1 && state.page == Page::Settings);
     // Reset: Cancel focused; ; and , to Reset, ENTER resets every setting but the language.
     state.settings.selected = static_cast<int>(Row::Reset);
     o = Apply(state, Key::Select);
@@ -819,7 +794,6 @@ void TestOwnPages()
 
 int main()
 {
-    TestPress();
     TestKeys();
     TestList();
     TestSettingsPages();

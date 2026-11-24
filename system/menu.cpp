@@ -36,9 +36,15 @@
 #include "display/backlight_brightness.h"
 #include "display/display.h"
 #include "display/internal/overlay.h"
+#include "display/internal/snapshot.h"
 #include "keyboard/internal/flash_guard.h"
 #include "keyboard/internal/overlay.h"
+#include "keyboard/internal/space_filter.h"
+#include "screenshot/card.h"
+#include "screenshot/internal.h"
+#include "screenshot/logic.h"
 #include "system/internal/hooks.h"
+#include "system/internal/key_task.h"
 #include "system/launcher.h"
 #include "system/menu/frame.h"
 #include "system/menu/launcher/motion.h"
@@ -63,7 +69,8 @@ constexpr uint32_t kStackBytes = 5120;
 // is busy drawing, and the firmware's sound keeps going.
 constexpr UBaseType_t kPriority = 4;
 
-std::atomic<bool> g_started{false};
+std::atomic<bool> g_started{false};      // the side key's task (System::detail::StartKeyTask)
+std::atomic<bool> g_menuStarted{false};  // SystemMenu::Start ran: a short press of HOME opens the menu
 TaskHandle_t g_task = nullptr;
 std::atomic<bool> g_enabled{true};
 std::atomic<bool> g_open{false};
@@ -163,8 +170,17 @@ void PaintScene(void* context, int x, int y, int width, int rows, uint16_t* out)
         }
 }
 
-// The scene for the menu: the Launcher's language, the firmware's name, the first row selected;
-// and a buffer the firmware's frames are copied into (the backdrop is made from its picture).
+// A buffer the firmware's frames are copied into from now (PSRAM; without, nothing is kept): the menu's backdrop
+// and a screenshot of HOME + space are made from it.
+void StartCapture()
+{
+    if (g_capture != nullptr || !Display::detail::Ready()) return;
+    g_capture = static_cast<uint16_t*>(heap_caps_malloc(
+        std::size_t(detail::kWidth) * detail::kHeight * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (g_capture != nullptr) Display::detail::SetCapture(g_capture);
+}
+
+// The scene for the menu: the Launcher's language, the firmware's name, the first row selected.
 bool Prepare()
 {
     if (g_scene == nullptr)
@@ -191,12 +207,7 @@ bool Prepare()
                                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (g_scene->still != nullptr)
         detail::PaintGrey(g_scene->view, nullptr, NowMs(), 0, detail::kHeight, g_scene->still);
-    if (g_capture == nullptr)
-    {
-        g_capture = static_cast<uint16_t*>(heap_caps_malloc(
-            std::size_t(detail::kWidth) * detail::kHeight * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        if (g_capture != nullptr) Display::detail::SetCapture(g_capture);
-    }
+    StartCapture();
     return true;
 }
 
@@ -382,7 +393,7 @@ void RunMenu()
     }
 
     // The backdrop: the firmware's picture, dark and grey through the dither, in one frame. Its frames are
-    // copied since HOME went down (MenuTask); one that is still on its way is waited for a moment.
+    // copied since HOME went down (KeyTask); one that is still on its way is waited for a moment.
     const int firmwareDuty = Display::detail::FirmwareBacklightDuty();
     const int menuDuty = g_menuDuty;
     for (const uint32_t since = NowMs(); g_capture != nullptr && FirmwarePicture() == nullptr && NowMs() - since < kPictureWaitMs;)
@@ -413,8 +424,11 @@ void RunMenu()
     if (!DrawMenu(scene, NowMs())) ESP_LOGW(kTag, "system menu: a paint failed");
 
     detail::KeyRepeat repeat;
-    bool openingPress = true;  // the press that opened the menu: its release is no tap
-    bool funcWasDown = true;
+    // The menu opens once HOME has been let go (a short press): a HOME down now is a new press, whose release
+    // chooses, unless it is the one that opened it (pressed again in the moment before it opened).
+    const bool homeNow = System::detail::HomeButtonRaw();
+    bool openingPress = homeNow;  // a press down as the menu opens: its release is no tap
+    bool funcWasDown = homeNow;
     bool moving = false;       // the frame last drawn is not the bar's last: draw the next one soon
     detail::Item chosen = detail::Item::Continue;
     while (true)
@@ -547,10 +561,118 @@ void RunMenu()
     Settings::detail::MenuClosed();
 }
 
-void MenuTask(void*)
+// ---- The screenshot's effect (screenshot/card.h): drawn here, over the firmware ------------------------------
+
+constexpr int kSpaceKey = 56;  // the bottom-right key (keyboard/legends.h)
+
+struct Effect {
+    bool active = false;
+    uint32_t start = 0;
+    uint32_t lastPaint = 0;
+    uint32_t revision = 0;
+    uint16_t* thumb = nullptr;  // the shot at a quarter size (Screenshot::detail::EffectPost)
+    uint8_t* card = nullptr;    // the card's rows in greys (Card::kBytes)
+};
+Effect g_effect;
+
+// The firmware's frame now: the latest one captured, else its framebuffer, else its panel draws.
+const uint16_t* LiveFirmware()
 {
-    detail::PressDetector press;
-    press.Reset(System::detail::HomeButtonRaw());
+    if (const uint16_t* picture = FirmwarePicture()) return picture;
+    if (const uint16_t* last = Display::detail::LastFramebuffer()) return last;
+    return Display::detail::PanelDrawsCopy();
+}
+
+void PaintEffect(void* context, int x, int y, int width, int rows, uint16_t* out)
+{
+    Screenshot::Card::Paint(*static_cast<const Screenshot::Card::Scene*>(context), x, y, width, rows, out);
+}
+
+void DrawCard()
+{
+    Screenshot::detail::EffectPost now;
+    g_effect.revision = Screenshot::detail::EffectRevision(now);
+    if (g_effect.card == nullptr) return;
+    Screenshot::Card::Draw(g_effect.card, detail::LanguageIndex(Settings::Get(Settings::Id::Language)), now.words,
+                           now.name, g_effect.thumb != nullptr);
+}
+
+// Over: the firmware's picture as it is now, then its own frames again (the next one whole).
+void EndEffect()
+{
+    Screenshot::Card::Scene scene;
+    scene.t = Screenshot::Logic::Effect::kDoneMs;
+    scene.firmware = LiveFirmware();
+    if (scene.firmware != nullptr) (void)Display::detail::PaintOverlay(PaintEffect, &scene);
+    Display::detail::EndOverlay();
+    heap_caps_free(g_effect.thumb);
+    heap_caps_free(g_effect.card);
+    g_effect = Effect{};
+    Screenshot::detail::SetShowing(false);
+}
+
+// A frame of the effect when it is due: while the flash fades and the card comes and goes, and every 40 ms in
+// between (the firmware's latest frame under the card; only what changed is sent).
+void StepEffect(uint32_t now)
+{
+    Screenshot::detail::EffectPost post;
+    if (Screenshot::detail::TakeEffect(post))
+    {
+        if (!g_effect.active)
+        {
+            if (!Display::detail::Ready() || !Display::detail::BeginOverlay())
+            {
+                heap_caps_free(post.thumb);
+                return;
+            }
+            g_effect.card = static_cast<uint8_t*>(heap_caps_malloc_prefer(
+                Screenshot::Card::kBytes, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+            StartCapture();
+            g_effect.active = true;
+            Screenshot::detail::SetShowing(true);
+        }
+        heap_caps_free(g_effect.thumb);
+        g_effect.thumb = post.thumb;
+        g_effect.start = now;
+        DrawCard();
+        g_effect.lastPaint = now - 1000;
+    }
+    if (!g_effect.active) return;
+    const uint32_t t = now - g_effect.start;
+    Screenshot::detail::EffectPost words;
+    const bool changed = Screenshot::detail::EffectRevision(words) != g_effect.revision;
+    if (changed) DrawCard();
+    if (t >= Screenshot::Logic::Effect::kDoneMs)
+    {
+        EndEffect();
+        return;
+    }
+    if (!changed && !Screenshot::Logic::Effect::Moving(t) && now - g_effect.lastPaint < 40) return;
+    Screenshot::Card::Scene scene;
+    scene.t = t;
+    scene.firmware = LiveFirmware();
+    scene.thumb = g_effect.thumb;
+    scene.card = g_effect.card;
+    if (!Display::detail::PaintOverlay(PaintEffect, &scene)) ESP_LOGW(kTag, "screenshot: a paint failed");
+    g_effect.lastPaint = now;
+}
+
+bool MenuAllowed()
+{
+    return g_menuStarted.load() && g_enabled.load();
+}
+
+// The side key's task: HOME and space every kPollMs (screenshot/logic.h, HomeGesture), the menu on a short press
+// of HOME once it is let go, a screenshot on HOME + space, and the screenshot's effect.
+void KeyTask(void*)
+{
+    Screenshot::Logic::HomeGesture gesture;
+    const auto reset = [&gesture] {
+        gesture.Reset(System::detail::HomeButtonRaw(), Keyboard::detail::KeyDown(kSpaceKey), NowMs());
+        Screenshot::detail::PublishWindow(gesture.GetWindow());
+    };
+    reset();
+    bool menuWaiting = false;
     while (true)
     {
         vTaskDelay(pdMS_TO_TICKS(kPollMs));
@@ -560,24 +682,31 @@ void MenuTask(void*)
         {
             ESP_LOGW(kTag, "system menu: GPIO0's input was off (another driver reset it): restored");
             System::detail::RestoreHomeButton();
-            press.Reset(System::detail::HomeButtonRaw());
+            reset();
         }
-        const bool down = System::detail::HomeButtonRaw();
-        if (!g_enabled.load())
+        const uint32_t now = NowMs();
+        const bool home = System::detail::HomeButtonRaw();
+        const bool space = Keyboard::detail::KeyDown(kSpaceKey);
+        const Screenshot::Logic::GestureEvents events =
+            gesture.Update(home, space, Screenshot::detail::TakeClaimedSpace(), now);
+        Screenshot::detail::PublishWindow(gesture.GetWindow());
+        // HOME went down: the firmware's frames are copied from now, so its picture is there for the menu's
+        // backdrop and for a screenshot.
+        if (events.homeDown) StartCapture();
+        if (events.screenshot) Screenshot::detail::FromKeys(FirmwarePicture());
+        if (events.openMenu && MenuAllowed()) menuWaiting = true;
+        StepEffect(now);
+        if (!MenuAllowed()) menuWaiting = false;
+        if (menuWaiting && !g_effect.active)
         {
-            press.Reset(down);
-            if (g_scene != nullptr) Release();
+            menuWaiting = false;
+            RunMenu();
+            // A HOME still down (the menu was closed with a key) opens nothing until it has been released.
+            reset();
             continue;
         }
-        const bool open = press.Update(down, NowMs());
-        // HOME just went down on a press that will open the menu: the menu's picture is drawn and the
-        // firmware's frames are copied from now, so its picture is there when the press has lasted.
-        if (press.Pending() && g_scene == nullptr && Display::detail::Ready()) (void)Prepare();
-        if (!down && g_scene != nullptr) Release();  // a bounce: nothing opened
-        if (!open) continue;
-        RunMenu();
-        // A HOME still down (the menu was closed with a key) opens nothing until it has been released.
-        press.Reset(System::detail::HomeButtonRaw());
+        if (!home && !gesture.MenuPending() && !menuWaiting && !g_effect.active && (g_scene != nullptr || g_capture != nullptr))
+            Release();
     }
 }
 
@@ -604,17 +733,15 @@ uint32_t StackFree()
 
 void Start()
 {
-    if (g_started.exchange(true)) return;
-    if (xTaskCreate(MenuTask, "sys_menu", kStackBytes, nullptr, kPriority, &g_task) != pdPASS)
-    {
-        ESP_LOGE(kTag, "system menu: no task");
-        g_started.store(false);
-    }
+    g_menuStarted.store(true);
+    System::detail::SetHomeForSystem(g_enabled.load());
+    System::detail::StartKeyTask();
 }
 
 void Enable(bool enabled)
 {
     g_enabled.store(enabled);
+    System::detail::SetHomeForSystem(enabled && g_menuStarted.load());
 }
 
 bool Enabled()
@@ -644,3 +771,18 @@ void SetLeaveHook(LeaveHook hook, void* context)
 }
 
 }  // namespace CardenzaHAL::SystemMenu
+
+namespace CardenzaHAL::System::detail {
+
+void StartKeyTask()
+{
+    using namespace CardenzaHAL::SystemMenu;
+    if (g_started.exchange(true)) return;
+    if (xTaskCreate(KeyTask, "sys_menu", kStackBytes, nullptr, kPriority, &g_task) != pdPASS)
+    {
+        ESP_LOGE(kTag, "system menu: no task");
+        g_started.store(false);
+    }
+}
+
+}  // namespace CardenzaHAL::System::detail

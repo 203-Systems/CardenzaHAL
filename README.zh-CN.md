@@ -375,14 +375,14 @@ void ReadSettings()
 
 ## HOME 键、I2C 与红外
 
-- [`System::GetHomeButton()`](system/system.h) 在 **GPIO0 的 HOME 键**（屏幕左侧的侧键）被按下时返回 `true`。它是独立按键，与矩阵键盘及其中的 Fn 键分开。**按一下它就打开系统菜单**（见下节）：打开或关闭菜单的那一下按键在这里读作松开。
+- [`System::GetHomeButton()`](system/system.h) 在 **GPIO0 的 HOME 键**（屏幕左侧的侧键）被按下时返回 `true`。它是独立按键，与矩阵键盘及其中的 Fn 键分开。**短按后松开就打开系统菜单**，**HOME + 空格是截图**（见下节）：菜单开着时 HOME 归系统，在这里读作松开。
 - `System::GetI2CBus()` 返回 `System::Init()` 创建的原生 I2C 主总线句柄。用 `i2c_master_bus_add_device()` 添加设备，避免在同一组引脚重复创建总线（SCL GPIO1、SDA GPIO2）。
 - `System::EnterDeepSleep()` 当前**只删除共享 I2C 总线**，并不会让 ESP32 进入深度睡眠，也不会配置唤醒源。调用前需要协调编解码器和其他 I2C 使用者。
 - [`IR::Send(addr, cmd)`](ir/ir.h) 在 GPIO44 上用 38 kHz 载波发出 8 位 NEC 地址/命令及各自反码。必要时会自行初始化发射器，并等待发送结束。没有接收接口，也不返回发送状态。
 
 ## 系统菜单（任何固件里按 HOME）
 
-在 HAL 上的任何固件里，按一下 HOME 侧键（GPIO0），弹出[系统菜单](system/menu.h)。它就是 203 Launcher 的列表：用 Launcher 自己的代码画，语言跟随 Launcher 的设置，两者看起来、动起来是同一个东西。
+在 HAL 上的任何固件里，短按 HOME 侧键（GPIO0）并松开，弹出[系统菜单](system/menu.h)（HOME + 空格则是截图：[截图](#截图任何固件里-home--空格)）。它就是 203 Launcher 的列表：用 Launcher 自己的代码画，语言跟随 Launcher 的设置，两者看起来、动起来是同一个东西。
 
 | 项 | 作用 |
 | --- | --- |
@@ -404,15 +404,25 @@ void ReadSettings()
 
 出现方式和动效（这块屏没有防撕裂信号线，任何一帧都可能在扫描中途写进去：会动的东西每帧只变几个像素，盖住整屏的东西一个像素一个像素地换）：
 
-- **按一下就打开。** HOME 按下满 30 ms（过了触点抖动）算一次按键；固件启动时就按着的 HOME、或者菜单关闭时还按着的 HOME，要先松开才算。固件的画面（它的最后一帧）在一帧里变暗、变灰：亮度取五分之二，经 4×4 有序 dither 变成五级暗灰。70 ms 后菜单按 dither 的顺序透出来，每帧换四分之一的像素，背光同时变到 Launcher 的亮度：每个像素要么是背景的、要么是菜单的，从不混色，所以屏上没有任何颜色，一帧在扫描中途写进去也看不出接缝。
+- **短按松开才打开。** HOME 按下 30 ms 到 1 秒（过了触点抖动）再松开，而且这一下没有截图：松开 200 ms 后打开菜单（这 200 ms 里按了空格就变成截图）；按得更久什么也不打开。固件启动时就按着的 HOME、或者菜单关闭时还按着的 HOME，要先松开才算。从按下 HOME 起就开始保留固件的画面。固件的画面（它的最后一帧）在一帧里变暗、变灰：亮度取五分之二，经 4×4 有序 dither 变成五级暗灰。70 ms 后菜单按 dither 的顺序透出来，每帧换四分之一的像素，背光同时变到 Launcher 的亮度：每个像素要么是背景的、要么是菜单的，从不混色，所以屏上没有任何颜色，一帧在扫描中途写进去也看不出接缝。
 - **菜单里**深色的选中条靠上下两条边滑过去，和 Launcher 的列表一样（它的 `ListSlide`）：朝移动方向的那条边先走（Launcher 的缓出曲线，150 ms），另一条从静止开始跟上（230 ms），所以选中条先朝新的一行拉长，再缩回到这一行的高度；滑动途中再按，从两条边当时的位置接着走。文字在边经过的地方逐像素变白或变黑，一行的说明随选中条盖住它而展开。翻过最后一行时，各行一下子换好，选中条从它在屏上的位置接着滑。滑动时一帧画完，隔一个 tick 就画下一帧（有 PSRAM 时每帧在 PSRAM 里只画一次；没有时每 10 ms 一帧），每 8 行一条带子只发送变了的部分，也就是边和文字扫过的那几行、那几段 30 像素：平均每帧约 1-3 KB，最多 16 KB；以前整条带子发送，平均 3-9 KB，最多 35 KB（`tests/system_menu_test.cpp` 对 `--compare` 的每一段滑动都量了一遍）。
 - **继续**：先显示固件最新一帧的暗灰背景 60 ms，再显示固件的画面，之后固件自己的帧接着画。**其他项**：屏幕像 Launcher 关机时那样渐暗（600 ms）后再执行。
 
 - 屏幕初始化成功后由 `CardenzaHAL::Init` 启动（`CONFIG_CARDENZA_HAL_SYSTEM_MENU`，默认开）：一个 5 KB 栈的任务，每 10 ms 读一次 GPIO0；约占 30 KB flash。菜单打开期间临时借用 2 KB 内存，固件有 PSRAM 时再在 PSRAM 里借 64 KB 存一份固件最新的画面（背景是用它做的；没有 PSRAM，或者按下后 60 ms 内固件没有提交过一帧时，背景是一片暗的 dither 灰），和 32 KB 的菜单画面（每帧画一次；没有 PSRAM 时逐条画）；菜单打开期间再借一张 4 KB 的表，记着已经发出去的画面（有 PSRAM 时放在 PSRAM 里）。
 - 菜单打开期间固件照常运行（任务和声音都不停），但 HAL 会挡住会干扰菜单的东西：`Display::Present*` 不发送并返回 `true`（菜单关闭后的下一帧整屏发送，固件画面自己回来）；`Keyboard::updateKeyList` 不报任何按键（关闭时还按着的键，松开之前都不报）；按键灯显示菜单的键（固件 `setLED*` 设的亮度会保留，关闭后恢复）。直接用面板句柄画屏的固件，应在 `SystemMenu::IsOpen()` 时暂停绘制。
-- `SystemMenu::SetListener` 在菜单打开和关闭时通知；`SystemMenu::SetLeaveHook` 在重启、关机或进入下载模式之前调用（保存需要留下的东西）。菜单开着时 HOME 归菜单：自己要用 HOME 的固件，调用 `SystemMenu::Enable(false)`（或者编译时关掉 `CONFIG_CARDENZA_HAL_SYSTEM_MENU`）。
+- `SystemMenu::SetListener` 在菜单打开和关闭时通知；`SystemMenu::SetLeaveHook` 在重启、关机或进入下载模式之前调用（保存需要留下的东西）。菜单开着时 HOME 归系统（固件读到的是松开）：自己要用 HOME 的固件，调用 `SystemMenu::Enable(false)`（或者编译时关掉 `CONFIG_CARDENZA_HAL_SYSTEM_MENU`）；这样的固件里 HOME + 空格仍然是截图。
 - Launcher 的代码在 [system/menu/launcher/](system/menu/launcher/)，由 `tools/launcher_ui.py --launcher <203-launcher 检出目录>` 原样复制（MIT，[licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)）：文字和字形、画布绘制、缓动和选中条的滑动；[system/menu/frame.cpp](system/menu/frame.cpp) 是它在 Cardenza 上的 `menuFrame` 和侧栏，逐行移植。`--check` 检查复制是否最新，`--compare` 再用 Launcher 真正的 `menuFrame` 和 `drawDialog` 画每一帧：静止的画面（主列表、设置页、语言列表、恢复默认的确认框、网页提示的三项），加上逐帧的滑动（移一行、连按、中途折返、往下和往上翻过一屏，每 4 ms 一帧直到停稳：五种语言共 2005 帧），有任何一个像素不同就失败（主机测试里存着这些帧的哈希）。数值页和本机信息页是 Launcher“背光”页和“关于”页那几行的移植（Launcher 是在别的函数里直接画的）。文字在 `system/menu/strings.json`。
 - 中文、日文和越南文用的是 203 Launcher 里由 **HarmonyOS Sans**（12 像素，恢复默认的确认框用 16 像素粗体）生成的点阵，由同一个工具只为菜单的文字从 Launcher 的字形表里取出（Launcher 的字形表里还没有的字，比如“默”，由 Launcher 自己的 `tools/i18n.py` 用它指定的字体生成：`--fonts`）；点阵是用该字体制作的作品，授权允许分发（[licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)），仓库里不含字体文件。5x7 字体来自 NullPerator（BSD-3-Clause，声明见 [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)）。
+
+## 截图（任何固件里 HOME + 空格）
+
+HOME 和空格（右下角的键）一起按，先按哪个都行，或者一个按完很快（200 ms 内）按另一个，就把屏幕存成
+`/sdcard/screenshot/<日期>_<时间>_<固件>.png`，HAL 上的每个固件和 203 Launcher 都一样，屏幕上也是同样的一下闪光和一张卡片；
+板子设置 `screenshot_upload` 开着时（默认），在线服务把它传到板子绑定的社区账号，默认私密。也可以通过 USB 用
+`203cli board screenshot`（同时把 PNG 取回电脑：给 AI 用 `--no-save --out screen.png --json`），或者在固件里调用
+`Screenshot::Take()`。固件什么都不用做：`CardenzaHAL::Init` 会启动它（`CONFIG_CARDENZA_HAL_SCREENSHOT`）。先按空格时，
+空格会立刻交给固件（PLAY 键不能等），截图照样截；先按 HOME 时，空格不会交给固件；需要的话用 `Screenshot::SetSpaceWait(true)`
+让空格晚 200 ms 再交给固件。完整说明、时序表、能截到什么和代价：[docs/SCREENSHOTS.zh-CN.md](docs/SCREENSHOTS.zh-CN.md)。
 
 ## 板子的设置（所有固件通用）
 

@@ -3,6 +3,7 @@
 // decisions are in net/presence_logic.cpp (Decide and the rest, tested on the host); this file is the
 // task around them.
 #include "net/presence.h"
+#include "net/internal/presence_side.h"
 
 #include <sdkconfig.h>
 
@@ -23,8 +24,11 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <sys/time.h>
+#include <ctime>
 
 #include "audio/audio.h"
+#include "net/internal/presence_side.h"
 #include "net/internal/shared_use.h"
 #include "net/presence_logic.h"
 #include "system/launcher.h"
@@ -91,6 +95,8 @@ std::atomic<uint32_t> g_freeInternal{0};
 
 std::mutex g_hookMutex;
 HandoverHook g_hook = nullptr;
+// Work for the rest of the HAL after an answer (net/internal/presence_side.h: the screenshots' uploads).
+std::atomic<detail::SideWork> g_sideWork{nullptr};
 void* g_hookContext = nullptr;
 
 // What the requests say about the firmware (Logic::HeaderText), made once by the service's task.
@@ -326,6 +332,76 @@ Net::SendStatus Ask(const Net::LauncherAccount& account, const char* method, con
         Net::Internal::Send(User::Presence, request, response, nullptr, report ? nullptr : Cancelled, nullptr);
     Wipe(authorization, sizeof(authorization));
     return status;
+}
+
+// The side work's requests (net/internal/presence_side.h): POST <api><path> with the device token, a body read
+// from a file. The HTTP status, 0 when no answer came.
+struct SideContext {
+    const Net::LauncherAccount* account;
+    Audio::TxCounters* lastAudio;
+};
+
+int SidePost(void* context, const char* path, const Net::Header* extra, std::size_t extraCount, int fd, uint64_t bytes,
+             char* answer, std::size_t capacity)
+{
+    const auto& side = *static_cast<SideContext*>(context);
+    const Net::LauncherAccount& account = *side.account;
+    constexpr std::size_t kExtraMost = 6;
+    if (extraCount > kExtraMost || path == nullptr || path[0] != '/') return 0;
+    char url[sizeof(account.api) + 64];
+    std::size_t apiLength = std::strlen(account.api);
+    while (apiLength > 0 && account.api[apiLength - 1] == '/') --apiLength;
+    const int written = std::snprintf(url, sizeof(url), "%.*s%s", static_cast<int>(apiLength), account.api, path);
+    if (written <= 0 || static_cast<std::size_t>(written) >= sizeof(url)) return 0;
+    char authorization[sizeof(account.token) + 8];
+    std::snprintf(authorization, sizeof(authorization), "Bearer %s", account.token);
+    Net::Header headers[6 + kExtraMost];
+    std::size_t count = 0;
+    headers[count++] = {"Authorization", authorization};
+    headers[count++] = {"Accept", "application/json"};
+    headers[count++] = {"User-Agent", "CardenzaHAL-presence"};
+    if (g_firmwareName[0] != 0) headers[count++] = {Logic::kFirmwareNameHeader, g_firmwareName};
+    if (g_firmwareVersion[0] != 0) headers[count++] = {Logic::kFirmwareVersionHeader, g_firmwareVersion};
+    if (g_imageDigest[0] != 0) headers[count++] = {Logic::kImageDigestHeader, g_imageDigest};
+    for (std::size_t i = 0; i < extraCount; ++i) headers[count++] = extra[i];
+    Net::Request request;
+    request.method = "POST";
+    request.url = url;
+    request.headers = headers;
+    request.headerCount = count;
+    request.bodyFd = fd;
+    request.bodyFileLength = bytes;
+    request.timeoutMs = kRequestTimeoutMs;
+    Net::Response response;
+    response.body = answer;
+    response.capacity = capacity;
+    const Net::SendStatus sent = Net::Internal::Send(User::Presence, request, response, nullptr, Cancelled, nullptr);
+    Wipe(authorization, sizeof(authorization));
+    if (side.lastAudio != nullptr) *side.lastAudio = Audio::GetTxCounters();
+    if (sent != Net::SendStatus::Ok) ++g_failed;
+    return sent == Net::SendStatus::Ok ? response.status : 0;
+}
+
+bool SideStop(void*)
+{
+    return Cancelled(nullptr);
+}
+
+// After an answer: the device's clock from the community's when nothing set it (net/presence_logic.h), then the
+// side work (the screenshots' uploads), unless the audio struggled during the request.
+void AfterAnswer(const Logic::Inbox& inbox, const Net::LauncherAccount& account, Audio::TxCounters& lastAudio,
+                 bool audioPaused)
+{
+    if (inbox.now != 0 && Logic::ShouldSetClock(static_cast<int64_t>(std::time(nullptr)), inbox.now))
+    {
+        const timeval now{static_cast<time_t>(inbox.now), 0};
+        if (settimeofday(&now, nullptr) == 0) ESP_LOGI(kTag, "the clock set from the community's");
+    }
+    const detail::SideWork work = g_sideWork.load();
+    if (work == nullptr || audioPaused || Cancelled(nullptr)) return;
+    SideContext context{&account, &lastAudio};
+    const detail::SideRequests requests{SidePost, SideStop, &context};
+    work(requests);
 }
 
 // POST /launcher/commands/<id>. The HTTP status, 0 when no answer came.
@@ -670,6 +746,7 @@ void Run()
         ramPause.Clean();
         SetState(State::Online);
         if (inbox->count != 0 || inbox->dropped != 0) Handle(*inbox, account);
+        AfterAnswer(*inbox, account, lastAudio, audioPause.seconds != 0);
         nextAskUs = esp_timer_get_time() + int64_t{std::max(inbox->pollSeconds, audioPause.seconds)} * 1000000;
         freeBlock();
         if (!stackLogged)
@@ -820,6 +897,15 @@ void SetHandoverHook(HandoverHook hook, void* context)
     g_hookContext = context;
 }
 
+namespace detail {
+
+void SetSideWork(SideWork work)
+{
+    g_sideWork.store(work);
+}
+
+}  // namespace detail
+
 }  // namespace CardenzaHAL::Presence
 
 #else  // CONFIG_CARDENZA_HAL_PRESENCE off: nothing of the service (or of Net) is linked.
@@ -851,6 +937,10 @@ State GetState()
     return State::Off;
 }
 void SetHandoverHook(HandoverHook, void*) {}
+
+namespace detail {
+void SetSideWork(SideWork) {}
+}  // namespace detail
 
 }  // namespace CardenzaHAL::Presence
 

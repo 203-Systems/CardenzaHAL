@@ -1,6 +1,7 @@
 #include "keyboard_driver.h"
 #include "keyboard_hardware.h"
 #include "inject.h"
+#include "space_filter.h"
 #include "led_brightness.h"
 
 #include <atomic>
@@ -179,6 +180,10 @@ void AddInjected(uint8_t snapshot[8])
     for (int row = 0; row < 8; ++row) snapshot[row] |= injected[row].load(std::memory_order_relaxed);
 }
 
+// The screenshot's look at space (space_filter.h).
+std::atomic<detail::SpaceFilter> spaceFilter{nullptr};
+constexpr int kSpaceKey = 56;
+
 // A scan row and input column as the key position the API reports.
 Point2D_t KeyPosition(int row, int column)
 {
@@ -195,6 +200,17 @@ void KeyboardDriver::updateKeyList()
     memcpy(snapshot, _task_key_scan, sizeof(snapshot));
     xSemaphoreGive(_mutex);
     AddInjected(snapshot);
+    // Space while HOME is down (or just after): the screenshot's, not the firmware's (space_filter.h).
+    if (const detail::SpaceFilter filter = spaceFilter.load(std::memory_order_relaxed))
+    {
+        int row = 0, column = 0;
+        if (detail::KeyScanSlot(kSpaceKey, row, column))
+        {
+            const uint8_t bit = static_cast<uint8_t>(1u << column);
+            const bool shown = filter((snapshot[row] & bit) != 0, static_cast<uint32_t>(esp_timer_get_time() / 1000));
+            snapshot[row] = shown ? static_cast<uint8_t>(snapshot[row] | bit) : static_cast<uint8_t>(snapshot[row] & ~bit);
+        }
+    }
     // While the system menu is open the firmware sees no key; what is still down when it closes stays
     // hidden until it is released (the ENTER that closed the menu does not reach the firmware).
     if (_overlay.load() || _hide_held.exchange(false)) memcpy(_app_hidden, snapshot, sizeof(snapshot));
@@ -343,6 +359,11 @@ void InjectKey(int number, bool down)
     const uint8_t bit = static_cast<uint8_t>(1u << column);
     if (down) injected[row].fetch_or(bit, std::memory_order_relaxed);
     else injected[row].fetch_and(static_cast<uint8_t>(~bit), std::memory_order_relaxed);
+}
+
+void SetSpaceFilter(SpaceFilter filter)
+{
+    spaceFilter.store(filter);
 }
 
 void ReleaseInjectedKeys()

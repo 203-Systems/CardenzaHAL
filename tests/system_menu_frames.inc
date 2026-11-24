@@ -5,43 +5,45 @@
 // The still frames, in this order in each language: the page (0 main, 1 settings, 2 language, 3 the
 // Reset question, 4 the browser notice's choices) and how many (a row selected, or a button focused, each).
 struct StillPage { int page, count; };
-static const StillPage kStillPages[] = {{0, 7}, {1, 7}, {2, 5}, {3, 2}, {4, 3}};
-static const int kStillCount = 24;
+static const StillPage kStillPages[] = {{0, 7}, {1, 8}, {2, 5}, {3, 2}, {4, 3}};
+static const int kStillCount = 25;
 // The Settings page's values in them: volume, limit, screen, key lights (the language: its own; the
 // browser notice: its default).
 static const int kSampleValues[] = {64, 90, 80, 12};
 // FNV-1a (64 bits) of each still frame, by language.
 static const uint64_t kLauncherFrameHashes[] = {
     0xe84f344a5c6c8b6aull, 0xd9636028495c4beeull, 0x0bd61006717fb3f8ull, 0xdad8a5905d8ea94aull,
-    0x3f8fe6735d860f50ull, 0x1af9bf71bf899fcdull, 0xe29f85c6d4e67b75ull, 0x988e85ea1e70b804ull,
-    0x852ce4dcbfc7502full, 0xcf68e1f20561cdabull, 0xe035fd9233f74bdcull, 0x7cf24669af0b328bull,
-    0x306b74bf236ee63eull, 0x3f2fa97640ecc252ull, 0xf883556f5251e86cull, 0x0059f1a6ab4bfc28ull,
-    0xaf35de6e180e9bbeull, 0x8d089ed02827abfcull, 0xe3e3078d6a5160c9ull, 0xb1005a26521ae987ull,
-    0xfe3b01b5cf235457ull, 0x3312bbe1621ced35ull, 0xef3b73118a4f1505ull, 0xcb2a208b3a7e1da1ull,
-    0x289bff35dd8b88f3ull, 0x95228ce13d7aa0dfull, 0xcc71f87d3e2ea27dull, 0x08ba274a2bd315c9ull,
-    0xd287710a8189b344ull, 0x050b3dea67a6441eull, 0x81c9531a3db4892eull, 0x3b3c63960cd5b1a5ull,
-    0x88d9e9a41bc8e020ull, 0x8b9b667e3b004d38ull, 0xb407a316966b4d2full, 0x8e39728fe572e307ull,
-    0x8bf023f67514e814ull, 0x44dd7c46d638dd93ull, 0x79f59719a831ce98ull, 0x4b3218052df9ac8cull,
-    0x52cbfc6536dc0432ull, 0x441ca8d6758aea56ull, 0x6a25d12d2c2df351ull, 0x35f39aacdf88d7beull,
-    0xe0a17fdf9a9428c0ull, 0x2863316350f5aa70ull, 0x6db5c7126fc7b410ull, 0xb1bdef15ad529508ull,
-    0x55df86cef3945e24ull, 0xbf4cc6da1b2f8f84ull, 0x21dc3b32c265fdccull, 0x366a0561e9a62232ull,
-    0xb79142f8b2ae201dull, 0xa727027a72a3c2b4ull, 0xa2728ab065059d13ull, 0xb190b413f1ad48d6ull,
-    0x2fd16b5d98ace491ull, 0xc9609e6eb492ac09ull, 0x385a40b141c70b4eull, 0x7757586ca4bf4acfull,
-    0x74e1d1af63c311c9ull, 0xd6049fb65bc5890full, 0xd662781a6e192cccull, 0x914a26f0480cd3ceull,
-    0x042818c8a513d04cull, 0x87405feb88660250ull, 0xc9abd003eee08235ull, 0xa82797b16775b81bull,
-    0x492e749c4872d917ull, 0x71a158e5fb218419ull, 0xd52fce051433c119ull, 0x12350fff32c3e80dull,
-    0x9a9d7811b194622eull, 0x513f94c7793b673eull, 0x983a457b150dacc4ull, 0x06f5066e204c69b8ull,
-    0x6b3d64a2c6538cdfull, 0x6380efcfbf756287ull, 0x11825e3d4a4f7379ull, 0x0a9d2ab706a5c900ull,
-    0x706e6040b6b5adcdull, 0x3478673b77c25425ull, 0x0988f5a01efd5b9cull, 0x05c08d6dadd5447dull,
-    0x1d887ecf61186a5aull, 0x0fb868deb8053ab1ull, 0x3b679a2e39b02b7cull, 0x6327fc1aae2d5ec0ull,
+    0x3f8fe6735d860f50ull, 0x1af9bf71bf899fcdull, 0xe29f85c6d4e67b75ull, 0x3bce626ed291876cull,
+    0x0c1d73e8d6f382e3ull, 0x2568efe7d1cf26e3ull, 0x849df5f6ae127754ull, 0xf46c9b55aee546c7ull,
+    0x396075c56974a9beull, 0x6cf63bf7afeb7cfcull, 0x7b1858a23f4cf905ull, 0xf883556f5251e86cull,
+    0x0059f1a6ab4bfc28ull, 0xaf35de6e180e9bbeull, 0x8d089ed02827abfcull, 0xe3e3078d6a5160c9ull,
+    0xb1005a26521ae987ull, 0xfe3b01b5cf235457ull, 0x3312bbe1621ced35ull, 0xef3b73118a4f1505ull,
+    0xcb2a208b3a7e1da1ull, 0x289bff35dd8b88f3ull, 0x95228ce13d7aa0dfull, 0xcc71f87d3e2ea27dull,
+    0x08ba274a2bd315c9ull, 0xd287710a8189b344ull, 0x050b3dea67a6441eull, 0x81c9531a3db4892eull,
+    0xa075c15d62b67871ull, 0xb8b3db091ca9c478ull, 0x28fe0f1c654e2c88ull, 0x467c41a62465cd7bull,
+    0xcd4f9e45aabf019full, 0xf0e9523c80feae94ull, 0x291b7c18af7f4d30ull, 0xb6d5ce425ba556f1ull,
+    0x79f59719a831ce98ull, 0x4b3218052df9ac8cull, 0x52cbfc6536dc0432ull, 0x441ca8d6758aea56ull,
+    0x6a25d12d2c2df351ull, 0x35f39aacdf88d7beull, 0xe0a17fdf9a9428c0ull, 0x2863316350f5aa70ull,
+    0x6db5c7126fc7b410ull, 0xb1bdef15ad529508ull, 0x55df86cef3945e24ull, 0xbf4cc6da1b2f8f84ull,
+    0x21dc3b32c265fdccull, 0x366a0561e9a62232ull, 0xb79142f8b2ae201dull, 0xa727027a72a3c2b4ull,
+    0xa2728ab065059d13ull, 0x8beacde9a892fc0aull, 0x6887534228d3b1d9ull, 0x4027280714297e0dull,
+    0xc7e981883f795192ull, 0x9d49e7983ab50157ull, 0xe73983c5dc7bdae9ull, 0x5fcc03767563e173ull,
+    0x6f72524e62698cb9ull, 0xd662781a6e192cccull, 0x914a26f0480cd3ceull, 0x042818c8a513d04cull,
+    0x87405feb88660250ull, 0xc9abd003eee08235ull, 0xa82797b16775b81bull, 0x492e749c4872d917ull,
+    0x71a158e5fb218419ull, 0xd52fce051433c119ull, 0x12350fff32c3e80dull, 0x9a9d7811b194622eull,
+    0x513f94c7793b673eull, 0x983a457b150dacc4ull, 0x06f5066e204c69b8ull, 0x6b3d64a2c6538cdfull,
+    0x6380efcfbf756287ull, 0x11825e3d4a4f7379ull, 0x745a3fa1f2225ec8ull, 0x8f84b71d98595779ull,
+    0x4a82e15fb2173015ull, 0x441f0df84d5b8794ull, 0x189aeba7e9348285ull, 0xf312704dc8556a5eull,
+    0x25aa1cd5eb8cd999ull, 0x2b32d2e1fe7a3719ull, 0x3b679a2e39b02b7cull, 0x6327fc1aae2d5ec0ull,
     0x7e7a435a112c1dcaull, 0x8b094a2056d0bd88ull, 0x493cf517a0407d11ull, 0x3b74bf549457a14full,
     0x3e9a936d0e2227d2ull, 0x1ed55ce24ef38862ull, 0xc9b96470acd032d6ull, 0xa43be3c2607fe0b2ull,
     0xaefedba0e6958707ull, 0x859de07feb504581ull, 0xd7f0b977f0cbc761ull, 0xb2492fc1d220b75dull,
-    0x3d2291e7ef2d282eull, 0x9a4e5b69cc86b14full, 0x5d75acef0859ce4aull, 0x31f900f42c9981f9ull,
-    0x7e71e4425d88f925ull, 0x5c0785903c8e8921ull, 0xc4dbca6479dc0648ull, 0xd722587ec113325dull,
-    0x8fc61a0b8593a16eull, 0x80a85df9d7abd988ull, 0xb620f231852e23fcull, 0x080257980bab46e0ull,
-    0x4e0e7f6924a94c18ull, 0x3be7d1045d2487beull, 0xd88e4cc66e2c95fdull, 0x57b3086de6f5c0f8ull,
-    0xb9a970bc7db500c2ull, 0xa641903fc68632f4ull, 0xd72b95002dff72d4ull, 0xedfd2b0c5b36cb2cull,
+    0x3d2291e7ef2d282eull, 0x9a4e5b69cc86b14full, 0x5d75acef0859ce4aull, 0x4d968e5c093071f1ull,
+    0x04ca832a135ca42dull, 0x00ff7bf7ffce9dd1ull, 0x851afe6006a5d0bcull, 0xf9316568d79a5839ull,
+    0xff21e9e35ea83dceull, 0xc5b479db24c0a552ull, 0x4214ae31cdcc120eull, 0xb620f231852e23fcull,
+    0x080257980bab46e0ull, 0x4e0e7f6924a94c18ull, 0x3be7d1045d2487beull, 0xd88e4cc66e2c95fdull,
+    0x57b3086de6f5c0f8ull, 0xb9a970bc7db500c2ull, 0xa641903fc68632f4ull, 0xd72b95002dff72d4ull,
+    0xedfd2b0c5b36cb2cull,
 };
 
 // The selection bar's slides (SLIDES there): the bar placed at kSlideStart on the first press's row,

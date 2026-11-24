@@ -534,9 +534,25 @@ void TicketTests()
 
 }  // namespace
 
+// The community's clock ("now" in the inbox's answer) sets the device's when nothing has (screenshots' names).
+void ClockTests()
+{
+    Logic::Inbox inbox;
+    CHECK(Parse(R"({"commands":[],"poll":15,"now":1795534212})", inbox) && inbox.now == 1795534212);
+    CHECK(Parse(R"({"commands":[]})", inbox) && inbox.now == 0);
+    CHECK(Parse(R"({"now":"soon","commands":[]})", inbox) && inbox.now == 0);
+    CHECK(Parse(R"({"now":-5,"commands":[]})", inbox) && inbox.now == 0);
+    CHECK(Parse(R"({"now":1e12,"commands":[]})", inbox) && inbox.now == 0);
+    CHECK(Logic::ShouldSetClock(10, 1795534212));                 // never set (1970)
+    CHECK(!Logic::ShouldSetClock(1795534212 + 5, 1795534212));    // right already: a firmware's own stays
+    CHECK(Logic::ShouldSetClock(1795534212 + 3600, 1795534212));  // an hour off
+    CHECK(!Logic::ShouldSetClock(10, 0) && !Logic::ShouldSetClock(10, 1000));  // nothing believable came
+}
+
 int main()
 {
     AllowedApiTests();
+    ClockTests();
     UrlTests();
     InboxTests();
     ErrorTests();

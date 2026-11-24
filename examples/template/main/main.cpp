@@ -2,7 +2,8 @@
 //
 // - The screen shows the firmware's name and version and the 4 x 14 keys; a held key fills its cell and
 //   lights its LED, the others glow faintly.
-// - HOME (the side key) inverts the screen.
+// - ok (enter) inverts the screen. HOME (the side key) is the system's: a short press opens the system menu,
+//   HOME + space takes a screenshot (screenshot/screenshot.h); the firmware does nothing for either.
 // - Keys: keyboard/legends.h says what each cap prints (Legend, Typed; the arrows are ; . , / and ok
 //   confirms, esc goes back). Use it rather than a layout of your own.
 // - The SD card: its files are in its own folder, /sdcard/Apps/<project name>/ (storage/app_dir.h,
@@ -32,6 +33,7 @@
 
 #include "cardenzaHAL.h"
 #include "keyboard/led_light.h"
+#include "keyboard/legends.h"
 #include "storage/app_dir.h"
 
 namespace {
@@ -181,7 +183,7 @@ extern "C" void app_main()
     Keyboard::enableLED(true);
 
     bool inverted = false;
-    bool homeBefore = false;
+    bool okBefore = false;
     const int versionLength = static_cast<int>(std::strlen(app->version));
     // A tick every 10 ms (keys and lights), a frame every other tick (50 fps). Your loop's own work goes in
     // every tick; drawing only on the ticks that draw.
@@ -190,9 +192,9 @@ extern "C" void app_main()
     {
         Keyboard::updateKeyList();
         const auto& keys = Keyboard::keyList();
-        const bool home = System::GetHomeButton();
-        if (home && !homeBefore) inverted = !inverted;
-        homeBefore = home;
+        const bool ok = Keyboard::isKeyPressing(Keyboard::kKeyOk);
+        if (ok && !okBefore) inverted = !inverted;
+        okBefore = ok;
 
         Keyboard::LedFrame leds{};
         leds.fill(Keyboard::Light::PerceivedToLevel(4));

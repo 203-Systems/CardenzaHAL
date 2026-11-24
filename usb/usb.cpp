@@ -643,6 +643,7 @@ void SerialHelp()
         "  reboot                   restart the firmware",
         "  log on | log off         the console on this port",
         "  seen                     a 203 tool has seen this board (no WebUSB landing page from now on)",
+        "  screenshot               a screenshot, as HOME + space, on the SD card (JSON: its name)",
         "  sys <hex> | app <hex>    a report 0xCB / 0xFF (docs/usb-dev.md)",
         "OK",
     };
@@ -658,7 +659,7 @@ void HandleLine(const char* line)
     static constexpr Word kJson[] = {
         {"info", Dev::kInfo},       {"hello", Dev::kHello},   {"partitions", Dev::kPartitions}, {"memory", Dev::kMemory},
         {"storage", Dev::kStorage}, {"status", Dev::kStatus}, {"i2c", Dev::kI2c},               {"settings", Dev::kSettings},
-        {"coredump", Dev::kCoredumpInfo},
+        {"coredump", Dev::kCoredumpInfo}, {"screenshot", Dev::kScreenshot},
     };
     g_hostTalked.store(true, std::memory_order_relaxed);
     if (Logic::SameWords(line, "version"))

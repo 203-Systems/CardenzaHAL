@@ -38,6 +38,7 @@ Settings::Id RowSetting(Row row)
         case Row::KeyBrightness: return Settings::Id::KeyBrightness;
         case Row::Language: return Settings::Id::Language;
         case Row::WebUsbLanding: return Settings::Id::WebUsbLanding;
+        case Row::ScreenshotUpload: return Settings::Id::ScreenshotUpload;
         default: return Settings::Id::Volume;
     }
 }
@@ -105,6 +106,12 @@ void ApplySettings(State& state, Key key, Outcome& outcome)
             {
                 state.button = 1;  // Cancel, as the Launcher's uiConfirm
                 Open(state, outcome, Page::Reset);
+            }
+            else if (row == Row::ScreenshotUpload)
+            {
+                // A switch: ENTER turns it over where it is (the Launcher's toggle rows).
+                const int now = state.values[Settings::detail::Index(Settings::Id::ScreenshotUpload)];
+                SetValue(state, outcome, Settings::Id::ScreenshotUpload, now != 0 ? 0 : 1);
             }
             else if (row == Row::Language)
             {

@@ -88,6 +88,7 @@ never cut by it.
 | `reboot` | `OK reboot`, then the firmware restarts |
 | `log on`, `log off` | `OK log on` / `OK log off`: the console on this port |
 | `seen` | `OK seen`: as the system command 0x46 (below) |
+| `screenshot` | a screenshot as HOME + space takes one, saved on the card (SCREENSHOT with `save` and `json`, below): `{"name": "2026-11-24_153012_CardenzaSynth.png", "path": "screenshot/2026-11-24_153012_CardenzaSynth.png", "saved": "saved", "bytes": 4210, "width": 240, "height": 135}` (`saved`: `saved`, `no_card` or `card_refused`); the file comes back with `GET` (`sys <hex>`) or `203cli board screenshot` |
 | `sys <hex>`, `app <hex>` | reports `0xCB` / `0xFF` (above) |
 | `help` | the commands, then `OK` |
 | anything else | `ERR unknown command, type 'help' for command list` |
@@ -106,7 +107,7 @@ milliseconds. A field the firmware cannot know is `null`.
 
 | op | name | args | answer |
 | --- | --- | --- | --- |
-| `0x00` | `HELLO` | | JSON `{"protocol": 4, "max_args": 52, "dev": true, "settings": true, "info": true, "serial": false, "webusb": true}` (`dev`: the development channel's questions are answered; `info`: INFO is, whatever `dev` says (4); `serial`, `webusb`: the board has that way too; 2 had neither field) |
+| `0x00` | `HELLO` | | JSON `{"protocol": 4, "max_args": 52, "dev": true, "settings": true, "info": true, "serial": false, "webusb": true, "screenshot": true}` (`dev`: the development channel's questions are answered; `info`: INFO is, whatever `dev` says (4); `serial`, `webusb`: the board has that way too; 2 had neither field; `screenshot`: SCREENSHOT (`0x12`) is answered, a HAL without it leaves the field out) |
 | `0x01` | `INFO` | | JSON, below |
 | `0x02` | `PARTITIONS` | | JSON, below |
 | `0x03` | `MEMORY` | `[window]` (optional, 10 ms units, default 50) | JSON, below |
@@ -115,6 +116,7 @@ milliseconds. A field the firmware cannot know is `null`.
 | `0x06` | `I2C` | | JSON, below |
 | `0x0E` | `ARG` | bytes | nothing (no answer) |
 | `0x10` | `SCREEN` | | binary, below |
+| `0x12` | `SCREENSHOT` | `[flags]` (optional, default `0x03`) | binary, below |
 | `0x11` | `KEYS` | `[key, action, wait]…` | JSON `{"down": [keys still down]}` |
 | `0x20` | `COREDUMP_INFO` | | JSON, below |
 | `0x21` | `COREDUMP_READ` | | binary: the dump as it is in the partition |
@@ -239,12 +241,31 @@ them (u16 little-endian, red in bits 15–11), row by row. Run-length: `[count (
 A firmware that draws through the panel's handles itself (`Display::GetPanel`) has no framebuffer: the error
 `no framebuffer`. While the system menu is open it is still the firmware's frame.
 
+### SCREENSHOT
+
+A screenshot as HOME + space takes one ([SCREENSHOTS.md](SCREENSHOTS.md)): the frame the firmware presents next
+(or its last one when it presents none within 250 ms, or what it drew through the panel's handles), with the
+on-screen flash and card, saved on the card and queued for the community account as the keys' would be.
+`flags`: bit 0 `save` (to `/sdcard/screenshot/`), bit 1 `return` (send the image back), bit 2 `raw` (RGB565
+instead of the PNG), bit 3 `quiet` (no flash or card on the screen), bit 4 `json` (answer one JSON object with
+the name, how saving went and the size instead of the binary answer and the image: the serial port's word). No
+args: `0x03`.
+
+Binary: `'K'`, version `1`, format (`0` PNG, `1` raw RGB565: u16 little-endian, red in bits 15–11, row by row),
+saved (`0` not asked, `1` saved, `2` no SD card, `3` the card refused the write), width (u16), height (u16), the
+name's length (u8) and the name (ASCII, the file in `screenshot/` on the card; empty when not saved), the data's
+length (u32), then the data (nothing without `return`). A PNG is the file's bytes exactly. Without PSRAM for the
+PNG beside the file it is read back from the card; with neither, the answer is raw (format `1`). Errors: `busy`
+(one is being taken), `no framebuffer` (the firmware draws in a way the HAL cannot capture), `off` (the HAL was
+built without screenshots or without this channel). `203cli board screenshot [--out FILE] [--no-save] [--raw]
+[--quiet] [--json]` is the computer's side.
+
 ### KEYS
 
 Each step is three bytes: the key (1–56: `y * 14 + x + 1`, the HAL's key numbers, 1 is ESC at the top left;
 57 is HOME), the action (`1` down, `0` up) and how long to wait after it (10 ms units). The firmware sees these
 keys as if they were pressed (`Keyboard::updateKeyList`, and HOME through `System::GetHomeButton`, which opens
-the system menu as a real press does), on top of the real ones. Keys still down are released 10 s after the
+the system menu or makes a screenshot with space as a real press does), on top of the real ones. Keys still down are released 10 s after the
 last request, by `CANCEL`, and when the computer goes away.
 
 ### COREDUMP_INFO

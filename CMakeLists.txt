@@ -25,6 +25,10 @@ if(COMMAND idf_component_register)
             net/net.cpp
             net/presence.cpp
             net/presence_logic.cpp
+            screenshot/card.cpp
+            screenshot/logic.cpp
+            screenshot/png.cpp
+            screenshot/screenshot.cpp
             storage/app_dir.cpp
             storage/app_dir_logic.cpp
             storage/storage.cpp
