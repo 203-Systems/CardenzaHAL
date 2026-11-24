@@ -556,6 +556,32 @@ CardenzaHAL::USB::Drive::Stop();                 // the card is the firmware's a
 - The USB task carries each 4 KB block between the endpoint and the card (a few milliseconds; a card's slow write up to a few hundred): MIDI, HID and the system channel wait meanwhile; USB audio runs from its FIFOs and does not.
 - `examples/usb_drive`: a key lends the card and takes it back, the screen shows the state.
 
+### Screen stream (camera)
+
+Made for recording and streaming tutorials: [`usb/camera.h`](usb/camera.h) shows the screen to a computer as a
+lossless stream, exact RGB565 pixels with no lossy step, only what changed since the last frame the computer read (raw
+or in a small run code), on a bulk endpoint of the "Cardenza WebUSB" interface. A web page shows and records it
+together with the device's USB audio; a desktop program can make it a virtual camera for OBS (WinUSB on Windows with no
+driver, libusb on macOS and Linux). Protocol: [`docs/screen-stream.md`](docs/screen-stream.md); reference reader:
+[`tools/web/screen-stream.js`](tools/web/screen-stream.js); test firmware [`examples/screen_stream`](examples/screen_stream)
+with [`tools/web/screen-stream-demo.html`](tools/web/screen-stream-demo.html).
+
+```cpp
+// Kconfig CONFIG_CARDENZA_HAL_USB_CAMERA=y (it needs WebUSB); then, from the first enumeration:
+CardenzaHAL::USB::Config usb;
+usb.camera = true;
+CardenzaHAL::USB::Init(usb);
+// or later (the computer finds the device again): CardenzaHAL::USB::Camera::Enable(true);
+```
+
+- It shows what the firmware presents with `Display::Present(framebuffer...)` or `PresentChanged`: not a firmware that
+  draws through the panel's handles, not the system menu.
+- Costs nothing until a computer starts it. While it reads: 130 KB of PSRAM, a task of priority 1 (3.5 KB stack), and
+  in each `Present` the rows presented compared with a copy of the screen. One IN endpoint, taken from what gives way
+  (the audio playback's feedback endpoint first: the playback becomes adaptive).
+- A keyframe of a typical page is 8-27 KB (64.8 KB raw); UI changes cost tens of KB a second; a computer slower than the
+  firmware gets the changes merged into fewer frames, never a backlog.
+
 ### Development channel (`203cli board`)
 
 Every firmware on the HAL answers a computer's questions about itself, with no code of its own: command 0x45 on the system channel ([`docs/usb-dev.md`](docs/usb-dev.md), the protocol), read with `203cli board` from [203-CLI](https://github.com/203-Systems/203-CLI):

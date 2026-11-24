@@ -10,6 +10,8 @@
 #   the crash loop's count (usb/usb_logic.h, system/crash_loop_logic.h).
 # - hid_keys_test: HID inputs (usb/hid_keys.h): characters as keys, the keys held, the gamepad's hat.
 # - drive_test: the USB drive's states and the bounds of its reads and writes (usb/drive_logic.h).
+# - camera_test (+ screen_stream_test.mjs with Node): the screen stream's encoder (usb/camera_logic.h) and the
+#   reference reader tools/web/screen-stream.js on the streams it records.
 # - app_dir_test: a firmware's folder on the card and moving its old one there (storage/app_dir_logic.h).
 # - hal_faults: the HAL's driver sources against fake ESP-IDF drivers (fakes/esp_stub.h) that fail on
 #   purpose, so every error path is taken and leaves the hardware in a known state.
@@ -66,6 +68,18 @@ add_test(NAME CardenzaHidKeysTests COMMAND CardenzaHidKeysTests)
 add_executable(CardenzaDriveTests drive_test.cpp ${cardenza_test_guard})
 target_include_directories(CardenzaDriveTests PRIVATE ${hal_root})
 add_test(NAME CardenzaDriveTests COMMAND CardenzaDriveTests)
+
+# usb/camera_logic.h: the screen stream's capture, rectangles, run code and frames, read back byte for byte. It
+# writes a recorded stream that tools/web/screen-stream.js is then tested on (with Node, when there is one).
+add_executable(CardenzaCameraTests camera_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaCameraTests PRIVATE ${hal_root})
+add_test(NAME CardenzaCameraTests COMMAND CardenzaCameraTests ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(CardenzaCameraTests PROPERTIES FIXTURES_SETUP screen_stream)
+find_program(CARDENZA_NODE node)
+if(CARDENZA_NODE)
+  add_test(NAME CardenzaScreenStreamReaderTests COMMAND ${CARDENZA_NODE} ${CMAKE_CURRENT_SOURCE_DIR}/screen_stream_test.mjs ${CMAKE_CURRENT_BINARY_DIR})
+  set_tests_properties(CardenzaScreenStreamReaderTests PROPERTIES FIXTURES_REQUIRED screen_stream)
+endif()
 
 # display/changed_regions.h: what PresentChanged sends.
 add_executable(CardenzaChangedRegionsTests changed_regions_test.cpp ${cardenza_test_guard})
