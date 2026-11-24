@@ -6,7 +6,7 @@ firmware's app channel (report 0xFF, or SysEx F0 23 7F <bytes> F7), and MIDI por
 whose name contains "Cardenza".
 
 usage: python3 <HAL>/tools/cardenza_usb.py list
-       python3 <HAL>/tools/cardenza_usb.py command identify|reboot|launcher|download
+       python3 <HAL>/tools/cardenza_usb.py command identify|reboot|launcher|download|seen
        python3 <HAL>/tools/cardenza_usb.py console <seconds>
        python3 <HAL>/tools/cardenza_usb.py app <text> [seconds]
 
@@ -38,7 +38,7 @@ VENDOR_ID = 0x0203
 REPORT_SYSTEM = 0xCB
 REPORT_APP = 0xFF
 REPORT_SIZE = 63
-COMMANDS = {"launcher": 0x40, "reboot": 0x41, "download": 0x42, "console": 0x43, "identify": 0x44}
+COMMANDS = {"launcher": 0x40, "reboot": 0x41, "download": 0x42, "console": 0x43, "identify": 0x44, "seen": 0x46}
 NAME = "Cardenza"
 
 
