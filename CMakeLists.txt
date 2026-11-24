@@ -28,6 +28,8 @@ if(COMMAND idf_component_register)
             screenshot/card.cpp
             screenshot/logic.cpp
             screenshot/png.cpp
+            # The PNG's CRC-32 from the chip's ROM (host builds link png_crc_host.cpp instead).
+            screenshot/png_crc_esp.cpp
             screenshot/screenshot.cpp
             storage/app_dir.cpp
             storage/app_dir_logic.cpp
