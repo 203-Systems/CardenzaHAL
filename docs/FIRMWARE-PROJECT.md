@@ -353,7 +353,7 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
 (or `"components/CardenzaHAL/board/partitions.csv"` to use the HAL's file directly).
 
-- Keep the default console (UART0, with USB-Serial-JTAG as its second output) and the default log level (INFO): the community's boot check reads that log. A console only on USB prints nothing there (a warning, see [Checks](#5-what-the-community-checks)).
+- Keep the default console (UART0, with USB-Serial-JTAG as its second output) and the default log level (INFO): the community's boot check reads that log. A console only on USB prints nothing there (a warning, see [Checks](#5-what-the-community-checks)). On the board `CardenzaHAL::Init` starts USB and the console follows it to the HAL's system channel (where `203cli log` reads it); in the boot check's emulator there is no USB and it stays where it is.
 - No secure boot or flash encryption: the Launcher installs plain, unsigned app images.
 - Debug builds may add [`board/sdkconfig.debug`](https://github.com/203-Systems/CardenzaHAL/blob/main/board/sdkconfig.debug) (a hung task restarts the board with a backtrace).
 - Commit `sdkconfig.defaults`, not the generated `sdkconfig`. Never put a Wi-Fi password or any secret into either.
@@ -529,8 +529,8 @@ installed firmware. Install through the Launcher, the way users get it:
 ```
 
 - `flash` finds the device in its Launcher or running a firmware (a firmware on the HAL is restarted into its Launcher first), writes the image through it and the Launcher starts it. An image of a firmware the device has replaces that copy, and 203cli says so.
-- `log` reads a running firmware's console over the HAL's USB system channel when the firmware started USB (`USB::Init`: then it has no serial port), else the serial port (the Launcher, a firmware without USB such as the template). The first lines are the last kilobyte the firmware printed before you asked.
-- `203cli board` asks a running firmware about itself over the same channel, with no code of the firmware's: `info` (what it is, how it was built, the Launcher, the chip, why it last restarted), `partitions` (the table on the board and how full each is), `memory` (RAM, PSRAM, each task's stack and CPU), `storage`, `status`, `i2c`, `screen` (a PNG of its framebuffer), `press` (keys pressed from the computer: test a screen without touching the board), `coredump` (the last crash) and `files` (`ls`, `get`, `put`, `rm`, `mkdir`, `mv` on the SD card). It needs USB started: add `CardenzaHAL::USB::Init();` after `CardenzaHAL::Init()` (the template does not start it). Tasks, CPU shares and core dumps need the board's debug defaults (`board/sdkconfig.debug`). The protocol: [docs/usb-dev.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/usb-dev.md).
+- `log` reads a running firmware's console over the HAL's USB system channel (every firmware on the HAL: `CardenzaHAL::Init` starts USB), else the serial port (the Launcher, a firmware without USB). The first lines are the last kilobyte the firmware printed before you asked.
+- `203cli board` asks a running firmware about itself over the same channel, with no code of the firmware's: `info` (what it is, how it was built, the Launcher, the chip, why it last restarted), `partitions` (the table on the board and how full each is), `memory` (RAM, PSRAM, each task's stack and CPU), `storage`, `status`, `i2c`, `screen` (a PNG of its framebuffer), `press` (keys pressed from the computer: test a screen without touching the board), `coredump` (the last crash) and `files` (`ls`, `get`, `put`, `rm`, `mkdir`, `mv` on the SD card). Every firmware on the HAL has it (`CardenzaHAL::Init` starts USB; `CONFIG_CARDENZA_HAL_USB_AUTOSTART`), over HID, SysEx, WebUSB or a serial port, whichever the firmware's USB classes have. Tasks, CPU shares and core dumps need the board's debug defaults (`board/sdkconfig.debug`). The protocol: [docs/usb-dev.md](https://github.com/203-Systems/CardenzaHAL/blob/main/docs/usb-dev.md).
 - Windows: the website installs a local BIN in Chrome or Edge (the firmware section's "Flash a local file"); the log: `pip install hidapi`, then `python components/CardenzaHAL/tools/cardenza_usb.py console 60`.
 - Other ways: copy `build/<project>.bin` to the SD card and install it from the Launcher's file browser; the HAL's [uploader](https://github.com/203-Systems/CardenzaHAL/blob/main/tools/uploader/README.md) (`serial_flasher.py`, from the Launcher's home screen); [`cardenza_flash.py`](https://github.com/203-Systems/CardenzaHAL/blob/main/tools/cardenza_flash.py) `--app-into <label>` (only the app into one of the Launcher's slots; it refuses a full flash when the Launcher is there); `cardenza_usb.py command launcher|download` restarts a firmware into the Launcher or the ROM's download mode.
 - Released firmware reaches people through the community (`203cli publish`), not as files to flash.
@@ -650,8 +650,8 @@ template and an example.
   over 1500, and a new or changed description over 3000 is refused. Not in it: key tables and every mode's keys (the
   tutorial), building it (the README), what changed (the release notes), long FAQs.
 - **The gallery**, the large pictures above the description: 3–5 different screenshots of the firmware itself, the
-  screen people see first and then its main features. With it running on a Cardenza on USB (it starts CardenzaHAL's
-  USB, `CardenzaHAL::USB::Init()`; the template does not), `203cli board screen --out docs/screens/home.png` saves the
+  screen people see first and then its main features. With it running on a Cardenza on USB (every firmware on the HAL
+  has it), `203cli board screen --out docs/screens/home.png` saves the
   screen as a PNG (the page enlarges it pixel for pixel; a firmware that draws through the panel's handles instead of
   `Present` has none: a photo then); list them in `publish.images` (or `203cli publish --image …`).
   `203cli publish` signed in yourself stops before uploading anything unless the gallery it leaves holds 3–5 pictures,
