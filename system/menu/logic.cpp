@@ -37,6 +37,7 @@ Settings::Id RowSetting(Row row)
         case Row::ScreenBrightness: return Settings::Id::ScreenBrightness;
         case Row::KeyBrightness: return Settings::Id::KeyBrightness;
         case Row::Language: return Settings::Id::Language;
+        case Row::WebUsbLanding: return Settings::Id::WebUsbLanding;
         default: return Settings::Id::Volume;
     }
 }
@@ -112,6 +113,14 @@ void ApplySettings(State& state, Key key, Outcome& outcome)
                 Move(state.language, std::max(at, 0), Settings::detail::kLanguageCount);
                 Open(state, outcome, Page::Language);
             }
+            else if (row == Row::WebUsbLanding)
+            {
+                // The list opens on the current choice.
+                const int at = state.values[Settings::detail::Index(Settings::Id::WebUsbLanding)];
+                state.landing = ListState{};
+                Move(state.landing, std::clamp(at, 0, kLandingChoices - 1), kLandingChoices);
+                Open(state, outcome, Page::Landing);
+            }
             else
             {
                 state.editing = RowSetting(row);
@@ -161,6 +170,21 @@ void ApplyLanguage(State& state, Key key, Outcome& outcome)
     }
 }
 
+void ApplyLanding(State& state, Key key, Outcome& outcome)
+{
+    switch (key)
+    {
+        case Key::Up:
+        case Key::Down: outcome.changed = Move(state.landing, Delta(key), kLandingChoices); break;
+        case Key::Select:
+            SetValue(state, outcome, Settings::Id::WebUsbLanding, std::clamp(state.landing.selected, 0, kLandingChoices - 1));
+            Open(state, outcome, Page::Settings);
+            break;
+        case Key::Back: Open(state, outcome, Page::Settings); break;
+        case Key::None: break;
+    }
+}
+
 void ApplyReset(State& state, Key key, Outcome& outcome)
 {
     switch (key)
@@ -198,6 +222,7 @@ Outcome Apply(State& state, Key key)
         case Page::Value: ApplyValue(state, key, outcome); break;
         case Page::Language: ApplyLanguage(state, key, outcome); break;
         case Page::Reset: ApplyReset(state, key, outcome); break;
+        case Page::Landing: ApplyLanding(state, key, outcome); break;
         case Page::About:
             if (key == Key::Select || key == Key::Back) Open(state, outcome, Page::Main);
             break;

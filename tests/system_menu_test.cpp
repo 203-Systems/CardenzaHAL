@@ -187,6 +187,27 @@ void TestSettingsPages()
     Apply(state, Key::Select);
     o = Apply(state, Key::Back);
     assert(!o.set && state.page == Page::Settings && state.values[Index(Id::Language)] == 1);
+    // The browser notice (WebUSB landing page): the list opens on the current choice; ENTER takes another, ESC
+    // keeps what it was.
+    state.settings.selected = static_cast<int>(Row::WebUsbLanding);
+    assert(RowSetting(Row::WebUsbLanding) == Id::WebUsbLanding);
+    assert(state.values[Index(Id::WebUsbLanding)] == Settings::kLandingFirstTime);
+    o = Apply(state, Key::Select);
+    assert(o.page && state.page == Page::Landing && state.landing.selected == Settings::kLandingFirstTime);
+    o = Apply(state, Key::Up);
+    assert(!o.changed && state.landing.selected == 0);  // no wrap
+    Apply(state, Key::Down);
+    Apply(state, Key::Down);
+    o = Apply(state, Key::Down);
+    assert(!o.changed && state.landing.selected == Settings::kLandingNever);
+    o = Apply(state, Key::Select);
+    assert(o.set && o.id == Id::WebUsbLanding && o.value == Settings::kLandingNever && state.page == Page::Settings);
+    state.settings.selected = static_cast<int>(Row::WebUsbLanding);
+    o = Apply(state, Key::Select);
+    assert(state.landing.selected == Settings::kLandingNever);
+    Apply(state, Key::Up);
+    o = Apply(state, Key::Back);
+    assert(!o.set && state.page == Page::Settings && state.values[Index(Id::WebUsbLanding)] == Settings::kLandingNever);
     // Reset: Cancel focused; ; and , to Reset, ENTER resets every setting but the language.
     state.settings.selected = static_cast<int>(Row::Reset);
     o = Apply(state, Key::Select);
@@ -201,6 +222,7 @@ void TestSettingsPages()
     o = Apply(state, Key::Select);
     assert(o.reset && state.page == Page::Settings);
     assert(state.values[Index(Id::Volume)] == Settings::detail::kInfo[Index(Id::Volume)].defaultValue);
+    assert(state.values[Index(Id::WebUsbLanding)] == Settings::kLandingFirstTime);  // back to the first time only
     assert(state.values[Index(Id::Language)] == 1);
     // ESC: Settings back to the main list.
     o = Apply(state, Key::Back);
@@ -328,10 +350,11 @@ void TestFrames()
             {
                 const ListState list{index, index < kVisibleRows ? 0 : index - kVisibleRows + 1};
                 view.state.page = still.page == 0 ? Page::Main : still.page == 1 ? Page::Settings
-                                : still.page == 2 ? Page::Language : Page::Reset;
+                                : still.page == 2 ? Page::Language : still.page == 3 ? Page::Reset : Page::Landing;
                 view.state.main = still.page == 0 ? list : ListState{};
                 view.state.settings = still.page == 1 ? list : ListState{};
                 view.state.language = still.page == 2 ? list : ListState{};
+                view.state.landing = still.page == 4 ? list : ListState{};
                 view.state.button = index;
                 const std::vector<uint8_t> whole = Frame(view);
                 if (Fnv(whole) != kLauncherFrameHashes[language * kStillCount + at])
