@@ -110,12 +110,17 @@ menu "CardenzaHAL"
         config CARDENZA_HAL_USB_NETWORK
             bool "USB network: the board as a network adapter (CDC-NCM; USB::Network)"
             default n
+            select ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF
             help
                 Builds a USB network interface (CDC-NCM, driverless on macOS, Linux and Windows 11) and its lwIP
                 glue (usb/network.h): the device answers at a fixed address with its own DHCP server and mDNS
                 (cardenza.local), or uses the computer's shared internet as a DHCP client. USB::Network::Start
                 presents it (the computer finds the device again); its two IN endpoints are taken from what gives
                 way. About 7 KB of internal RAM for its transfer blocks while the class is built.
+
+                It selects ESP-IDF's CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF: the DNS servers are always the
+                default interface's (Wi-Fi's while it is up and preferred), so the USB link's lease never
+                replaces Wi-Fi's DNS (README, "USB network").
 
         config CARDENZA_HAL_USB_CAMERA
             bool "USB camera: the screen as a lossless stream, for recording and streaming tutorials (USB::Camera)"
