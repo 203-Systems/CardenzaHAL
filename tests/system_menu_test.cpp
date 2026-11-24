@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <vector>
 
 #include <algorithm>
@@ -213,12 +214,8 @@ void TestValueText()
     assert(std::strcmp(text, "70") == 0);
     ValueText(Id::ScreenBrightness, 80, text, sizeof(text));
     assert(std::strcmp(text, "80%") == 0);
-    ValueText(Id::MicGain, 6, text, sizeof(text));
-    assert(std::strcmp(text, "+6 dB") == 0);
-    ValueText(Id::MicGain, 0, text, sizeof(text));
-    assert(std::strcmp(text, "0 dB") == 0);
-    ValueText(Id::MicGain, -12, text, sizeof(text));
-    assert(std::strcmp(text, "-12 dB") == 0);
+    ValueText(Id::KeyBrightness, 12, text, sizeof(text));
+    assert(std::strcmp(text, "12") == 0);
     SizeText(16u * 1024 * 1024, text, sizeof(text));
     assert(std::strcmp(text, "16 MB") == 0);
     SizeText(31914983424ull, text, sizeof(text));
@@ -323,7 +320,7 @@ void TestFrames()
         View view;
         view.language = language;
         view.firmware = "CardenzaSynthFirmware 0.2.1";
-        for (int i = 0; i < 5; ++i) view.state.values[i] = kSampleValues[i];
+        for (int i = 0; i < int(std::size(kSampleValues)); ++i) view.state.values[i] = kSampleValues[i];
         view.state.values[Index(Id::Language)] = Settings::detail::kLanguageCodes[language];
         int at = 0;
         for (const StillPage& still : kStillPages)

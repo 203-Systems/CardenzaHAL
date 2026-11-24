@@ -1,8 +1,7 @@
 # The board's settings
 
 Since 2026-11-23 (the user: "像是亮度、输出音量等等，这些应该作为全局的系统设置 … 所有使用HAL的固件都通用，能够读取。放置在Flash里面"),
-the output volume, its limit, the screen's and the key lights' brightness, the microphone's gain and the language
-are the board's, not a firmware's: the same in every firmware on CardenzaHAL, kept in the board's flash by the HAL,
+the output volume, its limit, the screen's and the key lights' brightness and the language are the board's, not a firmware's: the same in every firmware on CardenzaHAL, kept in the board's flash by the HAL,
 changed in the system menu (HOME > Settings) or over USB (`203cli board settings`), read and set by a firmware
 through [`system/settings.h`](../system/settings.h).
 
@@ -12,7 +11,6 @@ through [`system/settings.h`](../system/settings.h).
 | Volume limit (`volume_limit`) | 10–100 | 100 | the most the volume may be: every way of setting it (menu, firmware, USB) stays under it, and lowering it lowers the volume with it |
 | Screen brightness (`screen_brightness`) | 10–100 % | 100 | the backlight on the 203 Launcher's duty curve and at its 256 Hz PWM: the same light in the Launcher, the menu and every firmware |
 | Key lights (`key_brightness`) | 0–15 | 15 | the key lights' master level (`Keyboard::setLEDGlobalBrightness`) |
-| Microphone gain (`mic_gain`) | -12 to +36 dB | 0 | a factor the firmware applies to what it records with `Mic::ApplyGain` (the chip's PDM receiver has no gain of its own) |
 | Language (`language`) | the Launcher's codes: 0 English, 1 简体中文, 3 日本語, 4 Bahasa Indonesia, 5 Tiếng Việt | 0 | the system menu's words, and the Launcher's own language; a firmware may follow it |
 
 Reset (in the menu, `Settings::Reset`, `203cli board settings reset`) puts every one back to its default but the
@@ -31,7 +29,11 @@ language, as the Launcher's own reset keeps it.
   flash a second after the last change.
 - A volume of its own (a mixer's master, a project's level) is the firmware's business and stays in the firmware:
   the board's volume is the output after it.
-- Recording: call `Mic::ApplyGain(samples, count)` on the 16-bit samples read from `Mic::InputChannel()`.
+- The microphone's gain is not a board setting (the user, 2026-11-23: a firmware's, kept and given by the
+  firmware; for a few hours that day it was one, `hal_system/mic_gain`, now left unread on a board that stored
+  it). A firmware that records keeps its own gain with its own settings and passes it with
+  the 16-bit samples read from `Mic::InputChannel()`: `Mic::ApplyGain(samples, count, gainDb)` (`mic/gain.h`:
+  -12 to +36 dB, pure, also for host tests and simulators).
 - Before restarting the board yourself right after a `Set`, call `Settings::Flush()` (the system menu's restarts
   and `esp_restart`'s shutdown do it already).
 
@@ -46,7 +48,6 @@ The NVS partition the 203 Launcher shares with every firmware (label `nvs`):
 | Volume | `hal_system` | `volume` | u8, 0–100 |
 | Volume limit | `hal_system` | `volume_max` | u8, 10–100 |
 | Key lights | `hal_system` | `key_light` | u8, 0–15 |
-| Microphone gain | `hal_system` | `mic_gain` | i32, dB |
 
 A missing key is its default; a value out of its range is the default too. Key names keep their meaning: a new
 meaning takes a new key.

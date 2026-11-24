@@ -1,5 +1,5 @@
 // system/settings_logic.h: the board's settings (system/settings.h). Their ranges and defaults, the volume
-// limit, the volume's curve and the codec's level, the microphone's gain, the values as the flash holds them
+// limit, the volume's curve and the codec's level, the values as the flash holds them
 // (the Launcher's own keys for the screen and the language), and when changes are written.
 #include <cassert>
 #include <cstdlib>
@@ -17,7 +17,7 @@ namespace {
 
 void TestDescribe()
 {
-    const char* const keys[] = {"volume", "volume_limit", "screen_brightness", "key_brightness", "mic_gain", "language"};
+    const char* const keys[] = {"volume", "volume_limit", "screen_brightness", "key_brightness", "language"};
     for (int i = 0; i < kCount; ++i)
     {
         assert(std::strcmp(kInfo[i].key, keys[i]) == 0);
@@ -30,7 +30,9 @@ void TestDescribe()
     const Values defaults = Defaults();
     assert(defaults[Index(Id::Volume)] == 70 && defaults[Index(Id::VolumeLimit)] == 100);
     assert(defaults[Index(Id::ScreenBrightness)] == 100 && defaults[Index(Id::KeyBrightness)] == 15);
-    assert(defaults[Index(Id::MicGain)] == 0 && defaults[Index(Id::Language)] == 0);
+    assert(defaults[Index(Id::Language)] == 0);
+    // The microphone's gain is the firmware's (mic/gain.h), not a setting (2026-11-23).
+    assert(!Find("mic_gain", 8, id));
     // The Launcher's brightness is never under 10 (its savedBrightness).
     assert(kInfo[Index(Id::ScreenBrightness)].min == 10 && kInfo[Index(Id::ScreenBrightness)].step == 5);
 }
@@ -56,10 +58,6 @@ void TestClampAndLimit()
     assert(v[Index(Id::ScreenBrightness)] == 10);
     Apply(v, Id::KeyBrightness, 99);
     assert(v[Index(Id::KeyBrightness)] == 15);
-    Apply(v, Id::MicGain, -40);
-    assert(v[Index(Id::MicGain)] == -12);
-    Apply(v, Id::MicGain, 99);
-    assert(v[Index(Id::MicGain)] == 36);
     // Languages: the Launcher's codes; 2 (Traditional Chinese until 2026-11) is 1; anything else changes nothing.
     Apply(v, Id::Language, 3);
     assert(v[Index(Id::Language)] == 3);
@@ -107,26 +105,6 @@ void TestBacklight()
     for (int p = 10; p < 100; ++p) assert(LauncherBacklightDuty(p, 4095) < LauncherBacklightDuty(p + 1, 4095));
 }
 
-void TestMicGain()
-{
-    assert(MicGainQ12(0) == 4096);
-    assert(std::abs(MicGainQ12(6) - 8173) <= 1);   // 10^(6/20) = 1.995
-    assert(std::abs(MicGainQ12(-12) - 1028) <= 1);
-    assert(MicGainQ12(99) == MicGainQ12(36));
-    int16_t samples[] = {0, 100, -100, 20000, -20000, 32767, -32768};
-    int16_t copy[7];
-    std::memcpy(copy, samples, sizeof(copy));
-    ApplyMicGain(copy, 7, 4096);
-    assert(std::memcmp(copy, samples, sizeof(copy)) == 0);  // 0 dB: untouched
-    ApplyMicGain(copy, 7, 8192);
-    // Doubled, held at the int16 range: never wraps.
-    assert(copy[0] == 0 && copy[1] == 200 && copy[2] == -200 && copy[3] == 32767 && copy[4] == -32768);
-    assert(copy[5] == 32767 && copy[6] == -32768);
-    std::memcpy(copy, samples, sizeof(copy));
-    ApplyMicGain(copy, 7, 2048);
-    assert(copy[1] == 50 && copy[2] == -50 && copy[3] == 10000 && copy[6] == -16384);
-}
-
 void TestStored()
 {
     // The screen's brightness and the language are the Launcher's own keys; the rest are the HAL's.
@@ -135,7 +113,7 @@ void TestStored()
            kStored[Index(Id::ScreenBrightness)].type == kTypeI32);
     assert(std::strcmp(kStored[Index(Id::Language)].nameSpace, "launcher") == 0 &&
            std::strcmp(kStored[Index(Id::Language)].key, "lang") == 0 && kStored[Index(Id::Language)].type == kTypeU8);
-    for (Id id : {Id::Volume, Id::VolumeLimit, Id::KeyBrightness, Id::MicGain})
+    for (Id id : {Id::Volume, Id::VolumeLimit, Id::KeyBrightness})
     {
         assert(std::strcmp(kStored[Index(id)].nameSpace, "hal_system") == 0);
         assert(std::strlen(kStored[Index(id)].key) <= 15);
@@ -147,7 +125,6 @@ void TestStored()
     assert(FromStored(Id::Language, 2) == 1 && FromStored(Id::Language, 77) == 0);
     // Anything else out of its range: the default.
     assert(FromStored(Id::Volume, 120) == 70 && FromStored(Id::Volume, 30) == 30);
-    assert(FromStored(Id::MicGain, -20) == 0 && FromStored(Id::MicGain, -6) == -6);
     assert(FromStored(Id::KeyBrightness, 16) == 15 && FromStored(Id::KeyBrightness, 4) == 4);
 }
 
@@ -157,7 +134,7 @@ void TestWritePlan()
     Values flash = Defaults();
     flash[Index(Id::Volume)] = 40;
     plan.Loaded(flash, 1u << Index(Id::Volume));
-    assert(plan.Stored(Id::Volume) && !plan.Stored(Id::MicGain));
+    assert(plan.Stored(Id::Volume) && !plan.Stored(Id::VolumeLimit));
     Values v = flash;
     assert(plan.Dirty(v) == 0 && !plan.Due(v, 0, false, true));  // nothing to write, even when asked
     // A change: written once it has rested a second, never while the menu is open, at once when asked.
@@ -177,12 +154,12 @@ void TestWritePlan()
     assert(plan.Dirty(v) == 0 && !plan.Due(v, 9000, false, true));
     // Written: only what was written is the flash's now.
     v[Index(Id::Volume)] = 60;
-    v[Index(Id::MicGain)] = 6;
+    v[Index(Id::VolumeLimit)] = 80;
     plan.Changed(10000);
     plan.Written(v, 1u << Index(Id::Volume));
-    assert(plan.Dirty(v) == (1u << Index(Id::MicGain)) && plan.Stored(Id::MicGain) == false);
-    plan.Written(v, 1u << Index(Id::MicGain));
-    assert(plan.Dirty(v) == 0 && plan.Stored(Id::MicGain));
+    assert(plan.Dirty(v) == (1u << Index(Id::VolumeLimit)) && plan.Stored(Id::VolumeLimit) == false);
+    plan.Written(v, 1u << Index(Id::VolumeLimit));
+    assert(plan.Dirty(v) == 0 && plan.Stored(Id::VolumeLimit));
     // Time wraps (a uint32_t of milliseconds).
     v[Index(Id::KeyBrightness)] = 3;
     plan.Changed(0xFFFFFF00u);
@@ -199,7 +176,6 @@ int main()
     TestClampAndLimit();
     TestVolumeCurve();
     TestBacklight();
-    TestMicGain();
     TestStored();
     TestWritePlan();
     std::puts("settings: ok");

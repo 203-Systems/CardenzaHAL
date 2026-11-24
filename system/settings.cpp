@@ -59,7 +59,6 @@ constexpr uint32_t kFlushWaitMs = 1500;
 std::mutex g_mutex;  // g_values, g_plan, g_listener
 Values g_values = detail::Defaults();
 detail::WritePlan g_plan;
-std::atomic<int32_t> g_micGain{4096};
 Listener g_listener = nullptr;
 void* g_listenerContext = nullptr;
 bool g_loaded = false;
@@ -142,7 +141,6 @@ void ApplyOne(Id id, int value)
         case Id::VolumeLimit: break;  // through Volume
         case Id::ScreenBrightness: Display::detail::SetSystemBrightness(value); break;
         case Id::KeyBrightness: Keyboard::setLEDGlobalBrightness(static_cast<uint8_t>(value)); break;
-        case Id::MicGain: g_micGain.store(detail::MicGainQ12(value)); break;
         case Id::Language: break;  // the menu's words; the firmware's own, through Get
     }
 }
@@ -404,13 +402,12 @@ void Load()
         g_values = read.values;
         g_plan.Loaded(read.values, read.found);
     }
-    g_micGain.store(MicGainQ12(read.values[Index(Id::MicGain)]));
     // Audio::SetVolume before Audio::Init only caches the level: the codec starts at it.
     (void)Audio::SetVolume(CodecPercent(read.values[Index(Id::Volume)]));
     Display::detail::SetSystemBrightness(read.values[Index(Id::ScreenBrightness)]);
     (void)esp_register_shutdown_handler(OnShutdown);
-    ESP_LOGI(kTag, "settings: volume %d (limit %d), screen %d%%, key lights %d, mic %+d dB, language %d", read.values[0],
-             read.values[1], read.values[2], read.values[3], read.values[4], read.values[5]);
+    ESP_LOGI(kTag, "settings: volume %d (limit %d), screen %d%%, key lights %d, language %d", read.values[0],
+             read.values[1], read.values[2], read.values[3], read.values[4]);
 }
 
 void ApplyAfterInit()
@@ -437,10 +434,6 @@ void MenuClosed()
     WakeWriter();
 }
 
-int32_t MicGainQ12Now()
-{
-    return g_micGain.load(std::memory_order_relaxed);
-}
 
 }  // namespace detail
 

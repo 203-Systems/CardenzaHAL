@@ -7,7 +7,7 @@ files for the card. `203cli board` is the computer's side (203-CLI); a web page 
 template does not start USB (its console stays on the serial port, which the community's boot check reads): add
 `CardenzaHAL::USB::Init();` after `CardenzaHAL::Init()` to use it.
 
-The board's settings ([SETTINGS.md](SETTINGS.md): volume, its limit, brightness, key lights, microphone gain,
+The board's settings ([SETTINGS.md](SETTINGS.md): volume, its limit, brightness, key lights,
 language) are on the same channel (`SETTINGS` … below), in every firmware that starts USB, whatever
 `CONFIG_CARDENZA_HAL_USB_DEV` says: `203cli board settings` reads and changes them.
 
@@ -208,7 +208,6 @@ the whole dump with ESP-IDF's `esp-coredump info_corefile -c <dump> <elf>`.
               {"key": "volume_limit", "value": 90, "default": 100, "min": 10, "max": 100, "step": 2, "unit": "", "stored": true},
               {"key": "screen_brightness", "value": 80, "default": 100, "min": 10, "max": 100, "step": 5, "unit": "%", "stored": true},
               {"key": "key_brightness", "value": 15, "default": 15, "min": 0, "max": 15, "step": 1, "unit": "", "stored": false},
-              {"key": "mic_gain", "value": 6, "default": 0, "min": -12, "max": 36, "step": 1, "unit": "dB", "stored": true},
               {"key": "language", "value": 1, "default": 0, "choices": [{"value": 0, "name": "en"}, {"value": 1, "name": "zh-Hans"},
                {"value": 3, "name": "ja"}, {"value": 4, "name": "id"}, {"value": 5, "name": "vi"}], "stored": true}],
  "saved": true}

@@ -93,8 +93,8 @@ namespace CardenzaHAL::SystemMenu::detail {
     enum class Page : uint8_t { Main, Settings, Value, Language, Reset, About };
 
     // The Settings page's rows.
-    enum class Row : uint8_t { Volume, VolumeLimit, ScreenBrightness, KeyBrightness, MicGain, Language, Reset };
-    inline constexpr int kRowCount = 7;
+    enum class Row : uint8_t { Volume, VolumeLimit, ScreenBrightness, KeyBrightness, Language, Reset };
+    inline constexpr int kRowCount = 6;
     // The setting of a row (Reset: none, Volume's).
     Settings::Id RowSetting(Row row);
 

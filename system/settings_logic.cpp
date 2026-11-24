@@ -9,24 +9,23 @@
 namespace CardenzaHAL::Settings::detail {
 
 // The menu's steps: 2 for the volumes (50 presses end to end), the Launcher's 5 for the backlight, every
-// level of the key lights, a decibel of gain.
+// level of the key lights.
 const Info kInfo[kCount] = {
     {"volume", 0, 100, 2, 70, ""},
     {"volume_limit", 10, 100, 2, 100, ""},
     {"screen_brightness", 10, 100, 5, 100, "%"},
     {"key_brightness", 0, 15, 1, 15, ""},
-    {"mic_gain", -12, 36, 1, 0, "dB"},
     {"language", 0, 5, 1, 0, ""},
 };
 
 // The screen's brightness and the language are the Launcher's own keys (its src/settings.cpp: bright with
-// lnvs::setInt, an i32; lang a u8), so the Launcher, the menu and every firmware show the same.
+// lnvs::setInt, an i32; lang a u8), so the Launcher, the menu and every firmware show the same. A board
+// that kept hal_system/mic_gain (until 2026-11-23 the microphone's gain was a setting) keeps it unread.
 const Stored kStored[kCount] = {
     {kNamespace, "volume", kTypeU8},
     {kNamespace, "volume_max", kTypeU8},
     {kLauncherNamespace, "bright", kTypeI32},
     {kNamespace, "key_light", kTypeU8},
-    {kNamespace, "mic_gain", kTypeI32},
     {kLauncherNamespace, "lang", kTypeU8},
 };
 
@@ -121,22 +120,6 @@ uint8_t CodecPercent(int volume)
     if (volume <= 0) return 0;
     const long percent = std::lround(100.0f + VolumeDb(volume) * 200.0f / 191.0f);
     return static_cast<uint8_t>(std::clamp(percent, 1L, 100L));
-}
-
-int32_t MicGainQ12(int db)
-{
-    db = std::clamp(db, kInfo[Index(Id::MicGain)].min, kInfo[Index(Id::MicGain)].max);
-    return static_cast<int32_t>(std::lround(4096.0 * std::pow(10.0, db / 20.0)));
-}
-
-void ApplyMicGain(int16_t* samples, std::size_t count, int32_t gainQ12)
-{
-    if (gainQ12 == 4096) return;
-    for (std::size_t i = 0; i < count; ++i)
-    {
-        const int32_t scaled = (static_cast<int32_t>(samples[i]) * gainQ12 + 2048) >> 12;
-        samples[i] = static_cast<int16_t>(std::clamp<int32_t>(scaled, INT16_MIN, INT16_MAX));
-    }
 }
 
 int FromStored(Id id, int32_t stored)

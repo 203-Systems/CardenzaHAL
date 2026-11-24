@@ -337,7 +337,7 @@ PDM 输入使用 I2S0，输出为 **44,100 Hz、单声道、有符号 16 位 PCM
 2. 调用 `Audio::StandbyCodec()` 并确认成功。
 3. 调用 `Mic::Init()`，获取 `Mic::InputChannel()`，检查初始化结果和句柄。
 4. 在 RX 禁用时调用 `Mic::RestoreInputPins()`；重新使用已存在的麦克风通道时也需要这一步。
-5. 用 `i2s_channel_enable()` 启用 RX，然后使用 `i2s_channel_read()` 读取，读到的样本交给 `Mic::ApplyGain(samples, count)`：加上板子的麦克风增益（HOME > 设置；芯片的 PDM 接收没有自己的增益），超出范围时削顶。
+5. 用 `i2s_channel_enable()` 启用 RX，然后使用 `i2s_channel_read()` 读取，读到的样本交给 `Mic::ApplyGain(samples, count, gainDb)`：增益是固件自己的，和固件自己的设置存在一起（不是板子的设置；-12 至 +36 dB，`mic/gain.h`；芯片的 PDM 接收没有自己的增益），超出范围时削顶。
 
 恢复播放时，先停止读取并禁用 RX，再依次调用 `Audio::RestoreOutputPins()`、所需声道模式的 `Audio::Init()`，最后启用 TX；每步都检查结果。`InputChannel()` 可能初始化 RX，但不会启用它。HAL 不提供录音启停/读取封装，也不会自动仲裁引脚。
 
@@ -387,7 +387,7 @@ void ReadSettings()
 | 项 | 作用 |
 | --- | --- |
 | 继续 | 回到固件（ESC、del 也可以） |
-| 设置 | 这块板子的设置（见下）：输出音量、音量上限、屏幕亮度、按键灯亮度、麦克风增益、语言、恢复默认 |
+| 设置 | 这块板子的设置（见下）：输出音量、音量上限、屏幕亮度、按键灯亮度、语言、恢复默认 |
 | 返回启动器 | 打开 Launcher 主页，不管它怎么设置（用它的重启票据：不走“启动上次的软件”倒计时） |
 | 重新启动 | 重新启动这个固件（在 Launcher 下用它的启动票据，不倒计时） |
 | 关机 | 深度睡眠：屏幕、背光和键灯全关；按 HOME 开机，固件重新启动 |
@@ -412,11 +412,11 @@ void ReadSettings()
 - 菜单打开期间固件照常运行（任务和声音都不停），但 HAL 会挡住会干扰菜单的东西：`Display::Present*` 不发送并返回 `true`（菜单关闭后的下一帧整屏发送，固件画面自己回来）；`Keyboard::updateKeyList` 不报任何按键（关闭时还按着的键，松开之前都不报）；按键灯显示菜单的键（固件 `setLED*` 设的亮度会保留，关闭后恢复）。直接用面板句柄画屏的固件，应在 `SystemMenu::IsOpen()` 时暂停绘制。
 - `SystemMenu::SetListener` 在菜单打开和关闭时通知；`SystemMenu::SetLeaveHook` 在重启、关机或进入下载模式之前调用（保存需要留下的东西）。菜单开着时 HOME 归菜单：自己要用 HOME 的固件，调用 `SystemMenu::Enable(false)`（或者编译时关掉 `CONFIG_CARDENZA_HAL_SYSTEM_MENU`）。
 - Launcher 的代码在 [system/menu/launcher/](system/menu/launcher/)，由 `tools/launcher_ui.py --launcher <203-launcher 检出目录>` 原样复制（MIT，[licenses/203-launcher-LICENSE.txt](licenses/203-launcher-LICENSE.txt)）：文字和字形、画布绘制、缓动和选中条的滑动；[system/menu/frame.cpp](system/menu/frame.cpp) 是它在 Cardenza 上的 `menuFrame` 和侧栏，逐行移植。`--check` 检查复制是否最新，`--compare` 再用 Launcher 真正的 `menuFrame` 和 `drawDialog` 画每一帧：静止的画面（主列表、设置页、语言列表、恢复默认的确认框），加上逐帧的滑动（移一行、连按、中途折返、往下和往上翻过一屏，每 4 ms 一帧直到停稳：五种语言共 1990 帧），有任何一个像素不同就失败（主机测试里存着这些帧的哈希）。数值页和本机信息页是 Launcher“背光”页和“关于”页那几行的移植（Launcher 是在别的函数里直接画的）。文字在 `system/menu/strings.json`。
-- 中文、日文和越南文用的是 203 Launcher 里由 **HarmonyOS Sans**（12 像素，恢复默认的确认框用 16 像素粗体）生成的点阵，由同一个工具只为菜单的文字从 Launcher 的字形表里取出（Launcher 的字形表里还没有的字，比如“麦克风增益”和“默”，由 Launcher 自己的 `tools/i18n.py` 用它指定的字体生成：`--fonts`）；点阵是用该字体制作的作品，授权允许分发（[licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)），仓库里不含字体文件。5x7 字体来自 NullPerator（BSD-3-Clause，声明见 [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)）。
+- 中文、日文和越南文用的是 203 Launcher 里由 **HarmonyOS Sans**（12 像素，恢复默认的确认框用 16 像素粗体）生成的点阵，由同一个工具只为菜单的文字从 Launcher 的字形表里取出（Launcher 的字形表里还没有的字，比如“默”，由 Launcher 自己的 `tools/i18n.py` 用它指定的字体生成：`--fonts`）；点阵是用该字体制作的作品，授权允许分发（[licenses/HarmonyOS-Sans-LICENSE.txt](licenses/HarmonyOS-Sans-LICENSE.txt)），仓库里不含字体文件。5x7 字体来自 NullPerator（BSD-3-Clause，声明见 [system/menu/launcher/font5x7.h](system/menu/launcher/font5x7.h)）。
 
 ## 板子的设置（所有固件通用）
 
-[`system/settings.h`](system/settings.h)：输出音量（0–100，按听感，不超过音量上限）、屏幕亮度（就是 203 Launcher 自己的设置）、按键灯亮度、麦克风增益和语言属于这块板子，由 HAL 存在板子的 Flash 里，在系统菜单（HOME > 设置）或通过 USB（`203cli board settings`）修改。`CardenzaHAL::Init` 在固件的第一帧之前就把它们用上；固件启动时不要自己设音量、背光或按键灯总亮度（那样会盖过用户的设置）。用 `Settings::Get` 读，用 `Settings::Set` 做自己的快捷键（马上生效，一秒后写入），录音时用 `Mic::ApplyGain` 加上麦克风增益。Flash 只由 HAL 写，从不每改一次写一次，写的时候先把喇叭淡出、按键灯暂时熄灭：[docs/SETTINGS.md](docs/SETTINGS.md)。
+[`system/settings.h`](system/settings.h)：输出音量（0–100，按听感，不超过音量上限）、屏幕亮度（就是 203 Launcher 自己的设置）、按键灯亮度和语言属于这块板子，由 HAL 存在板子的 Flash 里，在系统菜单（HOME > 设置）或通过 USB（`203cli board settings`）修改。`CardenzaHAL::Init` 在固件的第一帧之前就把它们用上；固件启动时不要自己设音量、背光或按键灯总亮度（那样会盖过用户的设置）。用 `Settings::Get` 读，用 `Settings::Set` 做自己的快捷键（马上生效，一秒后写入），麦克风增益不在其中：它是固件自己的，录音时交给 `Mic::ApplyGain`。Flash 只由 HAL 写，从不每改一次写一次，写的时候先把喇叭淡出、按键灯暂时熄灭：[docs/SETTINGS.md](docs/SETTINGS.md)。
 
 ## USB 设备用法
 

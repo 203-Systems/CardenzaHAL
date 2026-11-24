@@ -1,10 +1,9 @@
 // The board's settings (system/settings.h) on the web target: the same values, ranges and effects (the
-// output's level, the backlight, the key lights' master level, the microphone's gain), kept for the page's
+// output's level, the backlight, the key lights' master level), kept for the page's
 // life only: a simulator has no Launcher and no flash of the board to share them with, and no system menu.
 #include "system/settings.h"
 
 #include <algorithm>
-#include <atomic>
 #include <mutex>
 
 #include "audio/audio.h"
@@ -22,7 +21,6 @@ using detail::Index;
 std::mutex g_mutex;
 detail::Values g_values = detail::Defaults();
 uint32_t g_set = 0;
-std::atomic<int32_t> g_micGain{4096};
 Listener g_listener = nullptr;
 void* g_listenerContext = nullptr;
 
@@ -33,7 +31,6 @@ void ApplyOne(Id id, int value)
         case Id::Volume: (void)Audio::SetVolume(detail::CodecPercent(value)); break;
         case Id::ScreenBrightness: Display::detail::SetSystemBrightness(value); break;
         case Id::KeyBrightness: Keyboard::setLEDGlobalBrightness(static_cast<uint8_t>(value)); break;
-        case Id::MicGain: g_micGain.store(detail::MicGainQ12(value)); break;
         default: break;
     }
 }
@@ -134,10 +131,6 @@ void ApplyAfterInit()
 
 void MenuClosed() {}
 
-int32_t MicGainQ12Now()
-{
-    return g_micGain.load(std::memory_order_relaxed);
-}
 
 }  // namespace detail
 

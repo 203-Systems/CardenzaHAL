@@ -104,12 +104,12 @@ LATIN_FACE = {"vi"}  # its translations are drawn whole in the Latin face (the L
 TEXT_IDS = ["title", "continue", "settings", "settings.detail", "launcher", "launcher.detail", "restart",
             "restart.detail", "off", "off.detail", "about", "about.detail", "about.rail", "download",
             "download.detail", "release", "volume", "volume.detail", "volume_limit", "volume_limit.detail",
-            "volume_limit.rail", "screen", "screen.rail", "shared.detail", "keys", "keys.detail", "mic",
-            "mic.detail", "mic.rail", "language", "reset", "reset.detail", "reset.question", "reset.explain",
+            "volume_limit.rail", "screen", "screen.rail", "shared.detail", "keys", "keys.detail", "language",
+            "reset", "reset.detail", "reset.question", "reset.explain",
             "reset.button", "cancel", "select_saves", "version", "about.launcher", "about.flash", "about.card",
             "about.free", "none", "english", "chinese", "japanese", "indonesian", "vietnamese"]
 # A glyph the Launcher's tables do not have yet (a word only the system menu uses; the user's own words,
-# 2026-11-23: 麦克风增益, 恢复默认) is rendered as the Launcher's tools/i18n.py renders its glyphs (its own
+# 2026-11-23: 恢复默认) is rendered as the Launcher's tools/i18n.py renders its glyphs (its own
 # rasterize, imported from the checkout: HarmonyOS_Sans_SC.ttf at 12 px, weight 400) from the font file it
 # names (--fonts, NOTICE.md there), so it is the glyph the Launcher will have once it uses the word.
 CJK_FONT = "HarmonyOS_Sans_SC.ttf"
@@ -134,10 +134,10 @@ SLIDE_PRESSES = 8
 # the Settings page with each row selected (SAMPLE_VALUES; the language's own), the Language page with each
 # selected, and the Reset question with each button focused. (page, rows): page 0 main, 1 settings,
 # 2 language, 3 reset.
-STILLS = [(0, 7), (1, 7), (2, 5), (3, 2)]
-# Volume, volume limit, screen brightness, key lights, mic gain on the Settings page's stills.
-SAMPLE_VALUES = [64, 90, 80, 12, 6]
-SAMPLE_TEXTS = ["64", "90", "80%", "12", "+6 dB"]
+STILLS = [(0, 7), (1, 6), (2, 5), (3, 2)]
+# Volume, volume limit, screen brightness, key lights on the Settings page's stills.
+SAMPLE_VALUES = [64, 90, 80, 12]
+SAMPLE_TEXTS = ["64", "90", "80%", "12"]
 LANGUAGE_CODES = [0, 1, 3, 4, 5]
 
 HEADER = ("// Copied from the 203 Launcher (https://github.com/203-Systems/203-launcher, MIT; LICENSE and\n"
@@ -567,10 +567,9 @@ def launcher_reference(launcher, strings, work):
                  f"      {{{w('volume_limit')}, nullptr, NO_COLOR, {w('volume_limit.detail')}, \"{SAMPLE_TEXTS[1]}\"}},",
                  f"      {{{w('screen')}, nullptr, NO_COLOR, {w('shared.detail')}, \"{SAMPLE_TEXTS[2]}\"}},",
                  f"      {{{w('keys')}, nullptr, NO_COLOR, {w('keys.detail')}, \"{SAMPLE_TEXTS[3]}\"}},",
-                 f"      {{{w('mic')}, nullptr, NO_COLOR, {w('mic.detail')}, \"{SAMPLE_TEXTS[4]}\"}},",
                  f"      {{{w('language')}, nullptr, NO_COLOR, {w('shared.detail')}, {names[li]}}},",
                  f"      {{{w('reset')}, nullptr, NO_COLOR, {w('reset.detail')}}}}};",
-                 "    for (int selected = 0; selected < 7; ++selected) {",
+                 "    for (int selected = 0; selected < 6; ++selected) {",
                  still("menuFrame(settings, selected, selected < 4 ? 0 : selected - 3); status()"),
                  "    }",
                  f"    pageTitle = {w('language')};",
@@ -666,7 +665,7 @@ int main() {
     detail::View view;
     view.language = language;
     view.firmware = "CardenzaSynthFirmware 0.2.1";
-    for (int i = 0; i < 5; ++i) view.state.values[i] = kSamples[i];
+    for (int i = 0; i < int(sizeof(kSamples) / sizeof(kSamples[0])); ++i) view.state.values[i] = kSamples[i];
     view.state.values[int(Settings::Id::Language)] = kCodes[language];
     const auto list = [](int selected) { return detail::ListState{selected, selected < 4 ? 0 : selected - 3}; };
     for (int selected = 0; selected < detail::kItemCount; ++selected) {
@@ -787,7 +786,7 @@ def compare(launcher, strings):
            "struct StillPage { int page, count; };",
            "static const StillPage kStillPages[] = {" + ", ".join(f"{{{p}, {n}}}" for p, n in STILLS) + "};",
            f"static const int kStillCount = {stills};",
-           "// The Settings page's values in them: volume, limit, screen, key lights, mic gain (the language: its own).",
+           "// The Settings page's values in them: volume, limit, screen, key lights (the language: its own).",
            "static const int kSampleValues[] = {" + ", ".join(str(v) for v in SAMPLE_VALUES) + "};",
            "// FNV-1a (64 bits) of each still frame, by language.",
            "static const uint64_t kLauncherFrameHashes[] = {"]
