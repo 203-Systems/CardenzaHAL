@@ -25,8 +25,8 @@ one of its own.
   firmware's files is fine when the user asks for it (a sample, a project), writing them is not.
 - **`Settings/` and `Logs/`** are where people (and tools such as `203cli board files`) look for a firmware's
   settings and logs. Name the rest as you like.
-- **The board's settings are not files**: the volume, the screen's brightness, the key lights, the microphone's
-  gain and the language are kept in flash by the HAL, the same in every firmware (`system/settings.h`,
+- **The board's settings are not files**: the volume, the screen's brightness, the key lights and the language are
+  kept in flash by the HAL, the same in every firmware (`system/settings.h`,
   [SETTINGS.md](SETTINGS.md)). Do not keep copies of them on the card.
 - **The folder's name** (`Storage::AppName()`) is `CONFIG_CARDENZA_HAL_APP_NAME` (menuconfig: CardenzaHAL) when it is
   set, else the app description's project name (CMake's `project()`, which `203cli new` sets), made a safe FAT

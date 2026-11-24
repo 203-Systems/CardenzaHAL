@@ -332,7 +332,6 @@ std::vector<launcher::Option> SettingsRows(const View& view, const char* const* 
         {texts[kVolumeLimit], texts[kVolumeLimitDetail], value(Id::VolumeLimit)},
         {texts[kScreen], texts[kSharedDetail], value(Id::ScreenBrightness)},
         {texts[kKeys], texts[kKeysDetail], value(Id::KeyBrightness)},
-        {texts[kMic], texts[kMicDetail], value(Id::MicGain)},
         {texts[kLanguage], texts[kSharedDetail], kLanguageNames[language]},
         {texts[kReset], texts[kResetDetail], ""},
     };
@@ -438,7 +437,7 @@ void PaintGrey(const View& view, launcher::ListSlide* slide, uint32_t now, int y
         case Page::Value:
         {
             // The rail's titles: the setting's name, shortened where the rail has no room for it.
-            static constexpr TextId kTitles[Settings::kCount] = {kVolume, kVolumeLimitRail, kScreenRail, kKeys, kMicRail, kLanguage};
+            static constexpr TextId kTitles[Settings::kCount] = {kVolume, kVolumeLimitRail, kScreenRail, kKeys, kLanguage};
             PaintValue(view, texts);
             title = texts[kTitles[Index(state.editing)]];
             break;

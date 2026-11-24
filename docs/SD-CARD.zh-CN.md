@@ -23,7 +23,7 @@
   不往卡的根目录、`/sdcard/Launcher/` 或别的固件的文件夹里写；用户自己选了别的固件的文件（一个采样、一个工程）
   时可以读，不能写。
 - **`Settings/` 和 `Logs/`**：用户（以及 `203cli board files` 这类工具）在这里找固件的设置和日志。其余的随意命名。
-- **板子的设置不是文件**：音量、屏幕亮度、按键灯、麦克风增益和语言由 HAL 存在 Flash 里，每个固件都一样
+- **板子的设置不是文件**：音量、屏幕亮度、按键灯和语言由 HAL 存在 Flash 里，每个固件都一样
   （`system/settings.h`，[SETTINGS.md](SETTINGS.md)）。不要在卡上另存一份。
 - **文件夹的名字**（`Storage::AppName()`）：设置了 `CONFIG_CARDENZA_HAL_APP_NAME`（menuconfig：CardenzaHAL）就用它，
   否则用应用描述里的工程名（CMake 的 `project()`，`203cli new` 会设好），再改成安全的 FAT 文件夹名：ASCII 字母、

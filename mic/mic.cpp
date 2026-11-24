@@ -1,7 +1,5 @@
 #include "mic.h"
 #include "../board/pins.h"
-#include "../system/internal/settings_hooks.h"
-#include "../system/settings_logic.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -79,10 +77,9 @@ i2s_chan_handle_t InputChannel()
     return micChannel;
 }
 
-void ApplyGain(int16_t* samples, std::size_t count)
+void ApplyGain(int16_t* samples, std::size_t count, int gainDb)
 {
-    if (samples == nullptr) return;
-    Settings::detail::ApplyMicGain(samples, count, Settings::detail::MicGainQ12Now());
+    ApplyGainQ12(samples, count, GainQ12(gainDb));
 }
 
 bool RestoreInputPins()

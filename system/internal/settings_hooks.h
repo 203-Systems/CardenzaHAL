@@ -12,7 +12,5 @@ namespace CardenzaHAL::Settings::detail {
     void ApplyAfterInit();
     // The system menu closed: what changed while it was open is written now.
     void MenuClosed();
-    // The microphone gain as a factor in 1/4096 (Mic::ApplyGain).
-    int32_t MicGainQ12Now();
 
 }  // namespace CardenzaHAL::Settings::detail

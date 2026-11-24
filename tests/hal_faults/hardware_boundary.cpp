@@ -17,7 +17,6 @@ void RestoreHomeButton() { ++Fake::funcButtonRestores; }
 namespace CardenzaHAL::Settings::detail {
 void Load() {}
 void ApplyAfterInit() {}
-int32_t MicGainQ12Now() { return 4096; }
 }
 namespace CardenzaHAL::Keyboard::detail {
 portMUX_TYPE kKeyboardStateMux = portMUX_INITIALIZER_UNLOCKED;

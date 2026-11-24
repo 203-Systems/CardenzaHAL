@@ -50,12 +50,6 @@ namespace CardenzaHAL::Settings::detail {
     // The same as Audio::SetVolume's percent (linear in dB over the codec's range: 191 registers in 100).
     uint8_t CodecPercent(int volume);
 
-    // ---- The microphone ------------------------------------------------------------------------------
-    // The gain of `db` as a factor in 1/4096 (Q12): 4096 at 0 dB.
-    int32_t MicGainQ12(int db);
-    // Each sample times gainQ12 / 4096, rounded, held at the int16 range (saturates, never wraps).
-    void ApplyMicGain(int16_t* samples, std::size_t count, int32_t gainQ12);
-
     // ---- In the flash (docs/SETTINGS.md) --------------------------------------------------------------
     // Where each setting is in the NVS partition: namespace, key and type (NVS's: 0x01 u8, 0x14 i32).
     struct Stored {

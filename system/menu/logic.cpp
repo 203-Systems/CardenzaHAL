@@ -36,7 +36,6 @@ Settings::Id RowSetting(Row row)
         case Row::VolumeLimit: return Settings::Id::VolumeLimit;
         case Row::ScreenBrightness: return Settings::Id::ScreenBrightness;
         case Row::KeyBrightness: return Settings::Id::KeyBrightness;
-        case Row::MicGain: return Settings::Id::MicGain;
         case Row::Language: return Settings::Id::Language;
         default: return Settings::Id::Volume;
     }
@@ -210,10 +209,7 @@ void ValueText(Settings::Id id, int value, char* out, std::size_t size)
 {
     if (size == 0) return;
     const char* unit = Settings::detail::kInfo[Settings::detail::Index(id)].unit;
-    if (id == Settings::Id::MicGain)
-        std::snprintf(out, size, value > 0 ? "+%d %s" : "%d %s", value, unit);
-    else
-        std::snprintf(out, size, "%d%s", value, unit);
+    std::snprintf(out, size, "%d%s", value, unit);
 }
 
 void SizeText(uint64_t bytes, char* out, std::size_t size)

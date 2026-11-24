@@ -13,8 +13,7 @@
 //   ScreenBrightness  the backlight, 10 to 100 % (default 100): the 203 Launcher's own setting, the same
 //                     light in the Launcher, the menu and every firmware
 //   KeyBrightness     the key lights' master level, 0 to 15 (default 15; Keyboard::setLEDGlobalBrightness)
-//   MicGain           the microphone's gain, -12 to +36 dB (default 0), applied by Mic::ApplyGain
-//   Language          the 203 Launcher's language (its NVS value launcher/lang): 0 English, 1 简体中文,
+//   Language         the 203 Launcher's language (its NVS value launcher/lang): 0 English, 1 简体中文,
 //                     3 日本語, 4 Bahasa Indonesia, 5 Tiếng Việt (2 reads as 1)
 //
 // CardenzaHAL::Init reads them (without writing anything) and applies them before the firmware's first
@@ -22,6 +21,9 @@
 // may offer its own shortcuts with Set. A firmware that sets those itself (Audio::SetVolume,
 // Display::SetBrightness, Keyboard::setLEDGlobalBrightness) takes that part over from the setting until the
 // setting changes again: a firmware made before these settings keeps working as it did.
+//
+// The microphone's gain is not one of them (the user, 2026-11-23: a firmware's, kept and given by the firmware):
+// a firmware that records keeps its own and passes it to Mic::ApplyGain (mic/mic.h).
 //
 // Flash: written by the HAL only, in the NVS partition the 203 Launcher shares (docs/SETTINGS.md): the
 // screen's brightness and the language as the Launcher's own keys (launcher/bright, launcher/lang), the rest
@@ -36,18 +38,17 @@ namespace CardenzaHAL::Settings {
         VolumeLimit,
         ScreenBrightness,
         KeyBrightness,
-        MicGain,
         Language,
     };
-    inline constexpr int kCount = 6;
+    inline constexpr int kCount = 5;
 
     struct Info {
         const char* key;   // its name over USB and in logs: volume, volume_limit, screen_brightness,
-                           // key_brightness, mic_gain, language
+                           // key_brightness, language
         int min, max;
         int step;          // the system menu's step
         int defaultValue;
-        const char* unit;  // "", "%", "dB"
+        const char* unit;  // "" or "%"
     };
     const Info& Describe(Id id);
 
