@@ -1,8 +1,13 @@
-// The screenshot's PNG encoder (screenshot/png.h). Pure: no ESP-IDF, no allocation.
+// The screenshot's PNG encoder (screenshot/png.h). Pure: no allocation, and no ESP-IDF but the CRC-32: the chip's ROM
+// has it (esp_rom_crc32_le, the same function as the table below: 1 KB less in a full partition such as the 203
+// Launcher's), the host tests build the table (tests/screenshot_png_check.py checks every chunk's CRC with zlib).
 #include "screenshot/png.h"
 
 #include <algorithm>
 #include <cstring>
+#ifdef ESP_PLATFORM
+#include <esp_rom_crc.h>
+#endif
 
 namespace CardenzaHAL::Screenshot::Png {
 
@@ -26,6 +31,7 @@ constexpr uint16_t kDistanceBase[30] = {1,   2,   3,   4,   5,   7,    9,    13,
                                         193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577};
 constexpr uint8_t kDistanceExtra[30] = {0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13};
 
+#ifndef ESP_PLATFORM
 struct CrcTable {
     uint32_t value[256];
 };
@@ -43,6 +49,7 @@ constexpr CrcTable MakeCrcTable()
 }
 
 constexpr CrcTable kCrc = MakeCrcTable();
+#endif
 
 std::size_t RowBytesRgb(int width)
 {
@@ -91,6 +98,13 @@ class Encoder {
     Encoder(const uint16_t* pixels, int width, int height, int stride, Sink sink, void* context)
         : pixels_(pixels), width_(width), height_(height), stride_(stride), sink_(sink), context_(context)
     {
+    }
+
+    // Rows from the caller instead of `pixels` (EncodeRows).
+    void Rows(RowSource row, void* rowContext)
+    {
+        rowSource_ = row;
+        rowContext_ = rowContext;
     }
 
     bool Carve(void* work, std::size_t bytes)
@@ -293,7 +307,7 @@ class Encoder {
         indexed_ = true;
         for (int y = 0; y < height_ && indexed_; ++y)
         {
-            const uint16_t* row = pixels_ + static_cast<std::size_t>(y) * stride_;
+            const uint16_t* row = Row(y);
             uint16_t last = 0;
             bool haveLast = false;
             for (int x = 0; x < width_; ++x)
@@ -313,6 +327,11 @@ class Encoder {
     }
 
     // ---- Rows ---------------------------------------------------------------------------------------------
+
+    const uint16_t* Row(int y) const
+    {
+        return rowSource_ != nullptr ? rowSource_(rowContext_, y) : pixels_ + static_cast<std::size_t>(y) * stride_;
+    }
 
     void Append(uint8_t byte)
     {
@@ -338,7 +357,7 @@ class Encoder {
     // Row `row_` filtered, into the ring.
     void ProduceRow()
     {
-        const uint16_t* source = pixels_ + static_cast<std::size_t>(row_) * stride_;
+        const uint16_t* source = Row(row_);
         if (indexed_)
         {
             Append(0);  // filter None (PNG's advice for indexed images): deflate finds the rows above itself
@@ -464,6 +483,8 @@ class Encoder {
 
     const uint16_t* pixels_;
     int width_, height_, stride_;
+    RowSource rowSource_ = nullptr;
+    void* rowContext_ = nullptr;
     Sink sink_;
     void* context_;
 
@@ -498,9 +519,13 @@ class Encoder {
 
 uint32_t Crc32(uint32_t crc, const uint8_t* data, std::size_t size)
 {
+#ifdef ESP_PLATFORM
+    return esp_rom_crc32_le(crc, data, static_cast<uint32_t>(size));
+#else
     uint32_t c = crc ^ 0xFFFFFFFFu;
     for (std::size_t i = 0; i < size; ++i) c = kCrc.value[(c ^ data[i]) & 0xFF] ^ (c >> 8);
     return c ^ 0xFFFFFFFFu;
+#endif
 }
 
 std::size_t WorkBytes(int width)
@@ -519,6 +544,18 @@ Result Encode(const uint16_t* pixels, int width, int height, int stride, void* w
         height > kMaxHeight || stride < width)
         return Result{};
     Encoder encoder(pixels, width, height, stride, sink, context);
+    if (!encoder.Carve(work, workBytes)) return Result{};
+    return encoder.Run();
+}
+
+Result EncodeRows(RowSource row, void* rowContext, int width, int height, void* work, std::size_t workBytes, Sink sink,
+                  void* context)
+{
+    if (row == nullptr || work == nullptr || sink == nullptr || width < 1 || width > kMaxWidth || height < 1 ||
+        height > kMaxHeight)
+        return Result{};
+    Encoder encoder(nullptr, width, height, width, sink, context);
+    encoder.Rows(row, rowContext);
     if (!encoder.Carve(work, workBytes)) return Result{};
     return encoder.Run();
 }
