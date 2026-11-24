@@ -9,6 +9,7 @@
 # - usb_logic_test: the USB device's classes and endpoints, its serial port's lines and esptool's reset, and
 #   the crash loop's count (usb/usb_logic.h, system/crash_loop_logic.h).
 # - hid_keys_test: HID inputs (usb/hid_keys.h): characters as keys, the keys held, the gamepad's hat.
+# - drive_test: the USB drive's states and the bounds of its reads and writes (usb/drive_logic.h).
 # - app_dir_test: a firmware's folder on the card and moving its old one there (storage/app_dir_logic.h).
 # - hal_faults: the HAL's driver sources against fake ESP-IDF drivers (fakes/esp_stub.h) that fail on
 #   purpose, so every error path is taken and leaves the hardware in a known state.
@@ -60,6 +61,11 @@ add_test(NAME CardenzaUsbLogicTests COMMAND CardenzaUsbLogicTests)
 add_executable(CardenzaHidKeysTests hid_keys_test.cpp ${cardenza_test_guard})
 target_include_directories(CardenzaHidKeysTests PRIVATE ${hal_root})
 add_test(NAME CardenzaHidKeysTests COMMAND CardenzaHidKeysTests)
+
+# usb/drive_logic.h: the USB drive's states (lend, give back, eject, unplug, host away, refusals) and block bounds.
+add_executable(CardenzaDriveTests drive_test.cpp ${cardenza_test_guard})
+target_include_directories(CardenzaDriveTests PRIVATE ${hal_root})
+add_test(NAME CardenzaDriveTests COMMAND CardenzaDriveTests)
 
 # display/changed_regions.h: what PresentChanged sends.
 add_executable(CardenzaChangedRegionsTests changed_regions_test.cpp ${cardenza_test_guard})

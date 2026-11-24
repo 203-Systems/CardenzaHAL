@@ -84,3 +84,12 @@ CardenzaHAL::Storage::MigrateAppDir("/sdcard/MyFirmware");  // 然后再从 AppD
 `203cli board files ls Apps/<AppName>`、`203cli board files get Apps/<AppName>/Logs/log.txt`。插在电脑读卡器里的卡也是同样的文件夹。
 
 网页版（`tools/cardenza_web.py`）也有一张挂在 `/sdcard` 的卡，存在浏览器里：同样的路径都能用。
+
+### 作为 U 盘借给电脑
+
+编进了 `CONFIG_CARDENZA_HAL_USB_DRIVE` 的固件可以把卡借给电脑（`USB::Drive::Share`，
+[`usb/drive.h`](https://github.com/203-Systems/CardenzaHAL/blob/main/usb/drive.h)）：电脑看到整张卡，包括每个固件的文件夹和
+Launcher 的文件夹，而在卡回来之前固件什么也看不到。借出期间 `Storage::LentToComputer()` 为真，`/sdcard` 下的所有文件操作都会失败：
+共享时不要在卡上留着打开的文件（监听函数收到 `State::Starting` 时就是关闭的时机），卡回来（`State::Off`）后重新读一遍设置，因为
+用户可能改过。把那时看到的卡当作刚从电脑读卡器里拿出来的：文件可能新增、改动或者不见了，拷到一半拔线可能留下被截断的文件。像模板那样
+用断电安全的方式写文件，就不怕这些。

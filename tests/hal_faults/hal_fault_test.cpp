@@ -1,6 +1,7 @@
 #include "esp_stub.h"
 #include "cardenzaHAL.h"
 #include "audio/codec/es8156.h"
+#include "storage/internal/lend.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -99,6 +100,44 @@ void Storage(bool unmountFailure)
   Require(Fake::funcButtonRestores == restores + 2, "HOME (GPIO0) not restored after the SD driver let the slot go");
 }
 
+// The card lent to a computer as a USB drive (storage/internal/lend.h, usb/drive.h): the file system lets it go once,
+// nothing mounts it while it is lent, it comes back mounted, and a file system that would not let go keeps it.
+void StorageLend(bool unmountFailure)
+{
+    using namespace CardenzaHAL::Storage;
+    Require(Init() && IsMounted() && !LentToComputer(), "initial SD mount failed");
+    const int restores = Fake::funcButtonRestores;
+    if (unmountFailure)
+    {
+        Fake::fail = "unmount";
+        Require(!detail::Lend() && !LentToComputer() && !IsMounted(), "a file system that did not let go counted as lent");
+        Fake::fail.clear();
+        Require(Fake::funcButtonRestores == restores + 1, "HOME (GPIO0) not restored after the SD driver let the slot go");
+        // The card is not lent: the next Init mounts it as after any lost card.
+        Require(Init() && IsMounted(), "the card did not come back after a failed lend");
+        return;
+    }
+    const int mounts = Fake::mounts, unmounts = Fake::unmounts;
+    Require(detail::Lend() && LentToComputer() && !IsMounted(), "lend did not unmount the file system");
+    Require(Fake::unmounts == unmounts + 1 && Fake::funcButtonRestores == restores + 1,
+            "lend did not let the card go exactly once (and give HOME its input back)");
+    Require(detail::Lend() && Fake::unmounts == unmounts + 1, "lending twice let the card go twice");
+    // While lent: no mount, no probe, no I/O error handling of the firmware's.
+    Require(!Init() && !IsMounted() && Fake::mounts == mounts, "Init mounted a card the computer has");
+    Require(!CheckAfterIoError() && Fake::statusChecks == 0, "a lent card was probed for the firmware");
+    Require(detail::GiveBack() && IsMounted() && !LentToComputer() && Fake::mounts == mounts + 1,
+            "the card did not come back mounted");
+    // Lent with no card mounted (none at start): nothing to unmount; given back without a card: not mounted.
+    Fake::cardResponds = false;
+    Require(!CheckAfterIoError() && !IsMounted(), "lost card remained mounted");
+    Fake::cardResponds = true;
+    Require(detail::Lend() && LentToComputer(), "a lost card was not lent");
+    Fake::fail = "mount";
+    Require(!detail::GiveBack() && !IsMounted() && !LentToComputer(), "a card that is gone came back mounted");
+    Fake::fail.clear();
+    Require(Init() && IsMounted(), "the firmware could not mount the card again");
+}
+
 void Infrared()
 {
   Fake::fail = "carrier";
@@ -169,6 +208,7 @@ int main(int argc, char** argv)
       else Codec(fault == "state");
     }
     else if (module == "storage") Storage(fault == "unmount");
+    else if (module == "storage_lend") StorageLend(fault == "unmount");
     else if (module == "ir") Infrared();
     else throw std::runtime_error("unknown module");
     std::cout << module << '/' << fault << " passed\n";
