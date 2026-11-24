@@ -43,7 +43,7 @@ back the same way:
   after the ID), or no data while none waits: ask again (every few milliseconds while an answer is due). The
   device keeps 8 answers for the page; a page that stops asking for 250 ms counts as gone. Report `0xFF` (the
   firmware's own) goes the same way. The BOS names the landing page (`CONFIG_CARDENZA_HAL_USB_WEBUSB_URL`,
-  stage.203.io) and gives Windows the Microsoft OS 2.0 descriptors that bind WinUSB to the interface, with no
+  stage.203.io/devices: the community's 设备 page) and gives Windows the Microsoft OS 2.0 descriptors that bind WinUSB to the interface, with no
   driver to install (DeviceInterfaceGUID `{3C0D4A20-0203-4C5A-B1E5-CA4DE2A0B0E1}`).
 - **The serial port** (CDC, when the firmware has it): the HID form as text lines, `sys <hex>` for a report
   `0xCB` (`sys 45 01 01 00`: INFO, id 1) and `app <hex>` for a report `0xFF`; each answer report comes back as a
