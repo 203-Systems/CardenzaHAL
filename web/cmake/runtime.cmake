@@ -56,6 +56,7 @@ function(cardenza_web_hal_sources out_var)
         ${CARDENZA_WEB_DIR}/hal/settings.cpp
         ${CARDENZA_WEB_DIR}/hal/system_menu.cpp
         ${CARDENZA_WEB_DIR}/hal/usb.cpp
+        ${CARDENZA_WEB_DIR}/hal/drive.cpp
         PARENT_SCOPE)
 endfunction()
 

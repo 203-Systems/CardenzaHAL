@@ -1,0 +1,5 @@
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../board/partitions.csv"
+# The drive (CardenzaHAL > USB): its IN endpoint comes from what gives way when it is shared (the playback's
+# feedback endpoint first, usb/usb.h).
+CONFIG_CARDENZA_HAL_USB_DRIVE=y
