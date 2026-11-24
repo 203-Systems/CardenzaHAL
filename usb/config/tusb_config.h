@@ -2,11 +2,79 @@
 
 // TinyUSB configuration for CardenzaHAL::USB (usb/usb.h). The HAL's component hands this directory to
 // the TinyUSB component as an include path; nothing else may configure TinyUSB in the same firmware.
+//
+// Which classes are built comes from Kconfig (CardenzaHAL > USB); which of them the device presents is the
+// firmware's choice at run time (USB::Config), within the ESP32-S3's four IN endpoints (usb/usb_logic.h).
+
+#include "sdkconfig.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+// ---- The classes built (Kconfig) ---------------------------------------------------------------------------
+#ifdef CONFIG_CARDENZA_HAL_USB_MIDI
+#define CARDENZA_USB_BUILD_MIDI 1
+#else
+#define CARDENZA_USB_BUILD_MIDI 0
+#endif
+#ifdef CONFIG_CARDENZA_HAL_USB_AUDIO
+#define CARDENZA_USB_BUILD_AUDIO 1
+#else
+#define CARDENZA_USB_BUILD_AUDIO 0
+#endif
+#if defined(CONFIG_CARDENZA_HAL_USB_AUDIO_FEEDBACK) && CARDENZA_USB_BUILD_AUDIO
+#define CARDENZA_USB_BUILD_AUDIO_FEEDBACK 1
+#else
+#define CARDENZA_USB_BUILD_AUDIO_FEEDBACK 0
+#endif
+#ifdef CONFIG_CARDENZA_HAL_USB_HID
+#define CARDENZA_USB_BUILD_HID 1
+#else
+#define CARDENZA_USB_BUILD_HID 0
+#endif
+#ifdef CONFIG_CARDENZA_HAL_USB_WEBUSB
+#define CARDENZA_USB_BUILD_WEBUSB 1
+#else
+#define CARDENZA_USB_BUILD_WEBUSB 0
+#endif
+// A device always keeps a way to be recognised and flashed: without MIDI, HID and WebUSB, the serial port.
+#if defined(CONFIG_CARDENZA_HAL_USB_SERIAL) || !(CARDENZA_USB_BUILD_MIDI || CARDENZA_USB_BUILD_HID || CARDENZA_USB_BUILD_WEBUSB)
+#define CARDENZA_USB_BUILD_SERIAL 1
+#else
+#define CARDENZA_USB_BUILD_SERIAL 0
+#endif
+#ifdef CONFIG_CARDENZA_HAL_USB_DRIVE
+#define CARDENZA_USB_BUILD_DRIVE 1
+#else
+#define CARDENZA_USB_BUILD_DRIVE 0
+#endif
+// The camera is a stream on the WebUSB interface: no camera without WebUSB.
+#if defined(CONFIG_CARDENZA_HAL_USB_CAMERA) && CARDENZA_USB_BUILD_WEBUSB
+#define CARDENZA_USB_BUILD_CAMERA 1
+#else
+#define CARDENZA_USB_BUILD_CAMERA 0
+#endif
+
+// The budget, for the classes a device has by default (USB::Config's defaults: everything built except the
+// drive and the camera, which come when the firmware asks for them and take an endpoint from what gives way).
+// IN endpoints: MIDI 1, audio 1 (+1 its feedback), HID 1, the serial port 2; the ESP32-S3 has 4.
+#define CARDENZA_USB_DEFAULT_IN_ENDPOINTS                                                                  \
+    (CARDENZA_USB_BUILD_MIDI + CARDENZA_USB_BUILD_AUDIO + CARDENZA_USB_BUILD_AUDIO_FEEDBACK + CARDENZA_USB_BUILD_HID + \
+     2 * CARDENZA_USB_BUILD_SERIAL)
+#if CARDENZA_USB_DEFAULT_IN_ENDPOINTS > 4
+#if CARDENZA_USB_BUILD_SERIAL && CARDENZA_USB_BUILD_AUDIO_FEEDBACK && CARDENZA_USB_BUILD_HID && CARDENZA_USB_BUILD_MIDI
+#error "CardenzaHAL USB: the ESP32-S3 has 4 IN endpoints; MIDI (1), audio (1) with its feedback (1), HID (1) and the serial port (2) need 6. Turn off two of CONFIG_CARDENZA_HAL_USB_AUDIO_FEEDBACK, CONFIG_CARDENZA_HAL_USB_HID, CONFIG_CARDENZA_HAL_USB_MIDI (menuconfig: CardenzaHAL > USB), e.g. feedback and HID: MIDI, audio (adaptive playback) and the serial port fit."
+#elif CARDENZA_USB_BUILD_SERIAL && CARDENZA_USB_BUILD_AUDIO_FEEDBACK
+#error "CardenzaHAL USB: the ESP32-S3 has 4 IN endpoints; the serial port (2), audio (1) with its feedback (1) and one more class need 5. Turn off CONFIG_CARDENZA_HAL_USB_AUDIO_FEEDBACK (the playback becomes adaptive) or the other class (menuconfig: CardenzaHAL > USB)."
+#elif CARDENZA_USB_BUILD_SERIAL
+#error "CardenzaHAL USB: the ESP32-S3 has 4 IN endpoints; the serial port takes 2, MIDI, audio and HID 1 each. Turn off one of CONFIG_CARDENZA_HAL_USB_HID, CONFIG_CARDENZA_HAL_USB_MIDI, CONFIG_CARDENZA_HAL_USB_AUDIO (menuconfig: CardenzaHAL > USB)."
+#else
+#error "CardenzaHAL USB: more classes than the ESP32-S3's 4 IN endpoints (menuconfig: CardenzaHAL > USB)."
+#endif
+#endif
+
+// ---- TinyUSB -------------------------------------------------------------------------------------------------
 #define CFG_TUSB_OS OPT_OS_FREERTOS
 #define CFG_TUSB_OS_INC_PATH freertos/
 #define CFG_TUSB_DEBUG 0
@@ -17,12 +85,12 @@ extern "C" {
 #define CFG_TUSB_MEM_ALIGN __attribute__((aligned(4)))
 #define CFG_TUD_ENDPOINT0_SIZE 64
 
-#define CFG_TUD_CDC 0
-#define CFG_TUD_MSC 0
-#define CFG_TUD_VENDOR 0
-#define CFG_TUD_MIDI 1
-#define CFG_TUD_HID 1
-#define CFG_TUD_AUDIO 1
+#define CFG_TUD_CDC CARDENZA_USB_BUILD_SERIAL
+#define CFG_TUD_MSC CARDENZA_USB_BUILD_DRIVE
+#define CFG_TUD_VENDOR 0  // WebUSB is the HAL's own driver (usb/usb.cpp): no endpoints, no FIFOs
+#define CFG_TUD_MIDI CARDENZA_USB_BUILD_MIDI
+#define CFG_TUD_HID CARDENZA_USB_BUILD_HID
+#define CFG_TUD_AUDIO CARDENZA_USB_BUILD_AUDIO
 
 #define CFG_TUD_MIDI_RX_BUFSIZE 256
 #define CFG_TUD_MIDI_TX_BUFSIZE 256
@@ -30,9 +98,17 @@ extern "C" {
 
 #define CFG_TUD_HID_EP_BUFSIZE 64
 
-// Audio: one UAC2 function, stereo 16-bit at 44.1 kHz both ways. The host plays through an
-// asynchronous OUT endpoint with a feedback endpoint, and records from an asynchronous IN endpoint
-// whose packet sizes follow the FIFO level: both run on the device's clock.
+// The serial port: lines in, the console and answers out.
+#define CFG_TUD_CDC_EP_BUFSIZE 64
+#define CFG_TUD_CDC_RX_BUFSIZE 256
+#define CFG_TUD_CDC_TX_BUFSIZE 512
+
+// The drive: one buffer of 8 sectors between the card and the endpoint (internal RAM: the SD card's DMA).
+#define CFG_TUD_MSC_EP_BUFSIZE 4096
+
+// Audio: one UAC2 function, stereo 16-bit at 44.1 kHz both ways. The host records from an asynchronous IN
+// endpoint whose packet sizes follow the FIFO level; it plays through an asynchronous OUT endpoint with a
+// feedback endpoint, or (no endpoint left for the feedback) an adaptive one: both run on the device's clock.
 #define CARDENZA_USB_AUDIO_RATE 44100
 #define CARDENZA_USB_AUDIO_CHANNELS 2
 #define CARDENZA_USB_AUDIO_BYTES 2
@@ -48,7 +124,7 @@ extern "C" {
 #define CFG_TUD_AUDIO_ENABLE_INTERRUPT_EP 0
 #define CFG_TUD_AUDIO_ENABLE_EP_IN 1
 #define CFG_TUD_AUDIO_ENABLE_EP_OUT 1
-#define CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP 1
+#define CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP CARDENZA_USB_BUILD_AUDIO_FEEDBACK
 #define CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL 1
 #define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX CARDENZA_USB_AUDIO_CHANNELS
 #define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_RX CARDENZA_USB_AUDIO_CHANNELS
@@ -59,7 +135,7 @@ extern "C" {
 #define CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ CARDENZA_USB_AUDIO_FIFO_SIZE
 #define CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ CARDENZA_USB_AUDIO_FIFO_SIZE
 
-// The length of the audio function's descriptor (usb/usb_descriptors.h builds it).
+// The length of the audio function's descriptor (usb/usb.cpp builds it).
 #include "usb_audio_descriptor.h"
 
 #ifdef __cplusplus

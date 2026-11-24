@@ -34,10 +34,14 @@ if(COMMAND idf_component_register)
             system/menu/launcher/glyphs.cpp
             system/menu/launcher/lcd.cpp
             system/menu/logic.cpp
+            system/crash_loop.cpp
             system/settings.cpp
             system/settings_logic.cpp
             system/system.cpp
+            usb/camera.cpp
             usb/dev.cpp
+            usb/drive.cpp
+            usb/hid.cpp
             usb/usb.cpp
         INCLUDE_DIRS
             .
@@ -117,9 +121,13 @@ set(cardenza_hal_sources
     ${CMAKE_CURRENT_LIST_DIR}/system/menu/launcher/glyphs.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/menu/launcher/lcd.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/menu/logic.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/system/crash_loop.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/settings.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/settings_logic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/system/system.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/usb/camera.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/usb/drive.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/usb/hid.cpp
     ${CMAKE_CURRENT_LIST_DIR}/usb/usb.cpp
 )
 

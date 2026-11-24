@@ -28,4 +28,7 @@ namespace CardenzaHAL::System::detail {
     // and after an unmount.
     void RestoreHomeButton();
 
+    // CardenzaHAL::Init, first: early crashes in a row go back to the Launcher (system/crash_loop.cpp).
+    void CheckCrashLoop();
+
 }  // namespace CardenzaHAL::System::detail

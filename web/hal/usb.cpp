@@ -24,6 +24,7 @@
 #include "web/src/kernel/kernel.h"
 #include "web/src/platform.h"
 #include "web_usb.h"
+#include "usb/internal/start.h"
 
 namespace CardenzaHAL::USB {
 
@@ -238,6 +239,29 @@ bool SendAppReport(const uint8_t* data, std::size_t length)
     }
     cardenza_web::platform::AppReport(data, length);
     return true;
+}
+
+// CardenzaHAL::Init's own start: the page has no computer to be found by, and Web MIDI starts (with the
+// browser's permission prompt) only with the firmware's own USB::Init, as before.
+namespace detail {
+void AutoStart() {}
+}  // namespace detail
+
+// The classes cannot change the page's MIDI; the configuration is kept for CurrentConfig.
+bool Reconfigure(const Config& config)
+{
+    if (!g_started) return false;
+    g_config = config;
+    return true;
+}
+
+Config CurrentConfig() { return g_config; }
+
+Presented Classes()
+{
+    Presented presented;
+    presented.midi = g_started && g_config.midi;
+    return presented;
 }
 
 void RestartIntoDownloadMode()

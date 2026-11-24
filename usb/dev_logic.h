@@ -41,8 +41,9 @@ enum Op : uint8_t {
     kCancel = 0x7F,
 };
 
-// 3: the settings (kSettings ...). HELLO answers it.
-constexpr int kProtocol = 3;
+// 3: the settings (kSettings ...). 4: the serial port and WebUSB carry the channel too, INFO is answered also
+// without the development channel, and says how the board shows up on USB. HELLO answers it.
+constexpr int kProtocol = 4;
 
 // A request's little-endian i32 (SETTING_SET's value).
 inline int32_t ReadI32(const uint8_t* p)

@@ -37,6 +37,88 @@ menu "CardenzaHAL"
             glyphs); nothing else until the menu opens. At run time CardenzaHAL::SystemMenu::Enable(false)
             switches it off, for a firmware that needs HOME itself.
 
+    menu "USB"
+
+        config CARDENZA_HAL_USB_AUTOSTART
+            bool "CardenzaHAL::Init starts USB (every firmware can be found and flashed over USB)"
+            default y
+            help
+                CardenzaHAL::Init starts the USB device (usb/usb.h) with the default classes, so every firmware on
+                the HAL can be recognised and sent into flashing by the 203 community's website and 203cli with
+                no action from the person, also one that never calls USB::Init. A firmware that calls
+                USB::Init(config) itself still chooses its classes: the HAL waits a second before it connects,
+                so a firmware's own Init right after CardenzaHAL::Init is the only device the computer sees; a
+                later one makes the computer find the device again with the new classes.
+
+                Off: USB stays on the chip's USB-Serial-JTAG (the console and esptool's port) until the firmware
+                calls USB::Init, as before 2026-11-24. For debugging over JTAG, or a firmware that needs the
+                serial console of USB-Serial-JTAG.
+
+        config CARDENZA_HAL_USB_MIDI
+            bool "USB MIDI (carries the system channel as SysEx)"
+            default y
+
+        config CARDENZA_HAL_USB_AUDIO
+            bool "USB audio, both ways (the computer records the device and plays to it)"
+            default y
+
+        config CARDENZA_HAL_USB_AUDIO_FEEDBACK
+            bool "The computer's playback follows the device's clock (a feedback endpoint)"
+            depends on CARDENZA_HAL_USB_AUDIO
+            default y
+            help
+                With it the computer plays at the rate the device asks for (asynchronous with feedback). Without
+                it the playback is adaptive: the computer plays by its own clock and the HAL keeps the FIFO
+                level by dropping or repeating one frame now and then (a frame in 10,000 or fewer). It costs an
+                IN endpoint: turn it off to make room for another class.
+
+        config CARDENZA_HAL_USB_HID
+            bool "USB HID (keyboard, media keys, gamepad, and the system channel as report 0xCB)"
+            default y
+
+        config CARDENZA_HAL_USB_WEBUSB
+            bool "WebUSB (the system channel for web pages, on the control endpoint: no IN endpoint)"
+            default y
+            help
+                A vendor interface with no endpoints: the system channel as control requests, with the WebUSB
+                and Microsoft OS 2.0 descriptors (WinUSB on Windows without a driver; Chrome names the landing
+                page below). Costs no IN endpoint and about 2 KB of flash.
+
+        config CARDENZA_HAL_USB_WEBUSB_URL
+            string "WebUSB landing page (https://, without the scheme)"
+            depends on CARDENZA_HAL_USB_WEBUSB
+            default "stage.203.io"
+
+        config CARDENZA_HAL_USB_SERIAL
+            bool "USB serial port (CDC: the console, the system channel as lines, esptool's reset)"
+            default n
+            help
+                Added by the HAL anyway when the firmware has no MIDI, no HID and no WebUSB (a device always
+                keeps a way to be recognised and flashed). Costs two IN endpoints.
+
+        config CARDENZA_HAL_USB_DRIVE
+            bool "USB drive: lend the SD card to the computer (USB::Drive)"
+            default n
+            help
+                Builds USB mass storage for USB::Drive::Share(): while the card is lent the firmware's files are
+                unmounted. The interface is there only while sharing (the computer finds the device again);
+                its IN endpoint is taken from what gives way (usb/usb.h, Config). About 4 KB of internal RAM
+                while the class is built.
+
+        config CARDENZA_HAL_USB_CAMERA
+            bool "USB camera: the screen as a lossless stream, for recording and streaming tutorials (USB::Camera)"
+            depends on CARDENZA_HAL_USB_WEBUSB
+            default n
+            help
+                Builds the screen stream (usb/camera.h): the device's screen, exact pixels, sent as the changed
+                rectangles of each frame on a bulk endpoint of the WebUSB interface. A web page shows and records
+                it (with the device's USB audio, a tutorial or a stream), and a desktop program can turn it into a
+                virtual camera (protocol: docs/screen-stream.md). USB::Camera::Enable(true) presents it (the
+                computer finds the device again); its IN endpoint is taken from what gives way. Nothing is sent
+                and nothing is copied while no computer has the stream open.
+
+    endmenu
+
     config CARDENZA_HAL_USB_DEV
         bool "Development channel over USB: a computer's questions about the firmware (203cli board)"
         default y
@@ -52,6 +134,27 @@ menu "CardenzaHAL"
             one; a screenshot copies one frame at the firmware's next Present into PSRAM. Off, these questions
             are answered "off" and none of them is linked; the board's settings (203cli board settings) are
             answered either way.
+
+    config CARDENZA_HAL_CRASH_LOOP_LAUNCHER
+        bool "Back to the 203 Launcher after crashes in a row at start"
+        default y
+        help
+            A firmware that crashes (panic or watchdog) within CARDENZA_HAL_CRASH_LOOP_SECONDS of its start
+            this many times in a row is not started again: CardenzaHAL::Init restarts into the Launcher's home
+            screen (its restart ticket), so a broken firmware never needs the BOOT key. A run that lasts longer
+            clears the count; a power cycle too.
+
+    config CARDENZA_HAL_CRASH_LOOP_CRASHES
+        int "Crashes in a row"
+        depends on CARDENZA_HAL_CRASH_LOOP_LAUNCHER
+        range 2 10
+        default 3
+
+    config CARDENZA_HAL_CRASH_LOOP_SECONDS
+        int "Seconds after the start in which a crash counts"
+        depends on CARDENZA_HAL_CRASH_LOOP_LAUNCHER
+        range 3 120
+        default 15
 
     config CARDENZA_HAL_PRESENCE
         bool "Reachable from the 203 community while this firmware runs (presence service)"

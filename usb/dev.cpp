@@ -29,7 +29,6 @@
 #include "system/settings.h"
 #include "system/settings_logic.h"
 
-#if CONFIG_CARDENZA_HAL_USB_DEV
 #include <cerrno>
 #include <dirent.h>
 #include <fcntl.h>
@@ -73,7 +72,6 @@
 #if CONFIG_CARDENZA_HAL_PRESENCE
 #include "net/presence.h"
 #endif
-#endif  // CONFIG_CARDENZA_HAL_USB_DEV
 
 // Set by CMakeLists.txt when the build is configured.
 #ifndef CARDENZA_HAL_COMMIT
@@ -92,24 +90,28 @@ namespace {
 
 using namespace CardenzaHAL::USB::Dev;
 
-bool SendMessage(uint8_t id, bool sysex, uint16_t seq, uint8_t flags, const uint8_t* payload, std::size_t length, uint32_t waitMs)
+bool SendMessage(uint8_t id, Way way, uint16_t seq, uint8_t flags, const uint8_t* payload, std::size_t length, uint32_t waitMs)
 {
-    if (sysex)
+    if (way == Way::Sysex)
     {
         uint8_t message[kSysexMessage];
         const std::size_t size = SysexAnswer(id, seq, flags, payload, length, message);
         return DevSendSysex(message, size, waitMs);
     }
+    // The serial port's words: the payload as it is, one line for the whole answer.
+    if (way == Way::Text) return DevSendText(payload, length, flags, waitMs);
     uint8_t report[kReport];
     HidAnswer(id, seq, flags, payload, length, report);
+    if (way == Way::Serial) return DevSendSerial(report, waitMs);
+    if (way == Way::WebUsb) return DevSendWebUsb(report, waitMs);
     return DevSendHid(report, waitMs);
 }
 
 // An error answer of one message (cut to fit), at once: from the USB task, which cannot wait.
-void AnswerNow(uint8_t id, bool sysex, const char* text)
+void AnswerNow(uint8_t id, Way way, const char* text)
 {
-    const std::size_t length = std::min(std::strlen(text), sysex ? kSysexPayload : kHidPayload);
-    SendMessage(id, sysex, 0, kFlagLast | kFlagError, reinterpret_cast<const uint8_t*>(text), length, 0);
+    const std::size_t length = std::min(std::strlen(text), way == Way::Sysex ? kSysexPayload : kHidPayload);
+    SendMessage(id, way, 0, kFlagLast | kFlagError, reinterpret_cast<const uint8_t*>(text), length, 0);
 }
 
 }  // namespace
@@ -124,7 +126,7 @@ constexpr uint32_t kSendWaitMs = 50;      // for room for each report or USB-MID
 struct Request {
     uint8_t id = 0;
     uint8_t op = 0;
-    bool sysex = false;
+    Way way = Way::Hid;
     uint8_t length = 0;
     uint8_t args[kMaxArgs] = {};
 };
@@ -143,7 +145,7 @@ void ReleaseKeys()
 // One answer: messages of up to a payload each, numbered; the last one says so.
 class Stream {
   public:
-    Stream(uint8_t id, bool sysex) : id_(id), sysex_(sysex) {}
+    Stream(uint8_t id, Way way) : id_(id), way_(way) {}
     ~Stream()
     {
         if (!done_) Fail("no answer");
@@ -176,12 +178,12 @@ class Stream {
         if (done_) return false;
         done_ = true;
         const std::size_t length = std::min(std::strlen(text), Chunk());
-        return SendMessage(id_, sysex_, seq_, kFlagLast | kFlagError, reinterpret_cast<const uint8_t*>(text), length, kSendWaitMs);
+        return SendMessage(id_, way_, seq_, kFlagLast | kFlagError, reinterpret_cast<const uint8_t*>(text), length, kSendWaitMs);
     }
     bool Ok() const { return !done_; }
 
   private:
-    std::size_t Chunk() const { return sysex_ ? kSysexPayload : kHidPayload; }
+    std::size_t Chunk() const { return way_ == Way::Sysex ? kSysexPayload : kHidPayload; }
     bool Send(uint8_t flags)
     {
         if (g_cancel.load(std::memory_order_relaxed))
@@ -189,7 +191,7 @@ class Stream {
             Fail("cancelled");
             return false;
         }
-        if (!SendMessage(id_, sysex_, seq_, flags, buffer_, used_, kSendWaitMs))
+        if (!SendMessage(id_, way_, seq_, flags, buffer_, used_, kSendWaitMs))
         {
             done_ = true;  // the computer stopped reading
             return false;
@@ -200,7 +202,7 @@ class Stream {
     }
 
     uint8_t id_;
-    bool sysex_;
+    Way way_;
     uint16_t seq_ = 0;
     uint8_t buffer_[kHidPayload] = {};
     std::size_t used_ = 0;
@@ -213,8 +215,8 @@ struct StreamSink {
 };
 using Writer = Json<StreamSink>;
 
-#if CONFIG_CARDENZA_HAL_USB_DEV
-// ---- The development channel's own questions --------------------------------------------------------------
+// ---- INFO and what it needs: answered also without CONFIG_CARDENZA_HAL_USB_DEV, so every firmware can be
+// recognised (which firmware, which HAL, which chip). --------------------------------------------------------------
 
 constexpr uint32_t kSnapshotWaitMs = 250; // for the firmware's next frame
 constexpr int kHomeKey = 57;
@@ -389,6 +391,25 @@ void Info(Stream& stream)
     json.Key("flash_bytes").Uint(flashBytes);
     json.Key("psram_bytes").Uint(psramBytes);
     json.End();
+    // The board, and how it shows up on USB (the serial number is the MAC: the same in the ROM's download mode
+    // and the Launcher, so a computer matches the chip across them).
+    json.Key("board").Str("Cardenza");
+    const Identity identity = CurrentIdentity();
+    json.Key("usb").Object();
+    json.Key("vid").Uint(identity.vendorId).Key("pid").Uint(identity.productId);
+    json.Key("serial_number").Str(identity.serialNumber);
+    json.Key("started").Bool(identity.started);
+    json.Key("classes").Array();
+    const Logic::Classes& classes = identity.classes;
+    if (classes.midi) json.Str("midi");
+    if (classes.audio) json.Str(!classes.playback ? "audio-recording" : classes.feedback ? "audio" : "audio-adaptive");
+    if (classes.hid) json.Str("hid");
+    if (classes.webusb) json.Str("webusb");
+    if (classes.serial) json.Str("serial");
+    if (classes.drive) json.Str("drive");
+    if (classes.camera) json.Str("camera");
+    json.End();
+    json.End();
     json.Key("uptime_ms").Uint(static_cast<unsigned long long>(esp_timer_get_time() / 1000));
     const esp_reset_reason_t reason = esp_reset_reason();
     json.Key("reset").Str(ResetName(reason));
@@ -402,6 +423,9 @@ void Info(Stream& stream)
     json.End();
     if (json.Ok()) stream.Finish();
 }
+
+#if CONFIG_CARDENZA_HAL_USB_DEV
+// ---- The development channel's own questions --------------------------------------------------------------
 
 // ---- PARTITIONS
 
@@ -1300,13 +1324,15 @@ void Hello(Stream& stream)
 #else
     constexpr bool kDevChannel = false;
 #endif
-    json.Key("dev").Bool(kDevChannel).Key("settings").Bool(true).End();
+    const Identity identity = CurrentIdentity();
+    json.Key("dev").Bool(kDevChannel).Key("settings").Bool(true).Key("info").Bool(true);
+    json.Key("serial").Bool(identity.classes.serial).Key("webusb").Bool(identity.classes.webusb).End();
     if (json.Ok()) stream.Finish();
 }
 
 void Handle(const Request& request, const uint8_t* args, std::size_t length)
 {
-    Stream stream(request.id, request.sysex);
+    Stream stream(request.id, request.way);
     switch (request.op)
     {
         case kHello: Hello(stream); break;
@@ -1314,8 +1340,8 @@ void Handle(const Request& request, const uint8_t* args, std::size_t length)
         case kSettingGet:
         case kSettingSet:
         case kSettingsReset: SettingsAnswer(stream, request.op, args, length); break;
-#if CONFIG_CARDENZA_HAL_USB_DEV
         case kInfo: Info(stream); break;
+#if CONFIG_CARDENZA_HAL_USB_DEV
         case kPartitions: Partitions(stream); break;
         case kMemory: Memory(stream, args, length); break;
         case kStorage: StorageAnswer(stream); break;
@@ -1344,7 +1370,6 @@ void Handle(const Request& request, const uint8_t* args, std::size_t length)
         case kMkdir: MakeDirectory(stream, args, length); break;
         case kMv: Move(stream, args, length); break;
 #else
-        case kInfo:
         case kPartitions:
         case kMemory:
         case kStorage:
@@ -1428,7 +1453,7 @@ void Worker(void*)
             }
             else
             {
-                Stream stream(request.id, request.sysex);
+                Stream stream(request.id, request.way);
                 stream.Fail("arguments too long");
             }
             argLength = 0;
@@ -1446,7 +1471,7 @@ void Worker(void*)
 
 }  // namespace
 
-void DevRequest(const uint8_t* data, std::size_t length, bool sysex)
+void DevRequest(const uint8_t* data, std::size_t length, Way way)
 {
     if (length < 2) return;
     const uint8_t id = data[0] & 0x7F;
@@ -1460,9 +1485,11 @@ void DevRequest(const uint8_t* data, std::size_t length, bool sysex)
     Request request;
     request.id = id;
     request.op = op;
-    request.sysex = sysex;
-    if (sysex)
+    request.way = way;
+    if (way == Way::Sysex)
         request.length = static_cast<uint8_t>(Unpack7(data + 2, length - 2, request.args, kMaxArgs));
+    else if (way == Way::Text)
+        request.length = 0;  // the serial port's words take no arguments
     else
     {
         // A report is always 63 bytes: its args' length comes first.
@@ -1473,12 +1500,12 @@ void DevRequest(const uint8_t* data, std::size_t length, bool sysex)
     if (g_queue == nullptr) g_queue = xQueueCreate(kQueueDepth, sizeof(Request));
     if (g_queue == nullptr)
     {
-        AnswerNow(id, sysex, "no memory");
+        AnswerNow(id, way, "no memory");
         return;
     }
     if (xQueueSend(g_queue, &request, 0) != pdTRUE)
     {
-        AnswerNow(id, sysex, "busy");
+        AnswerNow(id, way, "busy");
         return;
     }
     if (!g_running.exchange(true) &&
@@ -1486,7 +1513,7 @@ void DevRequest(const uint8_t* data, std::size_t length, bool sysex)
     {
         g_running.store(false);
         xQueueReset(g_queue);
-        AnswerNow(id, sysex, "no memory");
+        AnswerNow(id, way, "no memory");
     }
 }
 

@@ -24,3 +24,10 @@ void SetListener(Listener, void*) {}
 void SetLeaveHook(LeaveHook, void*) {}
 
 }  // namespace CardenzaHAL::SystemMenu
+
+#include "system/internal/hooks.h"
+
+// A crash loop has no Launcher to go back to on the web (the page restarts the firmware itself).
+namespace CardenzaHAL::System::detail {
+void CheckCrashLoop() {}
+}  // namespace CardenzaHAL::System::detail
