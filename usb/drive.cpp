@@ -63,6 +63,7 @@ std::atomic<bool> g_running{false};
 // What the USB task reads and writes.
 std::atomic<bool> g_mediumReady{false};  // the computer may read and write the card
 std::atomic<bool> g_hostCommand{false};  // the computer sent a command since the worker last looked
+std::atomic<bool> g_suspended{false};    // the bus is suspended (detail::DriveSuspended, from the USB task)
 std::atomic<uint32_t> g_sectorsRead{0}, g_sectorsWritten{0}, g_ioErrors{0};
 SemaphoreHandle_t g_ioLock = nullptr;    // the card: the USB task's reads and writes, the worker's start and stop
 sdmmc_host_t g_host;
@@ -215,7 +216,10 @@ void Worker(void*)
             }
             Publish();  // a refusal (NotStarted, NoHost) is a change too
         }
-        if (action == Action::None) action = g_machine.Tick(elapsed, tud_mounted() && !tud_suspended());
+        // The host is there while it has the device configured and the bus is not suspended (asleep, or a board on
+        // its own power whose cable went: the ESP32-S3 sees that as a suspended bus, not an unplug).
+        const bool hostThere = tud_mounted() && !tud_suspended() && !g_suspended.load();
+        if (action == Action::None) action = g_machine.Tick(elapsed, hostThere);
         Run(action);
         Publish();  // the counters
 
@@ -326,6 +330,9 @@ std::size_t DriveDescriptor(uint8_t* out, std::size_t capacity, uint8_t itf, uin
 }
 
 void DriveHostGone() { PostFromUsbTask(Request::HostGone); }
+
+// The host's sleep, or a cable gone on a board on its own power: counted by the worker's tick (DriveLogic::kHostAwayMs).
+void DriveSuspended(bool suspended) { g_suspended.store(suspended); }
 #else
 std::size_t DriveDescriptor(uint8_t*, std::size_t, uint8_t, uint8_t, uint8_t, uint8_t) { return 0; }
 void DriveHostGone() {}

@@ -508,6 +508,28 @@ Report IDs and command bytes follow Matrix OS: report 0xCB carries system comman
 - Tested on macOS (2026-11-02): MIDI both ways, system commands over HID and SysEx, the console, audio both ways at 44.1 kHz. On full speed the feedback goes out as 10.14 in 3 bytes (macOS stops playing after 128 ms on TinyUSB's 16.16); a host that asks for a Microsoft OS descriptor (string 0xEE, or with WebUSB the MS OS 2.0 set) gets 16.16 (Windows, not tested). TinyUSB's DWC2 driver does not restart an isochronous OUT transfer that missed its frame; the HAL restarts the playback endpoint after 20 ms without data.
 - In Espressif's QEMU (the community's boot check) there is no USB controller: `Init` fails cleanly and the console stays on the serial port.
 
+### USB drive: the SD card on the computer
+
+[`usb/drive.h`](usb/drive.h) lends the card to the computer as a removable disk ("Cardenza Storage", SCSI "203 Cardenza SD"), for copying files without taking the card out. Opt-in: `CONFIG_CARDENZA_HAL_USB_DRIVE` (CardenzaHAL > USB; about 4 KB of internal RAM for its buffer, a 6 KB task stack only while the card is lent). The drive is in the USB device only while the card is lent: the computer finds the device again then (its MIDI ports and audio streams start again), and the drive's IN endpoint comes from what gives way (the playback's feedback endpoint first: the playback becomes adaptive, nothing is lost).
+
+```cpp
+#include "usb/drive.h"
+
+// Told every change, from the drive's task: close your files on the card when it says Starting.
+CardenzaHAL::USB::Drive::SetListener([](const CardenzaHAL::USB::Drive::Status& status) {
+    if (status.state == CardenzaHAL::USB::Drive::State::Starting) CloseMyFiles();
+});
+bool shared = CardenzaHAL::USB::Drive::Share();  // waits up to 3 s for the disk to be there
+// ... later
+CardenzaHAL::USB::Drive::Stop();                 // the card is the firmware's again
+```
+
+- One owner at a time. While the card is lent its file system is unmounted: `Storage::IsMounted()` is false, `Storage::LentToComputer()` true, `Storage::Init()` and every file operation under `/sdcard` (the `AppDir` helpers included) fail, and a file the firmware left open fails with `EBADF`. Close your files when the listener hears `State::Starting`: the file system lets go right after it returns.
+- The card comes back (the disk goes from the computer, the file system mounts the card again, the listener hears `State::Off`, or `Failed` with `CardError` when it cannot be mounted) on `Stop()`, the computer's eject, the host unconfiguring the device (the cable), the host away for 10 s (asleep, or a cable pulled on a board on its own power, which the ESP32-S3 sees as a suspended bus), or no computer using the disk within 15 s of `Share()`. `Share()` fails at once without a configured host (`NoHost`), without USB (`NotStarted`), without a card (`NoCard`), without room on USB (`NoRoom`), or in a firmware built without the drive (`NotBuilt`).
+- What the computer writes reaches the card before the computer hears it is written (no cache on the device). What the computer still holds in its own cache is not on the card: eject the disk before unplugging, as with any USB stick; a cable pulled mid-write leaves the files the computer was writing cut, and the FAT as far as the computer had written it (the computer's disk check repairs it).
+- The USB task carries each 4 KB block between the endpoint and the card (a few milliseconds; a card's slow write up to a few hundred): MIDI, HID and the system channel wait meanwhile; USB audio runs from its FIFOs and does not.
+- `examples/usb_drive`: a key lends the card and takes it back, the screen shows the state.
+
 ### Development channel (`203cli board`)
 
 Every firmware on the HAL answers a computer's questions about itself, with no code of its own: command 0x45 on the system channel ([`docs/usb-dev.md`](docs/usb-dev.md), the protocol), read with `203cli board` from [203-CLI](https://github.com/203-Systems/203-CLI):
@@ -764,6 +786,7 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`examples/launcher_net`](examples/launcher_net): reads the Launcher's settings, joins its Wi-Fi, makes one HTTPS request and takes everything down, logging time and RAM at each step; its `sdkconfig.defaults` is the reference set of options for a firmware using Net. `idf.py -C examples/launcher_net build`.
 - [`examples/community_presence`](examples/community_presence): `CardenzaHAL::Init()` with the presence service, a handover hook, the service's state in the log. `idf.py -C examples/community_presence build`.
 - [`examples/hal_check`](examples/hal_check): the board through the HAL, key by key: every key's cell and LED, a tone per held key from an audio task, HOME. It builds for the board and for the browser alike.
+- [`examples/usb_drive`](examples/usb_drive): the SD card as a USB drive (`usb/drive.h`): any key lends the card to the computer and takes it back, the screen's colour is the state (grey: the firmware's, amber: moving, green: the computer's, red: failed). `idf.py -C examples/usb_drive build`.
 - [`.github/actions/community-publish`](.github/actions/community-publish/action.yml): the standard release of every firmware, a GitHub Action that publishes a version to the 203 community with `203cli` and trusted publishing (dev for a push to main, beta and stable for `vX.Y.Z-beta.N` and `vX.Y.Z` tags; [Releasing](#releasing)).
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml): the old Launcher hub, only for the transition: 203 Systems' official firmware mirror their releases there while 203 Launchers 0.2.0, which read only the hub's catalog, are still in use. New firmware do not use it.
 - **AI agents and the 203 community**: for publishing a firmware's versions, reading its feature requests, check reports or sending it to a device, install 203cli and its Agent Skill once: `npm install -g 203cli && 203cli skill install` (the skill goes into `~/.claude/skills/203-community`; details on https://community.203.io/agents). 203cli was called `203c`: where a script or an old note says `203c`, use `203cli`.

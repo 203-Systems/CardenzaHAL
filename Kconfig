@@ -100,10 +100,12 @@ menu "CardenzaHAL"
             bool "USB drive: lend the SD card to the computer (USB::Drive)"
             default n
             help
-                Builds USB mass storage for USB::Drive::Share(): while the card is lent the firmware's files are
-                unmounted. The interface is there only while sharing (the computer finds the device again);
-                its IN endpoint is taken from what gives way (usb/usb.h, Config). About 4 KB of internal RAM
-                while the class is built.
+                Builds USB mass storage for USB::Drive::Share() (usb/drive.h): the card lent to the computer as a
+                removable disk. While it is lent the firmware's file system is unmounted (Storage::LentToComputer()),
+                and the card comes back on Stop(), the computer's eject, the cable, or a host away for 10 s. The
+                interface is there only while sharing (the computer finds the device again); its IN endpoint is
+                taken from what gives way (usb/usb.h). About 4 KB of internal RAM for the class's buffer, and a task
+                with a 6 KB stack while the card is lent. examples/usb_drive shows it.
 
         config CARDENZA_HAL_USB_CAMERA
             bool "USB camera: the screen as a lossless stream, for recording and streaming tutorials (USB::Camera)"

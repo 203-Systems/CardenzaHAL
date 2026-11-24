@@ -485,6 +485,28 @@ USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包�
 - 已在 macOS 上实测（2026-11-02）：MIDI 双向、HID 和 SysEx 系统指令、控制台、44.1 kHz 双向音频。全速下反馈值按 10.14 发 3 字节（TinyUSB 默认的 16.16 会让 macOS 在 128 ms 后停播）；请求 Microsoft OS 描述符的主机（字符串 0xEE，或有 WebUSB 时的 MS OS 2.0 描述符集）收到 16.16（Windows，未测试）。TinyUSB 的 DWC2 驱动不会重启错过帧的同步 OUT 传输；HAL 在 20 ms 收不到数据时重启播放端点。
 - 乐鑫的 QEMU（社区的开机检查）里没有 USB 控制器：`Init` 干净地失败，控制台留在串口上。
 
+### U 盘：电脑上的 SD 卡
+
+[`usb/drive.h`](usb/drive.h) 把卡借给电脑，当作一个可移除磁盘（"Cardenza Storage"，SCSI 名 "203 Cardenza SD"），不用拔卡就能拷文件。需要打开：`CONFIG_CARDENZA_HAL_USB_DRIVE`（CardenzaHAL > USB；缓冲约 4 KB 内部 RAM，借出期间另有一个 6 KB 栈的任务）。只有借出期间 USB 设备里才有这个磁盘：电脑会重新认一次设备（MIDI 端口和音频流重新开始），磁盘用的 IN 端点从让路的类里来（先让放音的反馈端点：放音变成自适应，什么也不丢）。
+
+```cpp
+#include "usb/drive.h"
+
+// 每次状态变化都会告诉你（在 U 盘的任务里）：听到 Starting 时关掉你在卡上打开的文件。
+CardenzaHAL::USB::Drive::SetListener([](const CardenzaHAL::USB::Drive::Status& status) {
+    if (status.state == CardenzaHAL::USB::Drive::State::Starting) CloseMyFiles();
+});
+bool shared = CardenzaHAL::USB::Drive::Share();  // 最多等 3 秒，直到磁盘出现
+// ……之后
+CardenzaHAL::USB::Drive::Stop();                 // 卡回到固件手里
+```
+
+- 同一时间只有一方用卡。借出期间卡的文件系统是卸载的：`Storage::IsMounted()` 为假，`Storage::LentToComputer()` 为真，`Storage::Init()` 和 `/sdcard` 下的所有文件操作（包括 `AppDir` 那些函数）都会失败，固件还开着的文件会返回 `EBADF`。在监听函数收到 `State::Starting` 时关掉文件：它一返回，文件系统就放手。
+- 卡在这些时候回来（磁盘从电脑上消失，文件系统重新挂载，监听函数收到 `State::Off`；挂不上时是 `Failed`，原因 `CardError`）：调用 `Stop()`；电脑弹出磁盘；主机取消配置设备（拔线）；主机离开 10 秒（睡眠，或者自带电源的板子被拔线，ESP32-S3 只看到总线挂起）；`Share()` 之后 15 秒内没有电脑用这个磁盘。没有已配置的主机（`NoHost`）、USB 没启动（`NotStarted`）、没卡（`NoCard`）、USB 上腾不出端点（`NoRoom`）、固件没编进 U 盘（`NotBuilt`）时，`Share()` 立刻失败。
+- 电脑写的内容先写进卡，再告诉电脑写完了（设备上没有缓存）。电脑自己缓存里还没写下去的就不在卡上：像任何 U 盘一样，先弹出再拔；写到一半拔线，电脑正在写的文件会被截断，FAT 停在电脑写到的地方（电脑的磁盘检查能修好）。
+- USB 任务负责在端点和卡之间搬每一个 4 KB 的块（几毫秒；卡写得慢时可达几百毫秒）：这期间 MIDI、HID 和系统通道要等，USB 音频靠它的 FIFO 照常走。
+- `examples/usb_drive`：按一个键借出卡、再按一下收回，屏幕显示状态。
+
 ### 开发通道（`203cli board`）
 
 HAL 上的每个固件，不用写一行代码，就能回答电脑查询它自己的情况：系统通道上的指令 0x45（协议见 [`docs/usb-dev.md`](docs/usb-dev.md)），电脑上用 [203-CLI](https://github.com/203-Systems/203-CLI) 的 `203cli board` 读：
@@ -739,6 +761,7 @@ cardenza_target_build_info(${COMPONENT_LIB} ${PROJECT_DIR} HEADER MyBuildInfo.h 
 - [`examples/launcher_net`](examples/launcher_net)：读出 Launcher 的设置，连上它的 Wi-Fi，发一个 HTTPS 请求再把一切关掉，每一步都打印耗时和内存；它的 `sdkconfig.defaults` 是使用 Net 的固件的参考配置。`idf.py -C examples/launcher_net build`。
 - [`examples/community_presence`](examples/community_presence)：带在线服务的 `CardenzaHAL::Init()`、交接钩子、在日志里打印服务的状态。`idf.py -C examples/community_presence build`。
 - [`examples/hal_check`](examples/hal_check)：通过 HAL 逐个检查板子：每个键的格子和按键灯、音频任务为每个按住的键发一个音、HOME。同一份源码既能编译到板子上，也能编译成网页版。
+- [`examples/usb_drive`](examples/usb_drive)：SD 卡当 U 盘（`usb/drive.h`）：按任意键把卡借给电脑、再按收回，屏幕颜色就是状态（灰：固件在用，琥珀：交接中，绿：电脑在用，红：失败）。`idf.py -C examples/usb_drive build`。
 - [`.github/actions/community-publish`](.github/actions/community-publish/action.yml)：每个固件的标准发布，用 `203cli` 和受信任发布把版本发到 203 社区的 GitHub Action（推送到 main 是 dev，`vX.Y.Z-beta.N` 和 `vX.Y.Z` 标签是 beta 和 stable；见[发布](#发布)）。
 - [`.github/actions/launcher-publish`](.github/actions/launcher-publish/action.yml)：旧的 Launcher hub，只用于过渡期：还有人在用只读 hub 目录的 203 Launcher 0.2.0，所以 203 Systems 的官方固件把正式版同时镜像到那里。新固件不要用它。
 - **AI 代理与 203 社区**：要发布固件版本、读取用户需求、查看检查报告或把固件发到设备，先装一次 203cli 和它的 Agent Skill：`npm install -g 203cli && 203cli skill install`（Skill 装到 `~/.claude/skills/203-community`；说明见 https://community.203.io/agents）。203cli 原名 `203c`：脚本或旧说明里写 `203c` 的，改用 `203cli`。
