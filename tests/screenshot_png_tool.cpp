@@ -1,7 +1,9 @@
 // The screenshot PNG encoder's test frames (screenshot/png.h), for tests/screenshot_png_check.py: writes each
-// frame's PNG and its RGB565 pixels (u16 little-endian) into a folder, and the work memory's limits.
+// frame's PNG and its RGB565 pixels (u16 little-endian) into a folder, and the work memory's limits. EncodeRows
+// (rows from a callback) must make the very bytes Encode makes; its PNG is written too (<frame>_rows.png).
 //   screenshot_png_tool <folder>
 #include <cstdint>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -10,6 +12,7 @@
 #include "screenshot/png.h"
 
 using CardenzaHAL::Screenshot::Png::Encode;
+using CardenzaHAL::Screenshot::Png::EncodeRows;
 using CardenzaHAL::Screenshot::Png::WorkBytes;
 
 namespace {
@@ -43,6 +46,56 @@ bool Refuse(void* context, const uint8_t*, std::size_t size)
     if (size > *left) return false;
     *left -= size;
     return true;
+}
+
+bool ToVector(void* context, const uint8_t* data, std::size_t size)
+{
+    auto* out = static_cast<std::vector<uint8_t>*>(context);
+    out->insert(out->end(), data, data + size);
+    return true;
+}
+
+// EncodeRows' rows: one buffer, overwritten at every call (valid until the next, as png.h says, so an encoder that
+// kept a row pointer would read the wrong row), and the order they are asked in: each pass from row 0, one row on.
+struct RowFeed {
+    const Frame* frame;
+    std::vector<uint16_t> row;
+    int last = -1;
+    int passes = 1;
+    bool ordered = true;
+};
+
+const uint16_t* FeedRow(void* context, int y)
+{
+    auto* feed = static_cast<RowFeed*>(context);
+    std::fill(feed->row.begin(), feed->row.end(), uint16_t{0xA5A5});
+    if (y < 0 || y >= feed->frame->height)
+    {
+        feed->ordered = false;
+        return feed->row.data();
+    }
+    if (y != feed->last + 1)
+    {
+        if (y == 0) ++feed->passes;
+        else feed->ordered = false;
+    }
+    feed->last = y;
+    const uint16_t* source = feed->frame->pixels.data() + static_cast<std::size_t>(y) * feed->frame->width;
+    std::copy(source, source + feed->frame->width, feed->row.begin());
+    return feed->row.data();
+}
+
+// The PNG's RGB565 pixels beside it, for the check script.
+void WriteRaw(const std::string& path, const std::vector<uint16_t>& pixels)
+{
+    FILE* raw = std::fopen(path.c_str(), "wb");
+    if (raw == nullptr) std::exit(2);
+    for (uint16_t p : pixels)
+    {
+        const uint8_t le[2] = {static_cast<uint8_t>(p), static_cast<uint8_t>(p >> 8)};
+        std::fwrite(le, 1, 2, raw);
+    }
+    std::fclose(raw);
 }
 
 }  // namespace
@@ -111,6 +164,39 @@ int main(int argc, char** argv)
         if (Encode(f.pixels.data(), f.width, f.height, f.width, small.data(), 64, ToFile, stdout).ok) ++failures;
         std::size_t room = result.bytes / 2;
         if (Encode(f.pixels.data(), f.width, f.height, f.width, work.data(), work.size(), Refuse, &room).ok) ++failures;
+
+        // EncodeRows: the same bytes as Encode, rows asked for in order (two passes at most), the same refusals.
+        std::vector<uint8_t> whole, rows;
+        Encode(f.pixels.data(), f.width, f.height, f.width, work.data(), work.size(), ToVector, &whole);
+        RowFeed feed{&f, std::vector<uint16_t>(f.width)};
+        const auto fromRows = EncodeRows(FeedRow, &feed, f.width, f.height, work.data(), work.size(), ToVector, &rows);
+        const bool same = fromRows.ok && rows == whole && fromRows.bytes == result.bytes &&
+                          fromRows.indexed == result.indexed && fromRows.bitDepth == result.bitDepth &&
+                          fromRows.colours == result.colours;
+        std::printf("%s rows: ok=%d same=%d passes=%d ordered=%d\n", f.name.c_str(), fromRows.ok, same, feed.passes,
+                    feed.ordered);
+        if (!same || !feed.ordered || feed.passes > 2) ++failures;
+        FILE* rowsPng = std::fopen((folder + "/" + f.name + "_rows.png").c_str(), "wb");
+        if (rowsPng == nullptr) return 2;
+        std::fwrite(rows.data(), 1, rows.size(), rowsPng);
+        std::fclose(rowsPng);
+        WriteRaw(folder + "/" + f.name + "_rows.rgb565", f.pixels);
+        RowFeed again{&f, std::vector<uint16_t>(f.width)};
+        if (EncodeRows(FeedRow, &again, f.width, f.height, small.data(), 64, ToFile, stdout).ok) ++failures;
+        room = result.bytes / 2;
+        if (EncodeRows(FeedRow, &again, f.width, f.height, work.data(), work.size(), Refuse, &room).ok) ++failures;
+    }
+    // EncodeRows without rows, or with sizes out of range: refused before anything is written.
+    {
+        std::vector<uint8_t> work(WorkBytes(240));
+        std::vector<uint8_t> out;
+        Frame none{"none", 240, 135, std::vector<uint16_t>(240 * 135)};
+        RowFeed feed{&none, std::vector<uint16_t>(240)};
+        if (EncodeRows(nullptr, &feed, 240, 135, work.data(), work.size(), ToVector, &out).ok) ++failures;
+        if (EncodeRows(FeedRow, &feed, 0, 135, work.data(), work.size(), ToVector, &out).ok) ++failures;
+        if (EncodeRows(FeedRow, &feed, 240, 4096, work.data(), work.size(), ToVector, &out).ok) ++failures;
+        if (EncodeRows(FeedRow, &feed, 240, 135, nullptr, work.size(), ToVector, &out).ok) ++failures;
+        if (!out.empty() || feed.last != -1) ++failures;
     }
     // A stride wider than the image: the 240 x 135 frame cut out of a 260-pixel-wide buffer.
     {

@@ -4,8 +4,9 @@
 #include <cstdint>
 
 // A small PNG encoder for screenshots (screenshot/screenshot.h): the screen's RGB565 pixels, exactly, as a PNG a
-// browser or any image tool opens. Pure (no ESP-IDF, no allocation): the host tests check it against Python's zlib
-// (tests/screenshot_png_check.py), and the 203 Launcher carries the same file.
+// browser or any image tool opens. Pure (no allocation, and no ESP-IDF but the ROM's CRC-32 on the device): the host
+// tests check it against Python's zlib (tests/screenshot_png_check.py), and the 203 Launcher carries the same file
+// (src/screenshot/, with a first line naming the HAL commit it matches): change both.
 //
 // - A frame of 256 colours or fewer (most UI art) is an indexed PNG (colour type 3, 1, 2, 4 or 8 bits a pixel,
 //   the palette in the order the colours first appear); any other is 8-bit RGB (colour type 2) with each row's
@@ -42,6 +43,14 @@ namespace CardenzaHAL::Screenshot::Png {
     // sizes are out of range, the work memory is too small, or the sink refused.
     Result Encode(const uint16_t* pixels, int width, int height, int stride, void* work, std::size_t workBytes,
                   Sink sink, void* context);
+
+    // The same from rows the caller makes: `row(rowContext, y)` gives row y (`width` RGB565 values), valid until
+    // the next call. Rows are asked for in order, twice over (the colours, then the pixels): the same PNG as
+    // Encode of the whole frame, with no frame in memory (the 203 Launcher's way: no PSRAM, and no room for a
+    // 65 KB frame beside Wi-Fi).
+    using RowSource = const uint16_t* (*)(void* rowContext, int y);
+    Result EncodeRows(RowSource row, void* rowContext, int width, int height, void* work, std::size_t workBytes,
+                      Sink sink, void* context);
 
     // RGB565 to 8 bits a channel, as the PNG holds it.
     inline constexpr uint8_t Red8(uint16_t p) { return static_cast<uint8_t>(((p >> 11) << 3) | ((p >> 11) >> 2)); }
