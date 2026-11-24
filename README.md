@@ -495,6 +495,32 @@ USB audio does not automatically route to the speaker or microphone. Bridge it i
 
 The serial number is how a computer finds the same chip across the modes (Web Serial, WebHID and Web MIDI do not show it: the protocols' answers carry it as `chip.mac`). Interfaces say what they are: "Cardenza MIDI", "Cardenza Audio", "Cardenza HID", "Cardenza WebUSB", "Cardenza Serial", "Cardenza Storage". The firmware's own name and version are in IDENTIFY and INFO, not in the USB names (before protocol 4 the product string was the firmware's `Config::product` and the serial number had no colons).
 
+### HID inputs: keyboard, media keys, gamepad
+
+[`usb/hid.h`](usb/hid.h) makes the Cardenza the computer's keyboard, media keys and gamepad. They are report IDs of
+the USB device's one HID interface (keyboard 1, media keys 3, gamepad 4, as in Matrix OS), beside the system
+channel (0xCB) and the firmware's raw reports (0xFF): no endpoint of their own. `USB::Config` chooses which the
+device has: `keyboard` and `consumer` (on by default), `gamepad` (off; set it in your `USB::Init` config right
+after `CardenzaHAL::Init`). [`examples/usb_hid`](examples/usb_hid) uses all three from the Cardenza's keys.
+
+| `CardenzaHAL::USB::Hid::` | What it does |
+| --- | --- |
+| `Press(usage)` / `Release(usage)` / `ReleaseAll()` / `Tap(usage)` | Holds and lets go of keys: usages of page 0x07 (`kKeyA`, `kKeyEnter`, `kKeyLeft`, ...), the modifiers 0xE0-0xE7 (`kKeyLeftShift`, `kKeyLeftGui`: Command on a Mac). Six keys and the modifiers at a time; a seventh is not taken. |
+| `Type(text, timeoutMs)` | Types printable ASCII as a US keyboard does (`\n` Enter, `\t` Tab), about 500 characters a second; the keys held go up meanwhile and come back. |
+| `KeyboardLeds()` | The lights the computer set (`kLedCapsLock`, `kLedNumLock`, `kLedScrollLock`). |
+| `Media(usage)` / `MediaPress(usage)` / `MediaRelease()` | One media key (`kMediaPlayPause`, `kMediaNext`, `kMediaVolumeUp`, `kMediaMute`, ...). |
+| `SetGamepad(state)` / `GamepadState()` / `HatFrom(up, down, left, right)` | Six axes (-127..127), a hat and 32 buttons. |
+| `Ready()` | A computer has the device and the HID interface. |
+
+The HAL keeps what is held and the computer always ends up seeing it: a report that finds no room or no computer
+(unplugged, asleep) goes as soon as it can, and a computer that comes back first gets the state as it is. When the
+computer goes away, or the device's classes change, everything is let go: nothing stays pressed. The calls return
+whether the report is on its way now. On macOS a HID keyboard makes the computer ask once which kind of keyboard
+it is, and host tools may then open the HID interface (the system channel too) only with the Input Monitoring
+permission (SysEx, WebUSB and the serial port need none): leave `keyboard` off when the firmware types nothing.
+`KeyboardReport` and `ConsumerReport` above still send raw reports; use them or `usb/hid.h`, not both. On the web
+target there is no computer: the calls return false.
+
 ### USB protocol and platform notes
 
 Report IDs and command bytes follow Matrix OS: report 0xCB carries system commands (0x40 Launcher / update mode, 0x41 reboot, 0x42 ROM download mode, 0x43 console, 0x44 identify, 0x45 the [development channel](#development-channel-203cli-board); answers come back as command | 0x80), and the same commands work as SysEx `F0 23 <command> F7`, as WebUSB control requests and as the serial port's `sys <hex>` lines ([`docs/usb-dev.md`](docs/usb-dev.md), "Transport"). The firmware's own reports (0xFF) also come as SysEx `F0 23 7F <bytes> F7` from a host without HID access (a web page with Web MIDI), and `SendAppReport` answers the way the last one came. MIDI packets from the firmware and the HAL's SysEx are written one sender at a time, so a SysEx reaches the host whole. VID 0x0203 (203 Systems).

@@ -706,8 +706,15 @@ void Status(Stream& stream)
     json.Key("enabled").Bool(false).Key("open").Bool(false);
 #endif
     json.End();
+    // The audio endpoints' counters: what the computer played reached the device even when the firmware reads none.
+    const AudioCounters audio = AudioStats();
     json.Key("usb").Object().Key("mounted").Bool(Mounted()).Key("audio_in").Bool(AudioInputActive())
-        .Key("audio_out").Bool(AudioOutputActive()).Key("playback_restarts").Uint(AudioStats().playbackRestarts).End();
+        .Key("audio_out").Bool(AudioOutputActive()).Key("playback_restarts").Uint(audio.playbackRestarts);
+    json.Key("from_host").Object().Key("packets").Uint(audio.packetsFromHost).Key("bytes").Uint(audio.bytesFromHost)
+        .Key("fifo").Uint(audio.fifoFromHost).End();
+    json.Key("to_host").Object().Key("packets").Uint(audio.packetsToHost).Key("bytes").Uint(audio.bytesToHost)
+        .Key("empty").Uint(audio.emptyPacketsToHost).Key("fifo").Uint(audio.fifoToHost).End();
+    json.End();
     json.Key("presence");
 #if CONFIG_CARDENZA_HAL_PRESENCE
     static constexpr const char* kStates[] = {"off", "idle", "connecting", "online", "waiting", "signed-out", "handing-over"};

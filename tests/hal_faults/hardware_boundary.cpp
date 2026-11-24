@@ -10,8 +10,6 @@ bool GetFuncButton() { return false; }
 void EnterDeepSleep() {}
 namespace detail {
 void RestoreHomeButton() { ++Fake::funcButtonRestores; }
-// The crash loop's count is in RTC memory (system/crash_loop.cpp, tested in usb_logic_test): no restart here.
-void CheckCrashLoop() {}
 }
 }
 // The board's settings (system/settings.cpp reads the NVS partition, which these fakes do not have): their

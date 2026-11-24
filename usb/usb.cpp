@@ -1017,6 +1017,7 @@ void PumpAll()
     }
 #endif
 #if CFG_TUD_HID
+    detail::HidInputPump();
     PumpReports();
 #endif
 #if CFG_TUD_CDC
@@ -1179,7 +1180,13 @@ void AutoStart()
 {
     if (g_configLock == nullptr) g_configLock = xSemaphoreCreateMutex();
     xSemaphoreTake(g_configLock, portMAX_DELAY);
-    if (!g_started.load() && Start(Config(), 1000000)) g_auto.store(true);
+    // No HID keyboard in the HAL's own start: on macOS a keyboard makes the computer ask which kind it is, and
+    // lets a host tool open the HID interface (the system channel with it) only with the Input Monitoring
+    // permission (seen on the board 2026-11-24: hidapi could not open the template's). A firmware that types
+    // asks for it in its own USB::Init.
+    Config config;
+    config.keyboard = false;
+    if (!g_started.load() && Start(config, 1000000)) g_auto.store(true);
     xSemaphoreGive(g_configLock);
 }
 
@@ -1713,6 +1720,7 @@ void tud_hid_set_report_cb(uint8_t, uint8_t report_id, hid_report_type_t, uint8_
     }
     if (report_id == kReportSystem) HandleCommand(buffer, bufsize, Way::Hid);
     else if (report_id == kReportApp) HandleApp(buffer, bufsize, Way::Hid);
+    else if (report_id == kReportKeyboard && bufsize > 0) detail::HidKeyboardLeds(buffer[0]);  // its lights
 }
 
 void tud_hid_report_complete_cb(uint8_t, uint8_t const*, uint16_t) { PumpReports(); }
