@@ -12,6 +12,8 @@
 // Handlers run in a "usb" task (priority 8, core 0) as on the device.
 
 #include "usb/usb.h"
+#include "usb/hid.h"
+#include "usb/hid_keys.h"
 
 #include <cstdio>
 #include <cstring>
@@ -263,6 +265,31 @@ Presented Classes()
     presented.midi = g_started && g_config.midi;
     return presented;
 }
+
+// HID inputs (usb/hid.h): the page is no computer's keyboard or gamepad. Nothing is ever on its way (false, as
+// KeyboardReport); the gamepad's state is kept as on the board.
+namespace Hid {
+namespace {
+Gamepad g_gamepad;
+}  // namespace
+bool Ready() { return false; }
+bool Press(uint8_t, uint32_t) { return false; }
+bool Release(uint8_t, uint32_t) { return true; }
+bool ReleaseAll(uint32_t) { return true; }
+bool Tap(uint8_t, uint32_t) { return false; }
+bool Type(const char*, uint32_t) { return false; }
+uint8_t KeyboardLeds() { return 0; }
+bool MediaPress(uint16_t, uint32_t) { return false; }
+bool MediaRelease(uint32_t) { return false; }
+bool Media(uint16_t, uint32_t) { return false; }
+bool SetGamepad(const Gamepad& state, uint32_t)
+{
+    g_gamepad = state;
+    return false;
+}
+Gamepad GamepadState() { return g_gamepad; }
+uint8_t HatFrom(bool up, bool down, bool left, bool right) { return HidKeys::HatFrom(up, down, left, right); }
+}  // namespace Hid
 
 void RestartIntoDownloadMode()
 {

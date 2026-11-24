@@ -63,6 +63,11 @@ namespace CardenzaHAL::USB::detail {
     bool QueueInput(uint8_t reportId, const uint8_t* data, std::size_t length, uint32_t waitMs);
     // The host is gone or the device changed: the inputs' state is cleared (nothing stays pressed).
     void HidInputReset();
+    // USB task, every round: what the computer has not got yet goes when it can (a computer that comes back gets
+    // the state as it is). Never waits.
+    void HidInputPump();
+    // The keyboard's output report (report ID 1): the lights the computer set (usb/hid.h, KeyboardLeds).
+    void HidKeyboardLeds(uint8_t leds);
 
     // The drive (usb/drive.cpp): its descriptor (interface `itf`, string `stringIndex`), 0 when it has none to
     // give; told when the host goes or comes.

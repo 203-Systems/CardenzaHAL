@@ -1017,6 +1017,7 @@ void PumpAll()
     }
 #endif
 #if CFG_TUD_HID
+    detail::HidInputPump();
     PumpReports();
 #endif
 #if CFG_TUD_CDC
@@ -1702,6 +1703,7 @@ void tud_hid_set_report_cb(uint8_t, uint8_t report_id, hid_report_type_t, uint8_
     }
     if (report_id == kReportSystem) HandleCommand(buffer, bufsize, Way::Hid);
     else if (report_id == kReportApp) HandleApp(buffer, bufsize, Way::Hid);
+    else if (report_id == kReportKeyboard && bufsize > 0) detail::HidKeyboardLeds(buffer[0]);  // its lights
 }
 
 void tud_hid_report_complete_cb(uint8_t, uint8_t const*, uint16_t) { PumpReports(); }

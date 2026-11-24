@@ -449,6 +449,21 @@ USB 音频长度单位是**帧**，每帧两个采样，共四字节。每个音
 
 USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包括声道转换及共用引脚管理。需要响应主机音量时，由应用读取并应用 `HostMuted()`、`HostVolume()`；后者单位是 1/256 dB，`0` 表示满电平。`AudioStats()` 提供端点计数和以字节为单位的 FIFO 占用量。
 
+### HID 输入：键盘、媒体键、手柄
+
+[`usb/hid.h`](usb/hid.h) 让 Cardenza 当电脑的键盘、媒体键和游戏手柄。它们是 USB 设备唯一一个 HID 接口里的报告 ID（键盘 1、媒体键 3、手柄 4，与 Matrix OS 相同），和系统通道（0xCB）、固件自己的原始报告（0xFF）在一起，不占自己的端点。设备带哪几样由 `USB::Config` 决定：`keyboard` 和 `consumer`（默认开），`gamepad`（默认关；在 `CardenzaHAL::Init` 之后紧接着用自己的 `USB::Init` 配置打开）。[`examples/usb_hid`](examples/usb_hid) 用 Cardenza 的按键演示这三样。
+
+| `CardenzaHAL::USB::Hid::` | 作用 |
+| --- | --- |
+| `Press(usage)` / `Release(usage)` / `ReleaseAll()` / `Tap(usage)` | 按住和松开按键：0x07 页的 usage（`kKeyA`、`kKeyEnter`、`kKeyLeft` 等），修饰键 0xE0-0xE7（`kKeyLeftShift`，`kKeyLeftGui` 在 Mac 上是 Command）。同时最多六个键加修饰键，第七个不收。 |
+| `Type(text, timeoutMs)` | 按美式键盘打出可打印 ASCII（`\n` 回车，`\t` Tab），每秒约 500 个字符；打字时按住的键先抬起，打完再按回去。 |
+| `KeyboardLeds()` | 电脑设定的键盘灯（`kLedCapsLock`、`kLedNumLock`、`kLedScrollLock`）。 |
+| `Media(usage)` / `MediaPress(usage)` / `MediaRelease()` | 一个媒体键（`kMediaPlayPause`、`kMediaNext`、`kMediaVolumeUp`、`kMediaMute` 等）。 |
+| `SetGamepad(state)` / `GamepadState()` / `HatFrom(up, down, left, right)` | 六个轴（-127..127）、一个方向帽和 32 个按钮。 |
+| `Ready()` | 电脑已连上设备和它的 HID 接口。 |
+
+HAL 记着按住了什么，电脑最终看到的总是这个状态：报告一时没地方或没有电脑（拔掉、睡眠）时，能发时立刻补发；电脑回来（唤醒、重新插上）时先收到当前状态。电脑离开、或设备的类改变时，一切都会松开，不会有键一直按着。各函数返回这次的报告是否已经在路上。在 macOS 上，HID 键盘会让电脑问一次这是哪种键盘，之后主机工具只有在“输入监控”权限下才能打开 HID 接口（系统通道也一样；SysEx、WebUSB 和串口都不需要权限）：固件不打字时把 `keyboard` 关掉。上面的 `KeyboardReport`、`ConsumerReport` 仍然直接发原始报告；二者选一，不要混用。网页模拟器里没有电脑：这些函数返回 false。
+
 ### USB 协议与平台说明
 
 `CardenzaHAL::USB::Init()`（`usb/usb.h`）把 USB 口变成一个复合设备：USB MIDI 1.0、USB 音频 2.0（立体声 16 位 44.1 kHz，双向，异步带反馈：电脑跟随设备的时钟）和 HID（键盘、媒体键、系统通道和固件自己的原始报告）。VID 0x0203（203 Systems）。报告号和指令沿用 Matrix OS：报告 0xCB 是系统指令（0x40 Launcher / 更新模式，0x41 重启，0x42 ROM 下载模式，0x43 控制台，0x44 识别，0x45 [开发通道](#开发通道203cli-board)；应答为指令 | 0x80），同样的指令也可以用 SysEx `F0 23 <指令> F7` 发。固件自己的报告（0xFF）在电脑没法用 HID 时（比如用 Web MIDI 的网页）也能用 SysEx `F0 23 7F <字节> F7` 发，`SendAppReport` 按上一条来的方式回复（`F0 24 7F <字节> F7`，7 位）。固件的 MIDI 包和 HAL 的 SysEx 一次只有一方在写，SysEx 到电脑时是完整的。
