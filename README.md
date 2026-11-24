@@ -647,13 +647,14 @@ Every firmware on the HAL answers a computer's questions about itself, with no c
 | `memory` | Internal RAM, PSRAM and DMA-capable RAM (free, least free, largest block); each task's priority, core and least free stack, and its CPU share |
 | `storage`, `status`, `i2c` | The SD card and its free space; the display, keys held, the system menu, USB, the presence service; the devices on the I2C bus (the expansion port's) |
 | `screen` | A screenshot (PNG) of the firmware's framebuffer |
+| `screenshot` | A screenshot as HOME + space takes one: saved in `/sdcard/screenshot/` (queued for the board's account) and written on the computer; `--no-save` only returns it ([docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)) |
 | `press` | Keys pressed from the computer (HOME too), seen by the firmware as real ones |
 | `coredump` | The last crash's core dump: its task and backtrace, the dump itself |
 | `files` | `ls`, `get`, `put`, `rm`, `mkdir`, `mv` on the SD card |
 | `settings` | The board's settings with their ranges; `get`, `set`, `reset` (answered also with the development channel off) |
 
 - It costs a firmware nothing until a computer asks: no task, no buffer, no polling. A question starts a task of priority 1 (a 6 KB stack in internal RAM, gone 10 s after the last question); a screenshot copies one frame at the firmware's next `Present` into PSRAM. Flash is read through the cache, never with the cache disabled. About 20 KB of flash and 0.4 KB of static internal RAM (measured on the template with USB started, 2026-11-20); `CONFIG_CARDENZA_HAL_USB_DEV` off leaves it out.
-- It never sends the device token and reaches no file outside the SD card. Its only writes are the ones asked for: files (`files put`, `rm`, `mkdir`, `mv`), erasing the core dump, and a setting (written as every change of the settings is: [docs/SETTINGS.md](docs/SETTINGS.md)).
+- It never sends the device token and reaches no file outside the SD card. Its only writes are the ones asked for: files (`files put`, `rm`, `mkdir`, `mv`), a screenshot (`screenshot`, into `/sdcard/screenshot/`), erasing the core dump, and a setting (written as every change of the settings is: [docs/SETTINGS.md](docs/SETTINGS.md)).
 - Tasks and CPU shares need `CONFIG_FREERTOS_USE_TRACE_FACILITY` and `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS`, a core dump `CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH`: the board's debug defaults ([`board/sdkconfig.debug`](board/sdkconfig.debug)) set them; a release build without them keeps about 5 KB of internal RAM, and the rest of the channel works there too.
 - A screenshot needs a firmware that presents a framebuffer (`Present`, `PresentChanged`); one that draws through the panel's handles has none.
 - Every firmware has it: `CardenzaHAL::Init` starts USB. It answers over every class that carries the system channel (HID, SysEx, WebUSB, the serial port); INFO is answered also with `CONFIG_CARDENZA_HAL_USB_DEV` off.
