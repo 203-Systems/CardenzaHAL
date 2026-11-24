@@ -1106,11 +1106,10 @@ bool Apply(const Config& config, const Logic::Classes& asked, const Logic::Class
         ClassList(g_classes, list, sizeof(list));
         ESP_LOGI(kTag, "%04x:%04x %s, classes%s (%d of %d IN endpoints)", config.vendorId, config.productId, g_serial, list,
                  endpoints.inCount, Logic::kInEndpoints);
-        if (fitted.dropped.feedback || fitted.dropped.playback || fitted.dropped.hid || fitted.dropped.serial || fitted.dropped.audio || fitted.dropped.midi)
-        {
-            ClassList(fitted.dropped, list, sizeof(list));
-            ESP_LOGW(kTag, "gave way for room:%s", list);
-        }
+        const Logic::Classes& gone = fitted.dropped;
+        if (gone.feedback || gone.hid || gone.serial || gone.audio || gone.midi)
+            ESP_LOGW(kTag, "gave way for room:%s%s%s%s%s", gone.feedback ? " the playback's feedback endpoint (adaptive now)" : "",
+                     gone.hid ? " hid" : "", gone.serial ? " serial" : "", gone.audio ? " audio" : "", gone.midi ? " midi" : "");
     }
     return true;
 }
