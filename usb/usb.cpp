@@ -165,11 +165,17 @@ bool NextReport(PendingReport& out)
     return any;
 }
 
+// The report on its way, kept until the endpoint takes it: the firmware's KeyboardReport and
+// ConsumerReport (another task) can take the endpoint between tud_hid_ready and tud_hid_report, and a
+// report already off the queue was lost. USB task only.
+PendingReport g_outgoing;
+bool g_outgoingReady = false;
+
 void PumpReports()
 {
     if (!tud_hid_ready()) return;
-    PendingReport report;
-    if (NextReport(report)) tud_hid_report(report.id, report.data, kReportSize);
+    if (!g_outgoingReady) g_outgoingReady = NextReport(g_outgoing);
+    if (g_outgoingReady && tud_hid_report(g_outgoing.id, g_outgoing.data, kReportSize)) g_outgoingReady = false;
 }
 
 // A whole SysEx (F0 … F7) in USB-MIDI packets of up to three bytes, under the MIDI lock. A packet that finds
@@ -197,8 +203,9 @@ bool WriteSysex(const uint8_t* message, std::size_t size, uint32_t waitMs)
     return whole;
 }
 
-// An answer as SysEx: F0 24 <bytes, 7-bit> F7.
-void SendSysex(const uint8_t* data, std::size_t length)
+// An answer as SysEx: F0 24 <bytes, 7-bit> F7. False when a packet found the MIDI FIFO full (the host
+// stopped reading): that SysEx did not arrive whole.
+bool SendSysex(const uint8_t* data, std::size_t length)
 {
     uint8_t message[kReportSize + 3];
     std::size_t size = 0;
@@ -206,7 +213,7 @@ void SendSysex(const uint8_t* data, std::size_t length)
     message[size++] = 0x24;
     for (std::size_t index = 0; index < length && size < sizeof(message) - 1; ++index) message[size++] = data[index] & 0x7F;
     message[size++] = 0xF7;
-    WriteSysex(message, size, 0);
+    return WriteSysex(message, size, 0);
 }
 
 void Answer(bool sysex, const uint8_t* data, std::size_t length)
@@ -269,7 +276,9 @@ void PumpSysexConsole()
     portEXIT_CRITICAL_SAFE(&g_lock);
     if (length == 0) return;
     text[0] = kCommandConsole | 0x80;
-    SendSysex(text, length + 1);
+    // A host that stopped reading MIDI gets no more console until it asks again: the console would fill
+    // the FIFO with cut SysEx in front of the firmware's own MIDI.
+    if (!SendSysex(text, length + 1)) g_consoleOn.store(false, std::memory_order_relaxed);
 }
 
 // Reads what the host sent over MIDI: system SysEx is answered here, the rest waits for MidiRead.
@@ -455,6 +464,15 @@ void WatchPlayback()
     esp_restart();
 }
 
+// After a start that failed: the PHY goes back to USB-Serial-JTAG, as it was before Init, so the console
+// and esptool's port come back.
+void ReleasePhy()
+{
+    usb_del_phy(g_phy);
+    g_phy = nullptr;
+    RTCCNTL.usb_conf.sw_hw_usb_phy_sel = 0;
+}
+
 void UsbTask(void*)
 {
     const TickType_t started = xTaskGetTickCount();
@@ -518,19 +536,22 @@ bool Init(const Config& config)
         ESP_LOGE(kTag, "USB PHY failed");
         return false;
     }
-    if (g_config.console) RedirectConsole();
     if (!tusb_init())
     {
+        ReleasePhy();
         ESP_LOGE(kTag, "TinyUSB failed");
-        usb_del_phy(g_phy);
-        g_phy = nullptr;
         return false;
     }
     if (xTaskCreatePinnedToCore(UsbTask, "usb", 4096, nullptr, 8, nullptr, 0) != pdPASS)
     {
+        tusb_deinit(0);
+        ReleasePhy();
         ESP_LOGE(kTag, "USB task failed");
         return false;
     }
+    // Only once the device runs: a start that failed leaves the console where it was (and its error
+    // there to read).
+    if (g_config.console) RedirectConsole();
     g_started.store(true);
     // The system menu (system/menu.h) restarts the board too: it leaves the host first, as Restart does.
     System::detail::SetUsbStop([] {
@@ -622,8 +643,7 @@ bool SendAppReport(const uint8_t* data, std::size_t length)
     message[0] = kCommandApp;
     length = std::min(length, kReportSize - 1);
     std::memcpy(message + 1, data, length);
-    SendSysex(message, length + 1);
-    return true;
+    return SendSysex(message, length + 1);
 }
 
 namespace detail {
@@ -740,6 +760,10 @@ void tud_umount_cb(void)
 {
     g_playing.store(false);
     g_recording.store(false);
+    // The next host asks for the console itself, and its app reports pick their own way back.
+    g_consoleOn.store(false);
+    g_consoleSysex.store(false);
+    g_appSysex.store(false);
     CardenzaHAL::USB::detail::DevHostGone();
 }
 

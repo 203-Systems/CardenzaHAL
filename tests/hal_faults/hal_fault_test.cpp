@@ -1,5 +1,6 @@
 #include "esp_stub.h"
 #include "cardenzaHAL.h"
+#include "audio/codec/es8156.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -127,6 +128,19 @@ void InitOwnership()
           "HAL initialization did not own codec setup and restore stopped TX");
 }
 
+// System::EnterDeepSleep deletes the I2C bus, which ESP-IDF allows only with no device on it: Release takes
+// the codec off (once), and Init binds it again.
+void CodecRelease()
+{
+  namespace ES8156 = CardenzaHAL::Audio::Codec::ES8156;
+  Require(ES8156::Init() && ES8156::IsEnabled() && Fake::i2cDevices == 1, "the codec was not bound on the bus");
+  ES8156::Release();
+  Require(Fake::i2cDevices == 0 && !ES8156::IsEnabled(), "Release left the codec on the bus");
+  ES8156::Release();
+  Require(Fake::i2cDevices == 0, "a second Release removed a device that was not there");
+  Require(ES8156::Init() && ES8156::IsEnabled() && Fake::i2cDevices == 1, "Init did not bind the codec again after Release");
+}
+
 void InitStopFailure()
 {
   Fake::fail = "speaker_disable";
@@ -147,7 +161,13 @@ int main(int argc, char** argv)
     const std::string module = argv[1], fault = argv[2];
     if (module == "keyboard") Keyboard(fault);
     else if (module == "display") Display(fault);
-    else if (module == "codec") { if (fault == "ownership") InitOwnership(); else if (fault == "stop") InitStopFailure(); else Codec(fault == "state"); }
+    else if (module == "codec")
+    {
+      if (fault == "ownership") InitOwnership();
+      else if (fault == "stop") InitStopFailure();
+      else if (fault == "release") CodecRelease();
+      else Codec(fault == "state");
+    }
     else if (module == "storage") Storage(fault == "unmount");
     else if (module == "ir") Infrared();
     else throw std::runtime_error("unknown module");

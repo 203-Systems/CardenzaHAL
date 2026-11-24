@@ -1,4 +1,5 @@
 #include "system.h"
+#include "../audio/codec/es8156.h"
 #include "internal/hooks.h"
 #include "internal/nvs_access.h"
 #include "../board/pins.h"
@@ -52,11 +53,11 @@ bool Init()
 
 void EnterDeepSleep()
 {
-    if (i2cBus != nullptr)
-    {
-        i2c_del_master_bus(i2cBus);
-        i2cBus = nullptr;
-    }
+    if (i2cBus == nullptr) return;
+    // ESP-IDF deletes a bus only with no device on it: the HAL's codec goes first. Until then the handle
+    // stays, so a bus that could not be deleted is not lost.
+    Audio::Codec::ES8156::Release();
+    if (i2c_del_master_bus(i2cBus) == ESP_OK) i2cBus = nullptr;
 }
 
 i2c_master_bus_handle_t GetI2CBus()

@@ -47,6 +47,7 @@ endforeach()
 add_test(NAME HalInfraredNec COMMAND CardenzaHalFaultTests ir normal)
 add_test(NAME HalCodecInitOwnership COMMAND CardenzaHalFaultTests codec ownership)
 add_test(NAME HalCodecInitStopFailure COMMAND CardenzaHalFaultTests codec stop)
+add_test(NAME HalCodecRelease COMMAND CardenzaHalFaultTests codec release)
 # MSVC: a failed assert ends the test instead of waiting on a dialog (../WindowsTestGuard.cpp).
 if(MSVC)
   foreach(target CardenzaHalFaultTests CardenzaDisplayPresentTests)
