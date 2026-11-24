@@ -35,7 +35,7 @@ foreach(fault panel_reset panel_init spi_bus display_pwm)
   add_test(NAME HalDisplay_${fault} COMMAND CardenzaHalFaultTests display ${fault})
 endforeach()
 foreach(scenario cold warm dirty timeout warm_timeout draw brightness display_duty_update display_callback display_semaphore native invalid changed changed_no_memory
-    overlay overlay_no_memory overlay_backlight scan scan_one_block stats options pacer buffers)
+    overlay overlay_no_memory overlay_backlight scan scan_one_block stats options pacer buffers hook)
   add_test(NAME HalDisplayPresent_${scenario} COMMAND CardenzaDisplayPresentTests ${scenario})
 endforeach()
 foreach(fault i2c state)

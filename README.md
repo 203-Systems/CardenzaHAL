@@ -483,6 +483,32 @@ USB audio does not automatically route to the speaker or microphone. Bridge it i
 - With `keyboard = true`, macOS asks the user to identify the keyboard once, and a host tool may open the HID interface (system channel included) only with the Input Monitoring permission. SysEx needs no permission.
 - Tested on macOS (2026-11-02): MIDI both ways, system commands over HID and SysEx, the console, audio both ways at 44.1 kHz. On full speed the feedback goes out as 10.14 in 3 bytes (macOS stops playing after 128 ms on TinyUSB's 16.16); a host that asks for the Microsoft OS string gets 16.16 (Windows, not tested). Windows asks for that string only the first time it sees a VID/PID/version, so a second connection to the same PC gets 10.14: test that before relying on Windows playback. TinyUSB's DWC2 driver does not restart an isochronous OUT transfer that missed its frame; the HAL restarts the playback endpoint after 20 ms without data.
 
+### Screen stream (camera)
+
+Made for recording and streaming tutorials: [`usb/camera.h`](usb/camera.h) shows the screen to a computer as a
+lossless stream, exact RGB565 pixels with no lossy step, only what changed since the last frame the computer read (raw
+or in a small run code), on a bulk endpoint of the "Cardenza WebUSB" interface. A web page shows and records it
+together with the device's USB audio; a desktop program can make it a virtual camera for OBS (WinUSB on Windows with no
+driver, libusb on macOS and Linux). Protocol: [`docs/screen-stream.md`](docs/screen-stream.md); reference reader:
+[`tools/web/screen-stream.js`](tools/web/screen-stream.js); test firmware [`examples/screen_stream`](examples/screen_stream)
+with [`tools/web/screen-stream-demo.html`](tools/web/screen-stream-demo.html).
+
+```cpp
+// Kconfig CONFIG_CARDENZA_HAL_USB_CAMERA=y (it needs WebUSB); then, from the first enumeration:
+CardenzaHAL::USB::Config usb;
+usb.camera = true;
+CardenzaHAL::USB::Init(usb);
+// or later (the computer finds the device again): CardenzaHAL::USB::Camera::Enable(true);
+```
+
+- It shows what the firmware presents with `Display::Present(framebuffer...)` or `PresentChanged`: not a firmware that
+  draws through the panel's handles, not the system menu.
+- Costs nothing until a computer starts it. While it reads: 130 KB of PSRAM, a task of priority 1 (3.5 KB stack), and
+  in each `Present` the rows presented compared with a copy of the screen. One IN endpoint, taken from what gives way
+  (the audio playback's feedback endpoint first: the playback becomes adaptive).
+- A keyframe of a typical page is 8-27 KB (64.8 KB raw); UI changes cost tens of KB a second; a computer slower than the
+  firmware gets the changes merged into fewer frames, never a backlog.
+
 ### Development channel (`203cli board`)
 
 With USB started, every firmware on the HAL answers a computer's questions about itself, with no code of its own: command 0x45 on the system channel ([`docs/usb-dev.md`](docs/usb-dev.md), the protocol), read with `203cli board` from [203-CLI](https://github.com/203-Systems/203-CLI):

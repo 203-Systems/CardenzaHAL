@@ -1,0 +1,4 @@
+# The camera: the screen as a lossless stream on the WebUSB interface (usb/camera.h).
+CONFIG_CARDENZA_HAL_USB_CAMERA=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../board/partitions.csv"

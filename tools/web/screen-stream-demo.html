@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screen stream test</title>
+<!--
+  The Cardenza's screen stream (usb/camera.h) in Chrome or Edge, for testing it: the picture, exact pixels, and
+  what it costs. Serve this folder on localhost (WebUSB needs a secure page):
+    cd tools/web && python3 -m http.server 8000      then open http://localhost:8000/screen-stream-demo.html
+  The firmware must have the camera on (examples/screen_stream does). Chrome asks once which device (Connect).
+-->
+<style>
+  :root { --bg: #f4f4f1; --panel: #ffffff; --ink: #1a1a18; --dim: #6b6b66; --line: #dcdcd6; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #121211; --panel: #1c1c1a; --ink: #e8e8e0; --dim: #8a8a84; --line: #2e2e2b; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 16px; }
+  .screen { background: #000; border-radius: 6px; overflow: hidden; }
+  canvas { display: block; width: 100%; height: auto; aspect-ratio: 240 / 135; image-rendering: pixelated; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+  button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+  button:disabled { color: var(--dim); cursor: default; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--dim); font-size: 12px; }
+  #message { color: var(--dim); min-height: 1.5em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Screen stream</h1>
+  <div class="screen"><canvas id="screen" width="240" height="135"></canvas></div>
+  <div class="row">
+    <button id="connect">Connect</button>
+    <button id="keyframe" disabled>Keyframe</button>
+    <button id="stop" disabled>Stop</button>
+  </div>
+  <p id="message"></p>
+  <div class="stats" id="stats"></div>
+</main>
+<script type="module">
+  import { ScreenStreamDevice } from './screen-stream.js';
+
+  const message = document.getElementById('message');
+  const statsBox = document.getElementById('stats');
+  const buttons = { connect: document.getElementById('connect'), keyframe: document.getElementById('keyframe'), stop: document.getElementById('stop') };
+  let device = null, deviceStats = null, timer = null;
+
+  function show(rows) {
+    statsBox.replaceChildren(...rows.map(([label, value]) => {
+      const box = document.createElement('div');
+      box.className = 'stat';
+      box.innerHTML = '<b></b><span></span>';
+      box.firstChild.textContent = value;
+      box.lastChild.textContent = label;
+      return box;
+    }));
+  }
+
+  function refresh() {
+    if (!device) return;
+    const s = device.stats;
+    const d = deviceStats ?? {};
+    show([
+      ['frames a second', s.fps],
+      ['KB a second', s.kbps.toFixed(1)],
+      ['frames', s.frames],
+      ['keyframes', s.keyframes],
+      ['gaps / broken', `${s.gaps ?? 0} / ${s.brokenFrames ?? 0}`],
+      ['device: capture us (max)', d.captureUs !== undefined ? `${d.captureUs} (${d.maxCaptureUs})` : '-'],
+      ['device: write us (max)', d.encodeUs !== undefined ? `${d.encodeUs} (${d.maxEncodeUs})` : '-'],
+      ['device: frames merged', d.coalesced ?? '-'],
+      ['device: errors', d.errors ?? '-'],
+    ]);
+  }
+
+  async function begin(found) {
+    device = found;
+    device.attach(document.getElementById('screen'));
+    await device.open();
+    await device.start({ runs: true });
+    buttons.keyframe.disabled = buttons.stop.disabled = false;
+    buttons.connect.disabled = true;
+    message.textContent = 'Streaming.';
+    timer = setInterval(async () => {
+      try { deviceStats = await device.deviceStats(); } catch { /* busy or gone */ }
+      refresh();
+    }, 500);
+    device.loop.catch((error) => { message.textContent = `Stopped: ${error.message}`; end(); });
+  }
+
+  function end() {
+    clearInterval(timer);
+    buttons.keyframe.disabled = buttons.stop.disabled = true;
+    buttons.connect.disabled = false;
+    device = null;
+  }
+
+  buttons.connect.onclick = async () => {
+    try {
+      const known = await ScreenStreamDevice.find();
+      await begin(known[0] ?? await ScreenStreamDevice.request());
+    } catch (error) {
+      message.textContent = error.message;
+    }
+  };
+  buttons.keyframe.onclick = () => device?.keyframe();
+  buttons.stop.onclick = async () => { await device?.stop(); message.textContent = 'Stopped.'; end(); };
+  navigator.usb?.addEventListener('disconnect', () => { if (device) { message.textContent = 'The device went away.'; end(); } });
+  if (!navigator.usb) message.textContent = 'WebUSB is not here: Chrome or Edge, on https or localhost.';
+</script>
+</body>
+</html>

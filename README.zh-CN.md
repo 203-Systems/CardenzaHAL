@@ -461,6 +461,22 @@ USB 音频不会自动接到扬声器或麦克风，应用需自行桥接，包�
 - 已在 macOS 上实测（2026-11-02）：MIDI 双向、HID 和 SysEx 系统指令、控制台、44.1 kHz 双向音频。全速下反馈值按 10.14 发 3 字节（TinyUSB 默认的 16.16 会让 macOS 在 128 ms 后停播）；请求 Microsoft OS 字符串的主机收到 16.16（Windows，未测试）。Windows 只在第一次见到某个 VID/PID/版本时请求这个字符串，同一台电脑第二次连接收到的是 10.14：依赖 Windows 播放前先测这种情况。TinyUSB 的 DWC2 驱动不会重启错过帧的同步 OUT 传输；HAL 在 20 ms 收不到数据时重启播放端点。
 
 
+### 画面流（摄像头）
+
+专为录制和直播教程而做：[`usb/camera.h`](usb/camera.h) 把屏幕作为无损画面流交给电脑，RGB565 像素完全准确、没有有损环节，只发送自电脑读完上一帧以来变化的部分（原样或简单的游程编码），走 "Cardenza WebUSB" 接口上的一个 bulk 端点。网页可以把它和设备的 USB 音频一起显示、录制；桌面程序可以把它做成 OBS 用的虚拟摄像头（Windows 用 WinUSB，无需驱动；macOS 和 Linux 用 libusb）。协议见 [`docs/screen-stream.zh-CN.md`](docs/screen-stream.zh-CN.md)；参考读取实现 [`tools/web/screen-stream.js`](tools/web/screen-stream.js)；测试固件 [`examples/screen_stream`](examples/screen_stream)，配合 [`tools/web/screen-stream-demo.html`](tools/web/screen-stream-demo.html)。
+
+```cpp
+// Kconfig CONFIG_CARDENZA_HAL_USB_CAMERA=y（需要 WebUSB）；然后从第一次枚举起就带摄像头：
+CardenzaHAL::USB::Config usb;
+usb.camera = true;
+CardenzaHAL::USB::Init(usb);
+// 或者之后再打开（电脑会重新识别设备）：CardenzaHAL::USB::Camera::Enable(true);
+```
+
+- 显示的是固件用 `Display::Present(framebuffer...)` 或 `PresentChanged` 提交的画面：直接通过面板句柄绘制的固件看不到，系统菜单也不在其中。
+- 电脑开始读取之前零开销。读取时：130 KB PSRAM、一个优先级 1 的任务（栈 3.5 KB），以及每次 `Present` 时把提交的行和屏幕副本比较。占一个 IN 端点，从让位的类中取得（首先是音频回放的反馈端点：回放改为自适应）。
+- 普通页面的关键帧 8-27 KB（原样 64.8 KB）；界面变化每秒几十 KB；电脑比固件慢时，变化合并成更少的帧，不会积压。
+
 ### 开发通道（`203cli board`）
 
 启动了 USB 的固件，不用写一行代码，就能回答电脑查询它自己的情况：系统通道上的指令 0x45（协议见 [`docs/usb-dev.md`](docs/usb-dev.md)），电脑上用 [203-CLI](https://github.com/203-Systems/203-CLI) 的 `203cli board` 读：

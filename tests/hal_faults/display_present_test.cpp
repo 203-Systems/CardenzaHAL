@@ -1,6 +1,9 @@
 #include "esp_stub.h"
 #include "display/display.h"
 #include "display/internal/overlay.h"
+#include "display/internal/stream.h"
+
+#include <vector>
 
 #include <array>
 #include <cstdint>
@@ -210,6 +213,50 @@ void Overlay(bool memory)
     before = Fake::transferredPixels;
     Require(Display::Present(firmware.data(), nullptr, 0) && Fake::displayPixels == firmware &&
             Fake::transferredPixels - before == whole, "the firmware's first frame after the overlay was not whole");
+}
+
+// The screen stream's hook (display/internal/stream.h): every framebuffer Present* hands it the frame and the
+// regions presented (PresentChanged's own, the whole screen while the system menu holds the frames); nothing
+// once it is taken away, and no regions for an unchanged Present.
+struct HookCall {
+    const std::uint16_t* frame;
+    std::vector<Display::Region> regions;
+};
+std::vector<HookCall> hookCalls;
+
+void Hook()
+{
+    alignas(4) static Frame frame;
+    frame = MakeFrame();
+    Require(Display::Init() && Display::Present(frame.data()), "the first frame failed");
+    Display::detail::SetPresentHook([](const std::uint16_t* framebuffer, const Display::Region* regions, std::size_t count) {
+        hookCalls.push_back({framebuffer, std::vector<Display::Region>(regions, regions + count)});
+    });
+    const Display::Region one{10, 20, 30, 4};
+    Require(Display::Present(frame.data(), &one, 1) && hookCalls.size() == 1 && hookCalls[0].frame == frame.data() &&
+                hookCalls[0].regions.size() == 1 && hookCalls[0].regions[0].x == 10 && hookCalls[0].regions[0].height == 4,
+            "the hook did not see the regions presented");
+    Require(Display::Present(frame.data(), nullptr, 0) && hookCalls.size() == 2 && hookCalls[1].regions.empty(),
+            "an unchanged Present did not reach the hook without regions");
+    // PresentChanged: what it found (one changed pixel's segment) and its refresh band.
+    Require(Display::PresentChanged(frame.data()), "the first changed frame failed");
+    frame[70 * Display::WIDTH + 100] ^= 0xffff;
+    const std::size_t before = hookCalls.size();
+    Require(Display::PresentChanged(frame.data()) && hookCalls.size() == before + 1, "PresentChanged did not call the hook");
+    bool covered = false;
+    for (const auto& region : hookCalls.back().regions)
+        covered = covered || (region.x <= 100 && 100 < region.x + region.width && region.y <= 70 && 70 < region.y + region.height);
+    Require(covered, "PresentChanged's regions did not cover the change");
+    // While the system menu holds the frames: the whole screen.
+    Require(Display::detail::BeginOverlay(), "the overlay did not begin");
+    Require(Display::PresentChanged(frame.data()) && hookCalls.back().regions.size() == 1 &&
+                hookCalls.back().regions[0].width == Display::WIDTH && hookCalls.back().regions[0].height == Display::HEIGHT,
+            "a held frame did not reach the hook whole");
+    Display::detail::EndOverlay();
+    Display::detail::SetPresentHook(nullptr);
+    const std::size_t after = hookCalls.size();
+    Require(Display::Present(frame.data()) && Display::PresentChanged(frame.data()) && hookCalls.size() == after,
+            "the hook was called after it was taken away");
 }
 
 // The system menu's backlight (display/internal/overlay.h SetBacklightDuty): its own duty while it shows,
@@ -433,6 +480,7 @@ int main(int argc, char** argv)
         else if (scenario == "options") Options();
         else if (scenario == "pacer") Pacer();
         else if (scenario == "buffers") Buffers();
+        else if (scenario == "hook") Hook();
         else FailAndRetry(scenario);
         std::cout << "Display " << scenario << " passed\n";
     } catch (const std::exception& error) {
