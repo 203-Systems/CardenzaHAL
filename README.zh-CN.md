@@ -394,7 +394,7 @@ void ReadSettings()
 | 本机信息 | 固件和它的版本、Launcher 的版本、HAL 的提交、MAC、Flash、PSRAM、SD 卡 |
 | 下载模式 | 进入 ROM 下载模式，用 USB 刷机（esptool） |
 
-设置页的样子是 Launcher 的“显示”页：每个设置一行，值在右边。在一个值上按 ENTER，打开 Launcher“背光”页那样的一页（大字的值，下面一条刻度；`;`、`,` 减小，`.`、`/` 增大，实时生效：音量马上听得到，亮度马上看得到；ENTER 保留，ESC 恢复原来的值）；语言是 Launcher 的语言列表，每种语言用它自己的文字写；网页提示（插上电脑时 Chromium 内核的浏览器弹出的 WebUSB 落地页提示：仅第一次、总是、从不；即 [docs/SETTINGS.md](docs/SETTINGS.md) 的 `webusb_landing`）也是同样的三项列表，从电脑下一次找到板子起生效；恢复默认先用 Launcher 的确认框问一句（默认选中“取消”），语言不变。改过的设置在菜单关闭时写进 Flash，只写一次。
+设置页的样子是 Launcher 的“显示”页：每个设置一行，值在右边。在一个值上按 ENTER，打开 Launcher“背光”页那样的一页（大字的值，下面一条刻度；`;`、`,` 减小，`.`、`/` 增大，实时生效：音量马上听得到，亮度马上看得到；ENTER 保留，ESC 恢复原来的值）；语言是 Launcher 的语言列表，每种语言用它自己的文字写；网页提示（插上电脑时 Chromium 内核的浏览器弹出的 WebUSB 落地页提示：仅第一次、总是、从不；默认“仅第一次”，新板子只在第一次接电脑时提示一次；即 [docs/SETTINGS.md](docs/SETTINGS.md) 的 `webusb_landing`）也是同样的三项列表，从电脑下一次找到板子起生效；恢复默认先用 Launcher 的确认框问一句（默认选中“取消”），语言不变。改过的设置在菜单关闭时写进 Flash，只写一次。
 
 不用菜单时：开机或复位时按住 fn（键盘左边一列的第三个键，键号 29）进入 Launcher；不是 HOME：复位时按住 HOME 会进入 ROM 下载模式。
 

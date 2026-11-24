@@ -472,15 +472,15 @@ void Answer(Way way, const uint8_t* data, std::size_t length)
     }
 }
 
-// A 203 tool or the community's website has seen the board: the WebUSB landing page (first time only) is not
-// named again (the setting is written a second later, as every setting; the descriptors change at the next
+// The board has been seen (its first connection, or a 203 tool or the community's website): the WebUSB landing
+// page (first time only) is not named again (the setting is written a second later, as every setting; the descriptors change at the next
 // enumeration).
 void MarkSeen()
 {
     if (Settings::Get(Settings::Id::WebUsbSeen) == 0)
     {
         Settings::Set(Settings::Id::WebUsbSeen, 1);
-        ESP_LOGI(kTag, "seen by a 203 tool: no WebUSB landing page from the next connection (webusb_landing first time)");
+        ESP_LOGI(kTag, "seen: no WebUSB landing page from the next connection (webusb_landing first time)");
     }
 }
 
@@ -1800,11 +1800,15 @@ void tud_umount_cb(void)
     CardenzaHAL::USB::detail::CameraOpened(false);
 }
 
-// A host configured the device: its streams start closed.
+// A host configured the device: its streams start closed. The first time one does with the WebUSB landing page
+// offered (webusb_landing "first time"), the board counts as seen: every later enumeration leaves the page out, so
+// a new board shows the browsers' notice once, whether or not a 203 tool ever connects (the user, 2026-11-24).
 void tud_mount_cb(void)
 {
     g_playing.store(false);
     g_recording.store(false);
+    if (g_desc.landing && CardenzaHAL::Settings::Get(CardenzaHAL::Settings::Id::WebUsbLanding) == CardenzaHAL::Settings::kLandingFirstTime)
+        MarkSeen();
 }
 
 // The host sleeps (or the cable went on a board with its own power: no VBUS sensing here, so it looks the same):

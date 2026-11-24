@@ -17,11 +17,12 @@
 //                     3 日本語, 4 Bahasa Indonesia, 5 Tiếng Việt (2 reads as 1)
 //   WebUsbLanding     whether the USB device names the 203 community's page to web browsers (the WebUSB
 //                     landing page: every Chromium browser running shows a notice when the board is plugged
-//                     in): 0 the first time only (until a 203 tool or the community's website has seen the
-//                     board: WebUsbSeen; the default), 1 always, 2 never. It takes effect at the next time the
+//                     in): 0 the first time only (the default: a new board shows the notice at its first
+//                     connection, then never again), 1 always, 2 never. It takes effect at the next time the
 //                     computer finds the device (plugging in, a restart); WebUSB itself works either way
-//   WebUsbSeen        1 once a 203 tool or the community's website has seen the board (the USB system command
-//                     0x46, usb/usb.h); Reset clears it, so the page is named again the next time
+//   WebUsbSeen        1 once the board has been seen: its first connection to a computer with the page
+//                     offered, or a 203 tool or the community's website (the USB system command 0x46,
+//                     usb/usb.h); Reset clears it, so the page is named again the next time
 //
 // CardenzaHAL::Init reads them (without writing anything) and applies them before the firmware's first
 // frame: the codec's volume, the backlight, the key lights' master level. A firmware reads them with Get and

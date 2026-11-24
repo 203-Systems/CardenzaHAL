@@ -63,8 +63,9 @@ in front of its own args. `CANCEL` (`0x7F`, any id) stops the answer being sent 
 The system command `0x46` (`USB::kCommandSeen`, answered `0xC6`), over any way: a 203 tool or the community's
 website has seen this board. With the board's setting `webusb_landing` at "first time" (the default,
 [SETTINGS.md](SETTINGS.md)) the BOS no longer names the WebUSB landing page from the next enumeration on (every
-Chromium browser running shows a notice for it at each plug-in); WebUSB itself works the same without it. Send it
-whenever a tool or a page connects to a board.
+Chromium browser running shows a notice for it at each plug-in); WebUSB itself works the same without it. The
+board also marks itself seen the first time a computer configures it with the page offered, so a new board shows
+the notice once even if no 203 tool ever connects. Send it whenever a tool or a page connects to a board.
 
 The protocol version in `IDENTIFY`'s answer (`0x44`) is 2 from this channel on, 3 from the settings on, 4 from
 the serial port and WebUSB on (INFO is then answered also with `CONFIG_CARDENZA_HAL_USB_DEV` off, and says how

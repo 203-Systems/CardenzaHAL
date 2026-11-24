@@ -411,7 +411,7 @@ Settings is the Launcher's Display page in look: a row per setting with its valu
 opens it as the Launcher's Backlight page (the value large over a track; `;` and `,` less, `.` and `/` more, live:
 the volume is heard and the brightness seen at once; ENTER keeps it, ESC puts back what it was); Language is the
 Launcher's list of languages, each in its own script; Browser notice (the WebUSB landing page that Chromium browsers
-announce when the board is plugged in: first time only, always or never; `webusb_landing` in
+announce when the board is plugged in: first time only (the default: a new board shows it once, at its first connection), always or never; `webusb_landing` in
 [docs/SETTINGS.md](docs/SETTINGS.md)) is a list of its three choices in the same way, from the next time a computer
 finds the board; Reset to defaults asks first with the Launcher's question (Cancel focused) and keeps the language.
 What changed is written to the flash once, when the menu closes.
