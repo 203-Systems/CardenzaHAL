@@ -57,9 +57,9 @@
   "value.off": {"en": "Off", "zh-Hans": "关", "ja": "オフ", "id": "Nonaktif", "vi": "Tắt"},
   "shot.saved": {"en": "Screenshot saved", "zh-Hans": "截图已保存", "ja": "スクショを保存", "id": "Tangkapan disimpan", "vi": "Đã lưu ảnh chụp"},
   "shot.taken": {"en": "Screenshot taken", "zh-Hans": "已截图", "ja": "スクショを撮影", "id": "Tangkapan diambil", "vi": "Đã chụp màn hình"},
-  "shot.nocard": {"en": "No SD card", "zh-Hans": "没有 SD 卡", "ja": "SDカードがありません", "id": "Tidak ada kartu SD", "vi": "Không có thẻ SD"},
+  "shot.nocard": {"en": "No SD card", "zh-Hans": "没有 SD 卡", "ja": "SDカードなし", "id": "Tidak ada kartu SD", "vi": "Không có thẻ SD"},
   "shot.failed": {"en": "Card write failed", "zh-Hans": "写入 SD 卡失败", "ja": "書き込みに失敗", "id": "Gagal menulis kartu", "vi": "Ghi thẻ thất bại"},
-  "shot.nomemory": {"en": "Not enough memory", "zh-Hans": "内存不足", "ja": "メモリ不足", "id": "Memori kurang", "vi": "Thiếu bộ nhớ"},
+  "shot.nomemory": {"en": "Not enough memory", "zh-Hans": "内存不足", "ja": "メモリが足りません", "id": "Memori tidak cukup", "vi": "Không đủ RAM"},
   "shot.unavailable": {"en": "Can't capture the screen", "zh-Hans": "无法截取这个画面", "ja": "この画面は撮れません", "id": "Layar tak bisa diambil", "vi": "Không chụp được"},
   "shot.notsaved": {"en": "Not saved", "zh-Hans": "未保存", "ja": "保存されていません", "id": "Tidak disimpan", "vi": "Chưa lưu"},
   "language_names": ["English", "简体中文", "日本語", "Bahasa Indonesia", "Tiếng Việt"]
