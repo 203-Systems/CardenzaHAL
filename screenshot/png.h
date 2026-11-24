@@ -4,9 +4,10 @@
 #include <cstdint>
 
 // A small PNG encoder for screenshots (screenshot/screenshot.h): the screen's RGB565 pixels, exactly, as a PNG a
-// browser or any image tool opens. Pure (no allocation, and no ESP-IDF but the ROM's CRC-32 on the device): the host
-// tests check it against Python's zlib (tests/screenshot_png_check.py), and the 203 Launcher carries the same file
-// (src/screenshot/, with a first line naming the HAL commit it matches): change both.
+// browser or any image tool opens. Pure (no ESP-IDF, no allocation): the host tests check it against Python's zlib
+// (tests/screenshot_png_check.py), and the 203 Launcher carries the same files (src/screenshot/, each with a first
+// line naming the HAL commit it matches): change both. Crc32 is the build's choice: png_crc_esp.cpp (the chip's ROM)
+// in the device build, png_crc_host.cpp (a table) in host builds.
 //
 // - A frame of 256 colours or fewer (most UI art) is an indexed PNG (colour type 3, 1, 2, 4 or 8 bits a pixel,
 //   the palette in the order the colours first appear); any other is 8-bit RGB (colour type 2) with each row's
@@ -60,7 +61,8 @@ namespace CardenzaHAL::Screenshot::Png {
     }
     inline constexpr uint8_t Blue8(uint16_t p) { return static_cast<uint8_t>(((p & 0x1F) << 3) | ((p & 0x1F) >> 2)); }
 
-    // The CRC-32 PNG chunks carry (ISO 3309), continued from `crc` (0 to start).
+    // The CRC-32 PNG chunks carry (ISO 3309), continued from `crc` (0 to start): png_crc_esp.cpp on the device,
+    // png_crc_host.cpp on a host.
     uint32_t Crc32(uint32_t crc, const uint8_t* data, std::size_t size);
 
 }  // namespace CardenzaHAL::Screenshot::Png

@@ -1,13 +1,9 @@
-// The screenshot's PNG encoder (screenshot/png.h). Pure: no allocation, and no ESP-IDF but the CRC-32: the chip's ROM
-// has it (esp_rom_crc32_le, the same function as the table below: 1 KB less in a full partition such as the 203
-// Launcher's), the host tests build the table (tests/screenshot_png_check.py checks every chunk's CRC with zlib).
+// The screenshot's PNG encoder (screenshot/png.h). Pure: no ESP-IDF, no allocation. Crc32 is not here: the build
+// links one of png_crc_esp.cpp (the device: the chip's ROM) and png_crc_host.cpp (host builds: a table).
 #include "screenshot/png.h"
 
 #include <algorithm>
 #include <cstring>
-#ifdef ESP_PLATFORM
-#include <esp_rom_crc.h>
-#endif
 
 namespace CardenzaHAL::Screenshot::Png {
 
@@ -30,26 +26,6 @@ constexpr uint8_t kLengthExtra[29] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 
 constexpr uint16_t kDistanceBase[30] = {1,   2,   3,   4,   5,   7,    9,    13,   17,   25,   33,   49,   65,    97,    129,
                                         193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577};
 constexpr uint8_t kDistanceExtra[30] = {0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13};
-
-#ifndef ESP_PLATFORM
-struct CrcTable {
-    uint32_t value[256];
-};
-
-constexpr CrcTable MakeCrcTable()
-{
-    CrcTable table{};
-    for (uint32_t n = 0; n < 256; ++n)
-    {
-        uint32_t c = n;
-        for (int k = 0; k < 8; ++k) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-        table.value[n] = c;
-    }
-    return table;
-}
-
-constexpr CrcTable kCrc = MakeCrcTable();
-#endif
 
 std::size_t RowBytesRgb(int width)
 {
@@ -516,17 +492,6 @@ class Encoder {
 };
 
 }  // namespace
-
-uint32_t Crc32(uint32_t crc, const uint8_t* data, std::size_t size)
-{
-#ifdef ESP_PLATFORM
-    return esp_rom_crc32_le(crc, data, static_cast<uint32_t>(size));
-#else
-    uint32_t c = crc ^ 0xFFFFFFFFu;
-    for (std::size_t i = 0; i < size; ++i) c = kCrc.value[(c ^ data[i]) & 0xFF] ^ (c >> 8);
-    return c ^ 0xFFFFFFFFu;
-#endif
-}
 
 std::size_t WorkBytes(int width)
 {

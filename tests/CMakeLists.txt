@@ -137,13 +137,15 @@ target_include_directories(CardenzaSystemMenuTests PRIVATE ${hal_root})
 add_test(NAME CardenzaSystemMenuTests COMMAND CardenzaSystemMenuTests)
 
 # screenshot/logic.h and card.h: HOME + space, names, the upload queue, the effect. screenshot/png.h: the PNG
-# encoder, checked by an independent decoder (Python's zlib and the PNG specification's unfiltering).
+# encoder, checked by an independent decoder (Python's zlib and the PNG specification's unfiltering); its CRC-32 is
+# png_crc_host.cpp's table here (the device build links png_crc_esp.cpp, the chip's ROM).
 add_executable(CardenzaScreenshotTests screenshot_test.cpp ${hal_root}/screenshot/logic.cpp ${hal_root}/screenshot/card.cpp
-  ${hal_root}/screenshot/png.cpp ${hal_root}/system/menu/logic.cpp ${hal_root}/system/menu/launcher/glyphs.cpp
+  ${hal_root}/screenshot/png.cpp ${hal_root}/screenshot/png_crc_host.cpp ${hal_root}/system/menu/logic.cpp ${hal_root}/system/menu/launcher/glyphs.cpp
   ${hal_root}/system/menu/launcher/lcd.cpp ${hal_root}/system/settings_logic.cpp ${cardenza_test_guard})
 target_include_directories(CardenzaScreenshotTests PRIVATE ${hal_root})
 add_test(NAME CardenzaScreenshotTests COMMAND CardenzaScreenshotTests)
-add_executable(CardenzaScreenshotPngTool screenshot_png_tool.cpp ${hal_root}/screenshot/png.cpp ${cardenza_test_guard})
+add_executable(CardenzaScreenshotPngTool screenshot_png_tool.cpp ${hal_root}/screenshot/png.cpp ${hal_root}/screenshot/png_crc_host.cpp
+  ${cardenza_test_guard})
 target_include_directories(CardenzaScreenshotPngTool PRIVATE ${hal_root})
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
