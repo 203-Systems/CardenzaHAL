@@ -1106,11 +1106,10 @@ bool Apply(const Config& config, const Logic::Classes& asked, const Logic::Class
         ClassList(g_classes, list, sizeof(list));
         ESP_LOGI(kTag, "%04x:%04x %s, classes%s (%d of %d IN endpoints)", config.vendorId, config.productId, g_serial, list,
                  endpoints.inCount, Logic::kInEndpoints);
-        if (fitted.dropped.feedback || fitted.dropped.playback || fitted.dropped.hid || fitted.dropped.serial || fitted.dropped.audio || fitted.dropped.midi)
-        {
-            ClassList(fitted.dropped, list, sizeof(list));
-            ESP_LOGW(kTag, "gave way for room:%s", list);
-        }
+        const Logic::Classes& gone = fitted.dropped;
+        if (gone.feedback || gone.hid || gone.serial || gone.audio || gone.midi)
+            ESP_LOGW(kTag, "gave way for room:%s%s%s%s%s", gone.feedback ? " the playback's feedback endpoint (adaptive now)" : "",
+                     gone.hid ? " hid" : "", gone.serial ? " serial" : "", gone.audio ? " audio" : "", gone.midi ? " midi" : "");
     }
     return true;
 }
@@ -1172,6 +1171,9 @@ bool Start(const Config& config, int64_t connectAfterUs)
 }  // namespace
 
 namespace detail {
+
+// usb/drive.cpp defines it when the drive needs to know (a weak default otherwise).
+__attribute__((weak)) void DriveSuspended(bool) {}
 
 void AutoStart()
 {
@@ -1532,7 +1534,16 @@ namespace {
 // Its requests are vendor requests, which TinyUSB hands to tud_vendor_control_xfer_cb.
 void WebUsbInit() {}
 bool WebUsbDeinit() { return true; }
-void WebUsbReset(uint8_t) { CardenzaHAL::USB::detail::CameraOpened(false); }
+// A bus reset: answers the page has not read belong to the host that is gone.
+void WebUsbReset(uint8_t)
+{
+#if CARDENZA_USB_BUILD_WEBUSB
+    portENTER_CRITICAL_SAFE(&g_lock);
+    g_webUsbCount = 0;
+    portEXIT_CRITICAL_SAFE(&g_lock);
+#endif
+    CardenzaHAL::USB::detail::CameraOpened(false);
+}
 uint16_t WebUsbOpen(uint8_t rhport, tusb_desc_interface_t const* itf, uint16_t maxLength)
 {
     if (itf->bInterfaceClass != TUSB_CLASS_VENDOR_SPECIFIC || itf->bNumEndpoints > 1 || itf->bInterfaceNumber != g_desc.itfWebUsb)
@@ -1726,6 +1737,24 @@ void tud_umount_cb(void)
     CardenzaHAL::USB::detail::DriveHostGone();
     CardenzaHAL::USB::detail::CameraOpened(false);
 }
+
+// A host configured the device: its streams start closed.
+void tud_mount_cb(void)
+{
+    g_playing.store(false);
+    g_recording.store(false);
+}
+
+// The host sleeps (or the cable went on a board with its own power: no VBUS sensing here, so it looks the same):
+// nothing the computer held stays held, an answer under way stops.
+void tud_suspend_cb(bool)
+{
+    CardenzaHAL::USB::detail::DevHostGone();
+    CardenzaHAL::USB::detail::HidInputReset();
+    CardenzaHAL::USB::detail::DriveSuspended(true);
+}
+
+void tud_resume_cb(void) { CardenzaHAL::USB::detail::DriveSuspended(false); }
 
 #if CFG_TUD_CDC
 // esptool's and Arduino's reset into the ROM's download mode (Logic::ResetDetector).

@@ -41,7 +41,7 @@ Reading the Launcher's Wi-Fi networks and community account needs no write acces
 
 ## USB
 
-A firmware that starts USB (`USB::Init`) takes the PHY from USB-Serial-JTAG: it has no serial port any more. Read its console with [`tools/cardenza_usb.py`](../tools/cardenza_usb.py) `console`, and flash it after `command download` (ROM download mode) or `command launcher`.
+`CardenzaHAL::Init` starts USB (`CONFIG_CARDENZA_HAL_USB_AUTOSTART`), which takes the PHY from USB-Serial-JTAG: the firmware has no USB-Serial-JTAG port any more, only the classes it chose (MIDI, audio, HID, WebUSB by default; a CDC serial port if you turn it on, which also answers esptool's reset). Read its console with `203cli log` (or [`tools/cardenza_usb.py`](../tools/cardenza_usb.py) `console`), and flash it with `203cli flash`, or after `command download` (ROM download mode) or `command launcher`. The ESP32-S3 has four IN endpoints besides EP0 and the default classes take them all: the build stops with what to turn off when yours need more ([README](../README.md#usb-device-usage)). For JTAG debugging on USB-Serial-JTAG, build with `CONFIG_CARDENZA_HAL_USB_AUTOSTART` off and do not call `USB::Init`.
 
 ## When it hangs or crashes
 

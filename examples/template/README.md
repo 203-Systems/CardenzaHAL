@@ -44,7 +44,7 @@ The page first: people who are not developers decide there whether to install it
   `203cli help description`, <https://cardenza.203.io/community/guide/description>). This README is for developers.
 - 3–5 different screenshots of it in `203.json`'s `publish.images`, e.g. `["docs/screens/1.png", "docs/screens/2.png",
   "docs/screens/3.png"]`: `203cli board screen --out docs/screens/1.png` takes one from a Cardenza on USB running it
-  (it needs CardenzaHAL's USB started, `CardenzaHAL::USB::Init()`, which this template leaves out). `203cli publish`
+  (CardenzaHAL::Init starts USB, so it works with this template as it is). `203cli publish`
   needs them.
 
 The first version by hand (it makes the firmware and writes its code into `203.json`: commit that):
