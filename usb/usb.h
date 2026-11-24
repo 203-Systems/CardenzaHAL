@@ -86,7 +86,10 @@ namespace CardenzaHAL::USB {
     //   kReportApp: the firmware's own; the HAL hands them to the handler (in the USB task; keep it short).
     //     A host without HID access (a web page with Web MIDI) sends them as SysEx F0 23 7F <bytes> F7.
     //     SendAppReport answers the way the last app report came: a HID report, or SysEx
-    //     F0 24 7F <bytes> F7 (keep the bytes 7-bit for that).
+    //     F0 24 7F <bytes> F7 (keep the bytes 7-bit for that). False when it did not go: USB not started,
+    //     the report queue full, or over SysEx the host not reading MIDI (the answer did not arrive whole).
+    //     A host that is unplugged forgets the way: the next one's first app report sets it again.
+    //   The console (kCommandConsole) stops by itself when the host stops reading its SysEx, and at unplug.
     inline constexpr uint8_t kReportSystem = 0xCB;
     inline constexpr uint8_t kReportApp = 0xFF;
     inline constexpr std::size_t kReportSize = 63;

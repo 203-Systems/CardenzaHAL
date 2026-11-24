@@ -43,6 +43,7 @@ inline std::vector<std::uint16_t> pendingPixels;
 inline bool dmaPending = false;
 inline const void* lastPixels = nullptr;
 inline int i2cCalls = 0;
+inline int i2cDevices = 0;  // devices on the I2C bus (ESP-IDF deletes a bus only with none)
 inline std::array<std::uint8_t, 256> registers = [] {
   std::array<std::uint8_t, 256> r{};
   r[0xfd] = 0x81; r[0xfe] = 0x55; r[0xff] = 0x01; r[0x0c] = 0x60;
@@ -261,7 +262,8 @@ using i2c_master_bus_handle_t = void*;
 using i2c_master_dev_handle_t = void*;
 constexpr int I2C_ADDR_BIT_LEN_7 = 7;
 struct i2c_device_config_t { int dev_addr_length = 0; unsigned device_address = 0, scl_speed_hz = 0, scl_wait_us = 0; };
-inline int i2c_master_bus_add_device(void*, const i2c_device_config_t*, void** h) { *h = reinterpret_cast<void*>(1); return ESP_OK; }
+inline int i2c_master_bus_add_device(void*, const i2c_device_config_t*, void** h) { *h = reinterpret_cast<void*>(1); ++Fake::i2cDevices; return ESP_OK; }
+inline int i2c_master_bus_rm_device(void* h) { if (h == nullptr) return ESP_ERR_INVALID_ARG; --Fake::i2cDevices; return ESP_OK; }
 inline int i2c_master_transmit(void*, const void* data, std::size_t, int) {
   ++Fake::i2cCalls;
   if (Fake::Bad("i2c")) return ESP_FAIL;

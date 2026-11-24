@@ -329,4 +329,14 @@ uint8_t GetVolume()
     return g_volume;
 }
 
+void Release()
+{
+    if (g_codecHandle != nullptr && i2c_master_bus_rm_device(g_codecHandle) == ESP_OK)
+    {
+        g_codecHandle = nullptr;
+    }
+    g_initialized = false;
+    g_enabled = false;
+}
+
 }  // namespace CardenzaHAL::Audio::Codec::ES8156
