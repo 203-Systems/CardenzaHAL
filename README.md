@@ -352,6 +352,8 @@ To switch from playback to recording:
 4. With RX disabled, call `Mic::RestoreInputPins()` (also needed when returning to an existing microphone channel).
 5. Enable RX with `i2s_channel_enable()`, then use `i2s_channel_read()`, and pass what you read through `Mic::ApplyGain(samples, count, gainDb)`: the gain is the firmware's, kept with its own settings (not the board's; -12 to +36 dB, `mic/gain.h`; the chip's PDM receiver has none of its own), saturating.
 
+For a voice recorder, initialize its gain setting to `Mic::kRecommendedVoiceGainDb` (+9 dB) and let the user adjust it. A 3.63-second hardware sample at unity gain had a −37.4 dBFS peak in its speech portion and a −16.1 dBFS peak including the stop-button transient, measured after removing DC. At +9 dB the full recording retained 7.1 dB of peak headroom. This is a starting point measured on one board with one speaker. Check levels with the expected speaking distance and loudness.
+
 To resume playback, stop the reader, disable RX, call `Audio::RestoreOutputPins()`, then `Audio::Init()` with the desired slot mode, and enable TX. Check each result before continuing. `InputChannel()` may initialize RX, but does not enable it. The HAL does not provide recording start/read/stop wrappers or automatic pin arbitration.
 
 ## SD card storage

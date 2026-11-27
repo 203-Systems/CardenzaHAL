@@ -339,6 +339,8 @@ PDM 输入使用 I2S0，输出为 **44,100 Hz、单声道、有符号 16 位 PCM
 4. 在 RX 禁用时调用 `Mic::RestoreInputPins()`；重新使用已存在的麦克风通道时也需要这一步。
 5. 用 `i2s_channel_enable()` 启用 RX，然后使用 `i2s_channel_read()` 读取，读到的样本交给 `Mic::ApplyGain(samples, count, gainDb)`：增益是固件自己的，和固件自己的设置存在一起（不是板子的设置；-12 至 +36 dB，`mic/gain.h`；芯片的 PDM 接收没有自己的增益），超出范围时削顶。
 
+语音录制应用建议用 `Mic::kRecommendedVoiceGainDb`（+9 dB）初始化固件的增益设置，并允许用户调节。一段以 0 dB 增益采集的 3.63 秒真机录音，去除直流偏移后，语音段的峰值为 −37.4 dBFS，计入停止键瞬态的整段峰值为 −16.1 dBFS。应用 +9 dB 后，整段录音保留 7.1 dB 的峰值余量。这个起点来自一台设备和一位说话者，请按实际距离和说话音量验证电平。
+
 恢复播放时，先停止读取并禁用 RX，再依次调用 `Audio::RestoreOutputPins()`、所需声道模式的 `Audio::Init()`，最后启用 TX；每步都检查结果。`InputChannel()` 可能初始化 RX，但不会启用它。HAL 不提供录音启停/读取封装，也不会自动仲裁引脚。
 
 ## SD 卡存储

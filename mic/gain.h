@@ -13,6 +13,8 @@ namespace CardenzaHAL::Mic {
 
     inline constexpr int kMinGainDb = -12;
     inline constexpr int kMaxGainDb = 36;
+    // Suggested initial setting for voice recording on Cardenza.
+    inline constexpr int kRecommendedVoiceGainDb = 9;
 
     // The gain of `db` (held at kMinGainDb..kMaxGainDb) as a factor in 1/4096 (Q12): 4096 at 0 dB.
     inline int32_t GainQ12(int db)
